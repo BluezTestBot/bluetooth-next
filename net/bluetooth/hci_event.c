@@ -5599,24 +5599,40 @@ static void process_adv_report(struct hci_dev *hdev, u8 type, bdaddr_t *bdaddr,
 static void hci_le_adv_report_evt(struct hci_dev *hdev, struct sk_buff *skb)
 {
 	u8 num_reports = skb->data[0];
-	void *ptr = &skb->data[1];
 
 	hci_dev_lock(hdev);
 
+	skb_pull(skb, sizeof(num_reports));
+
 	while (num_reports--) {
-		struct hci_ev_le_advertising_info *ev = ptr;
+		struct hci_ev_le_advertising_info *ev;
 		s8 rssi;
 
-		if (ev->length <= HCI_MAX_AD_LENGTH) {
-			rssi = ev->data[ev->length];
-			process_adv_report(hdev, ev->evt_type, &ev->bdaddr,
-					   ev->bdaddr_type, NULL, 0, rssi,
-					   ev->data, ev->length, false);
-		} else {
-			bt_dev_err(hdev, "Dropping invalid advertising data");
+		if (skb->len < sizeof(*ev)) {
+			bt_dev_err(hdev, "Malformed advertising report");
+			break;
 		}
 
-		ptr += sizeof(*ev) + ev->length + 1;
+		ev = (void *) skb->data;
+		skb_pull(skb, sizeof(*ev));
+
+		if (skb->len < ev->length || ev->length > HCI_MAX_AD_LENGTH) {
+			bt_dev_err(hdev, "Malformed advertising data");
+			break;
+		}
+
+		skb_pull(skb, ev->length);
+
+		if (skb->len < sizeof(rssi)) {
+			bt_dev_err(hdev, "Malformed advertising rssi");
+			break;
+		}
+
+		rssi = get_unaligned(skb->data);
+
+		process_adv_report(hdev, ev->evt_type, &ev->bdaddr,
+				   ev->bdaddr_type, NULL, 0, rssi,
+				   ev->data, ev->length, false);
 	}
 
 	hci_dev_unlock(hdev);
@@ -5669,14 +5685,30 @@ invalid:
 static void hci_le_ext_adv_report_evt(struct hci_dev *hdev, struct sk_buff *skb)
 {
 	u8 num_reports = skb->data[0];
-	void *ptr = &skb->data[1];
 
 	hci_dev_lock(hdev);
 
+	skb_pull(skb, sizeof(num_reports));
+
 	while (num_reports--) {
-		struct hci_ev_le_ext_adv_report *ev = ptr;
+		struct hci_ev_le_ext_adv_report *ev;
 		u8 legacy_evt_type;
 		u16 evt_type;
+
+		if (skb->len < sizeof(*ev)) {
+			bt_dev_err(hdev, "Malformed ext advertising report");
+			break;
+		}
+
+		ev = (void *) skb->data;
+		skb_pull(skb, sizeof(*ev));
+
+		if (skb->len < ev->length || ev->length > HCI_MAX_AD_LENGTH) {
+			bt_dev_err(hdev, "Malformed ext advertising data");
+			break;
+		}
+
+		skb_pull(skb, ev->length);
 
 		evt_type = __le16_to_cpu(ev->evt_type);
 		legacy_evt_type = ext_evt_type_to_legacy(hdev, evt_type);
@@ -5687,7 +5719,6 @@ static void hci_le_ext_adv_report_evt(struct hci_dev *hdev, struct sk_buff *skb)
 					   !(evt_type & LE_EXT_ADV_LEGACY_PDU));
 		}
 
-		ptr += sizeof(*ev) + ev->length;
 	}
 
 	hci_dev_unlock(hdev);
@@ -5873,19 +5904,26 @@ static void hci_le_direct_adv_report_evt(struct hci_dev *hdev,
 					 struct sk_buff *skb)
 {
 	u8 num_reports = skb->data[0];
-	void *ptr = &skb->data[1];
 
 	hci_dev_lock(hdev);
 
+	skb_pull(skb, sizeof(num_reports));
+
 	while (num_reports--) {
-		struct hci_ev_le_direct_adv_info *ev = ptr;
+		struct hci_ev_le_direct_adv_info *ev;
+
+		if (skb->len < sizeof(*ev)) {
+			bt_dev_err(hdev, "Malformed direct advertising");
+			break;
+		}
+
+		ev = (void *) skb->data;
+		skb_pull(skb, sizeof(*ev));
 
 		process_adv_report(hdev, ev->evt_type, &ev->bdaddr,
 				   ev->bdaddr_type, &ev->direct_addr,
 				   ev->direct_addr_type, ev->rssi, NULL, 0,
 				   false);
-
-		ptr += sizeof(*ev);
 	}
 
 	hci_dev_unlock(hdev);
