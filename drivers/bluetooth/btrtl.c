@@ -55,6 +55,7 @@ struct btrtl_device_info {
 	int fw_len;
 	u8 *cfg_data;
 	int cfg_len;
+	bool drop_fw;
 };
 
 static const struct id_table ic_id_table[] = {
@@ -584,6 +585,11 @@ struct btrtl_device_info *btrtl_initialize(struct hci_dev *hdev,
 	hci_ver = resp->hci_ver;
 	hci_rev = le16_to_cpu(resp->hci_rev);
 	lmp_subver = le16_to_cpu(resp->lmp_subver);
+
+	if (resp->hci_ver == 0x8 && le16_to_cpu(resp->hci_rev == 0x826c) &&
+	    resp->lmp_ver == 0x8 && le16_to_cpu(resp->lmp_subver == 0xa99e))
+		btrtl_dev->drop_fw = true;
+
 	kfree_skb(skb);
 
 	btrtl_dev->ic_info = btrtl_match_ic(lmp_subver, hci_rev, hci_ver,
@@ -671,6 +677,9 @@ EXPORT_SYMBOL_GPL(btrtl_download_firmware);
 int btrtl_setup_realtek(struct hci_dev *hdev)
 {
 	struct btrtl_device_info *btrtl_dev;
+	struct sk_buff *skb;
+	u16 opcode;
+	u8 cmd[2];
 	int ret;
 
 	btrtl_dev = btrtl_initialize(hdev, NULL);
@@ -679,6 +688,22 @@ int btrtl_setup_realtek(struct hci_dev *hdev)
 
 	ret = btrtl_download_firmware(hdev, btrtl_dev);
 
+	if (btrtl_dev->drop_fw) {
+		opcode = hci_opcode_pack(0x3f, 0x66);
+		cmd[0] = opcode & 0xff;
+		cmd[1] = opcode >> 8;
+
+		skb = bt_skb_alloc(sizeof(cmd), GFP_KERNEL);
+		if (IS_ERR(skb))
+			goto out_free;
+
+		skb_put_data(skb, cmd, sizeof(cmd));
+		hci_skb_pkt_type(skb) = HCI_COMMAND_PKT;
+
+		hdev->send(hdev, skb);
+	}
+
+out_free:
 	btrtl_free(btrtl_dev);
 
 	/* Enable controller to do both LE scan and BR/EDR inquiry
