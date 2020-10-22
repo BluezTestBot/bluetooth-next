@@ -401,31 +401,9 @@ done:
 }
 EXPORT_SYMBOL_GPL(btintel_version_info_tlv);
 
-int btintel_read_version_tlv(struct hci_dev *hdev, struct intel_version_tlv *version)
+static void btintel_parse_tlv(struct sk_buff *skb,
+			      struct intel_version_tlv *version)
 {
-	struct sk_buff *skb;
-	const u8 param[1] = { 0xFF };
-
-	if (!version)
-		return -EINVAL;
-
-	skb = __hci_cmd_sync(hdev, 0xfc05, 1, param, HCI_CMD_TIMEOUT);
-	if (IS_ERR(skb)) {
-		bt_dev_err(hdev, "Reading Intel version information failed (%ld)",
-			   PTR_ERR(skb));
-		return PTR_ERR(skb);
-	}
-
-	if (skb->data[0]) {
-		bt_dev_err(hdev, "Intel Read Version command failed (%02x)",
-			   skb->data[0]);
-		kfree_skb(skb);
-		return -EIO;
-	}
-
-	/* Consume Command Complete Status field */
-	skb_pull(skb, 1);
-
 	/* Event parameters contatin multiple TLVs. Read each of them
 	 * and only keep the required data. Also, it use existing legacy
 	 * version field like hw_platform, hw_variant, and fw_variant
@@ -496,6 +474,34 @@ int btintel_read_version_tlv(struct hci_dev *hdev, struct intel_version_tlv *ver
 		/* consume the current tlv and move to next*/
 		skb_pull(skb, tlv->len + sizeof(*tlv));
 	}
+}
+
+int btintel_read_version_tlv(struct hci_dev *hdev, struct intel_version_tlv *version)
+{
+	struct sk_buff *skb;
+	const u8 param[1] = { 0xFF };
+
+	if (!version)
+		return -EINVAL;
+
+	skb = __hci_cmd_sync(hdev, 0xfc05, 1, param, HCI_CMD_TIMEOUT);
+	if (IS_ERR(skb)) {
+		bt_dev_err(hdev, "Reading Intel version information failed (%ld)",
+			   PTR_ERR(skb));
+		return PTR_ERR(skb);
+	}
+
+	if (skb->data[0]) {
+		bt_dev_err(hdev, "Intel Read Version command failed (%02x)",
+			   skb->data[0]);
+		kfree_skb(skb);
+		return -EIO;
+	}
+
+	/* Consume Command Complete Status field */
+	skb_pull(skb, 1);
+
+	btintel_parse_tlv(skb, version);
 
 	kfree_skb(skb);
 	return 0;
