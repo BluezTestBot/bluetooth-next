@@ -476,6 +476,57 @@ static void btintel_parse_tlv(struct sk_buff *skb,
 	}
 }
 
+int btintel_read_version_new(struct hci_dev *hdev, struct btintel_version *ver)
+{
+	struct sk_buff *skb;
+	struct intel_version *version = &ver->ver;
+	const u8 param[1] = { 0xFF };
+
+	skb = __hci_cmd_sync(hdev, 0xfc05, 1, param, HCI_CMD_TIMEOUT);
+	if (IS_ERR(skb)) {
+		bt_dev_err(hdev, "Reading Intel version info failed (%ld)",
+			   PTR_ERR(skb));
+		return PTR_ERR(skb);
+	}
+
+	if (skb->data[0]) {
+		bt_dev_err(hdev, "Intel Read Version command failed (%02x)",
+			   skb->data[0]);
+		kfree_skb(skb);
+		return -EIO;
+	}
+
+	/* The new Intel read version is backward compatible for Thp and CcP
+	 * type cards. when the controller is in bootloader mode the controller
+	 * response remains same as old intel_read version. For ThP/CcP cards
+	 * TLV stucture supports only during the Operation Mode. The best way
+	 * to differentiate the read_version response is to check the length
+	 * parameter and first byte of the payload, which is a fixed value.
+	 * After the status parameter if the payload starts with 0x37(This is
+	 * a fixed value) and length of the payload is 10 then it is identified
+	 * as legacy struct intel_version. In the latest firmweare the support
+	 * of TLV structure is added during Operational Firmware.
+	 */
+	if (skb->len == sizeof(*version) && skb->data[1] == 0x37) {
+		memcpy(version, skb->data, sizeof(*version));
+		ver->tlv_format = false;
+		goto finish;
+	}
+
+	/* Consume Command Complete Status field */
+	skb_pull(skb, 1);
+
+	ver->tlv_format = true;
+
+	bt_dev_info(hdev, "Parsing TLV Supported intel read version");
+	btintel_parse_tlv(skb, &ver->ver_tlv);
+
+finish:
+	kfree_skb(skb);
+	return 0;
+}
+EXPORT_SYMBOL_GPL(btintel_read_version_new);
+
 int btintel_read_version_tlv(struct hci_dev *hdev, struct intel_version_tlv *version)
 {
 	struct sk_buff *skb;
