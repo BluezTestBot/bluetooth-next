@@ -2554,7 +2554,8 @@ done:
 static int btusb_setup_intel_new(struct hci_dev *hdev)
 {
 	struct btusb_data *data = hci_get_drvdata(hdev);
-	struct intel_version ver;
+	struct btintel_version bt_ver;
+	u8 hw_variant;
 	struct intel_boot_params params;
 	u32 boot_param;
 	char ddcname[64];
@@ -2577,19 +2578,33 @@ static int btusb_setup_intel_new(struct hci_dev *hdev)
 	 * is in bootloader mode or if it already has operational firmware
 	 * loaded.
 	 */
-	err = btintel_read_version(hdev, &ver);
+	err = btintel_read_version_new(hdev, &bt_ver);
 	if (err) {
 		bt_dev_err(hdev, "Intel Read version failed (%d)", err);
 		btintel_reset_to_bootloader(hdev);
 		return err;
 	}
 
-	err = btusb_intel_download_firmware(hdev, &ver, &params, &boot_param);
+	/* If TLV format is supported then it is in Operational Firmware. TLV
+	 * structure is supported only in operational mode in latest Firmware.
+	 */
+	if (bt_ver.tlv_format && bt_ver.ver_tlv.img_type == 0x03) {
+		btintel_version_info_tlv(hdev, &bt_ver.ver_tlv);
+		clear_bit(BTUSB_BOOTLOADER, &data->flags);
+		goto finish;
+	}
+
+	err = btusb_intel_download_firmware(hdev, &bt_ver.ver,  &params,
+					    &boot_param);
 	if (err)
 		return err;
 
-	/* controller is already having an operational firmware */
-	if (ver.fw_variant == 0x23)
+	/* In case if old firmware is used, it should be backward compatible
+	 * to check for operational firmware. only on latest firmware the
+	 * support for TLV structure is added. so check for tlv is not
+	 * required here.
+	 */
+	if (bt_ver.ver.fw_variant == 0x23)
 		goto finish;
 
 	rettime = ktime_get();
@@ -2641,7 +2656,7 @@ static int btusb_setup_intel_new(struct hci_dev *hdev)
 
 	clear_bit(BTUSB_BOOTLOADER, &data->flags);
 
-	err = btusb_setup_intel_new_get_fw_name(&ver, &params, ddcname,
+	err = btusb_setup_intel_new_get_fw_name(&bt_ver.ver, &params, ddcname,
 						sizeof(ddcname), "ddc");
 
 	if (!err) {
@@ -2665,17 +2680,25 @@ static int btusb_setup_intel_new(struct hci_dev *hdev)
 	btintel_set_debug_features(hdev, &features);
 
 	/* Read the Intel version information after loading the FW  */
-	err = btintel_read_version(hdev, &ver);
+	err = btintel_read_version_new(hdev, &bt_ver);
 	if (err)
 		return err;
 
-	btintel_version_info(hdev, &ver);
+	if (bt_ver.tlv_format)
+		btintel_version_info_tlv(hdev, &bt_ver.ver_tlv);
+	else
+		btintel_version_info(hdev, &bt_ver.ver);
 
 finish:
 	/* All Intel controllers that support the Microsoft vendor
 	 * extension are using 0xFC1E for VsMsftOpCode.
 	 */
-	switch (ver.hw_variant) {
+	if (!bt_ver.tlv_format)
+		hw_variant = bt_ver.ver.hw_variant;
+	else
+		hw_variant = INTEL_HW_VARIANT(bt_ver.ver_tlv.cnvi_bt);
+
+	switch (hw_variant) {
 	case 0x12:	/* ThP */
 		hci_set_msft_opcode(hdev, 0xFC1E);
 		break;
