@@ -1,0 +1,35 @@
+name: Scheduled Work
+
+on:
+  schedule:
+  - cron: "20 * * * *"
+
+jobs:
+  sync_repo:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+    - name: Sync Repo
+      uses: BluezTestBot/action-manage-repo@master
+      with:
+        src_repo: "bluez/bluetooth-next"
+        for_upstream_branch: 'for-upstream'
+        workflow_branch: 'workflow'
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+
+  sync_patchwork:
+    needs: sync_repo
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+
+    - name: Sync Patchwork
+      uses: BluezTestBot/action-patchwork-to-pr@master
+      with:
+        pw_exclude_str: 'BlueZ'
+        base_branch: 'workflow'
+        github_token: ${{ secrets.ACTION_TOKEN }}
