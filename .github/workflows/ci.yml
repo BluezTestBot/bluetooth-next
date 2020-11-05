@@ -1,0 +1,40 @@
+name: CI
+
+on: [pull_request]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    name: CI for Pull Request
+    steps:
+    - name: Checkout the source code
+      uses: actions/checkout@v2
+      with:
+        path: src
+
+    - name: Checkout the BlueZ source code
+      uses: actions/checkout@v2
+      with:
+        repository: BluezTestBot/bluez
+        path: bluez
+
+    - name: Create output folder
+      run: |
+        mkdir results
+
+    - name: CI
+      uses: BluezTestBot/action-kernel-ci@main
+      with:
+        src_path: src
+        bluez_path: bluez
+        output_path: results
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        email_token: ${{ secrets.EMAIL_TOKEN }}
+        patchwork_token: ${{ secrets.PATCHWORK_TOKEN }}
+
+    - name: Upload results
+      uses: actions/upload-artifact@v2
+      with:
+        name: tester-logs
+        path: results/
+        if-no-files-found: warn
