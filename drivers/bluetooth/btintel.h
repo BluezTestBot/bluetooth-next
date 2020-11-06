@@ -132,6 +132,15 @@ struct intel_debug_features {
 	__u8    page1[16];
 } __packed;
 
+struct btintel_version {
+	bool tlv_format;
+	union {
+		struct intel_version ver; /*Legacy Intel read version*/
+		struct intel_version_tlv ver_tlv;
+	};
+} __packed;
+
+#define INTEL_HW_VARIANT(cnvx_bt)	((u8)(((cnvx_bt) & 0x003f0000) >> 16))
 #if IS_ENABLED(CONFIG_BT_INTEL)
 
 int btintel_check_bdaddr(struct hci_dev *hdev);
@@ -151,6 +160,7 @@ int btintel_set_event_mask(struct hci_dev *hdev, bool debug);
 int btintel_set_event_mask_mfg(struct hci_dev *hdev, bool debug);
 int btintel_read_version(struct hci_dev *hdev, struct intel_version *ver);
 int btintel_read_version_tlv(struct hci_dev *hdev, struct intel_version_tlv *ver);
+int btintel_read_version_new(struct hci_dev *hdev, struct btintel_version *ver);
 
 struct regmap *btintel_regmap_init(struct hci_dev *hdev, u16 opcode_read,
 				   u16 opcode_write);
@@ -244,6 +254,12 @@ static inline int btintel_read_version(struct hci_dev *hdev,
 
 static inline int btintel_read_version_tlv(struct hci_dev *hdev,
 					   struct intel_version_tlv *ver)
+{
+	return -EOPNOTSUPP;
+}
+
+static inline int btintel_read_version_new(struct hci_dev *hdev,
+					   struct btintel_version *ver)
 {
 	return -EOPNOTSUPP;
 }
