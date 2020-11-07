@@ -678,6 +678,7 @@ static const struct file_operations fops_ioblob = {
 	.read =		wil_read_file_ioblob,
 	.open =		simple_open,
 	.llseek =	default_llseek,
+	.owner =	THIS_MODULE,
 };
 
 static
@@ -729,6 +730,7 @@ static ssize_t wil_write_file_rxon(struct file *file, const char __user *buf,
 static const struct file_operations fops_rxon = {
 	.write = wil_write_file_rxon,
 	.open  = simple_open,
+	.owner = THIS_MODULE,
 };
 
 static ssize_t wil_write_file_rbufcap(struct file *file,
@@ -767,6 +769,7 @@ static ssize_t wil_write_file_rbufcap(struct file *file,
 static const struct file_operations fops_rbufcap = {
 	.write = wil_write_file_rbufcap,
 	.open  = simple_open,
+	.owner = THIS_MODULE,
 };
 
 /* block ack control, write:
@@ -865,6 +868,7 @@ static const struct file_operations fops_back = {
 	.read = wil_read_back,
 	.write = wil_write_back,
 	.open  = simple_open,
+	.owner = THIS_MODULE,
 };
 
 /* pmc control, write:
@@ -941,12 +945,14 @@ static const struct file_operations fops_pmccfg = {
 	.read = wil_read_pmccfg,
 	.write = wil_write_pmccfg,
 	.open  = simple_open,
+	.owner = THIS_MODULE,
 };
 
 static const struct file_operations fops_pmcdata = {
 	.open		= simple_open,
 	.read		= wil_pmc_read,
 	.llseek		= wil_pmc_llseek,
+	.owner		= THIS_MODULE,
 };
 
 static int wil_pmcring_seq_open(struct inode *inode, struct file *file)
@@ -959,6 +965,7 @@ static const struct file_operations fops_pmcring = {
 	.release	= single_release,
 	.read		= seq_read,
 	.llseek		= seq_lseek,
+	.owner		= THIS_MODULE,
 };
 
 /*---tx_mgmt---*/
@@ -996,6 +1003,7 @@ static ssize_t wil_write_file_txmgmt(struct file *file, const char __user *buf,
 static const struct file_operations fops_txmgmt = {
 	.write = wil_write_file_txmgmt,
 	.open  = simple_open,
+	.owner = THIS_MODULE,
 };
 
 /* Write WMI command (w/o mbox header) to this file to send it
@@ -1039,6 +1047,7 @@ static ssize_t wil_write_file_wmi(struct file *file, const char __user *buf,
 static const struct file_operations fops_wmi = {
 	.write = wil_write_file_wmi,
 	.open  = simple_open,
+	.owner = THIS_MODULE,
 };
 
 static void wil_seq_print_skb(struct seq_file *s, struct sk_buff *skb)
@@ -1558,6 +1567,7 @@ static const struct file_operations fops_recovery = {
 	.read = wil_read_file_recovery,
 	.write = wil_write_file_recovery,
 	.open  = simple_open,
+	.owner = THIS_MODULE,
 };
 
 /*---------Station matrix------------*/
@@ -1836,6 +1846,7 @@ static const struct file_operations fops_tx_latency = {
 	.read		= seq_read,
 	.write		= wil_tx_latency_write,
 	.llseek		= seq_lseek,
+	.owner		= THIS_MODULE,
 };
 
 static void wil_link_stats_print_basic(struct wil6210_vif *vif,
@@ -1999,6 +2010,7 @@ static const struct file_operations fops_link_stats = {
 	.read		= seq_read,
 	.write		= wil_link_stats_write,
 	.llseek		= seq_lseek,
+	.owner		= THIS_MODULE,
 };
 
 static int
@@ -2053,6 +2065,7 @@ static const struct file_operations fops_link_stats_global = {
 	.read		= seq_read,
 	.write		= wil_link_stats_global_write,
 	.llseek		= seq_lseek,
+	.owner		= THIS_MODULE,
 };
 
 static ssize_t wil_read_file_led_cfg(struct file *file, char __user *user_buf,
@@ -2100,6 +2113,7 @@ static const struct file_operations fops_led_cfg = {
 	.read = wil_read_file_led_cfg,
 	.write = wil_write_file_led_cfg,
 	.open  = simple_open,
+	.owner = THIS_MODULE,
 };
 
 /* led_blink_time, write:
@@ -2165,6 +2179,7 @@ static const struct file_operations fops_led_blink_time = {
 	.read = wil_read_led_blink_time,
 	.write = wil_write_led_blink_time,
 	.open  = simple_open,
+	.owner = THIS_MODULE,
 };
 
 /*---------FW capabilities------------*/
@@ -2189,6 +2204,7 @@ static const struct file_operations fops_fw_capabilities = {
 	.release	= single_release,
 	.read		= seq_read,
 	.llseek		= seq_lseek,
+	.owner		= THIS_MODULE,
 };
 
 /*---------FW version------------*/
@@ -2215,6 +2231,7 @@ static const struct file_operations fops_fw_version = {
 	.release	= single_release,
 	.read		= seq_read,
 	.llseek		= seq_lseek,
+	.owner		= THIS_MODULE,
 };
 
 /*---------suspend_stats---------*/
@@ -2275,6 +2292,7 @@ static const struct file_operations fops_suspend_stats = {
 	.read = wil_read_suspend_stats,
 	.write = wil_write_suspend_stats,
 	.open  = simple_open,
+	.owner = THIS_MODULE,
 };
 
 /*---------compressed_rx_status---------*/
@@ -2329,6 +2347,7 @@ static const struct file_operations fops_compressed_rx_status = {
 	.read = seq_read,
 	.write = wil_compressed_rx_status_write,
 	.llseek	= seq_lseek,
+	.owner = THIS_MODULE,
 };
 
 /*----------------*/
