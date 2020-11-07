@@ -1981,6 +1981,7 @@ static const struct file_operations iwl_dbgfs_mem_ops = {
 	.write = iwl_dbgfs_mem_write,
 	.open = simple_open,
 	.llseek = default_llseek,
+	.owner = THIS_MODULE,
 };
 
 void iwl_mvm_sta_add_debugfs(struct ieee80211_hw *hw,
