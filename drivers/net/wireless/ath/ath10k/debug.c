@@ -1911,7 +1911,8 @@ static ssize_t ath10k_read_pktlog_filter(struct file *file, char __user *ubuf,
 static const struct file_operations fops_pktlog_filter = {
 	.read = ath10k_read_pktlog_filter,
 	.write = ath10k_write_pktlog_filter,
-	.open = simple_open
+	.open = simple_open,
+	.owner = THIS_MODULE,
 };
 
 static ssize_t ath10k_write_quiet_period(struct file *file,
@@ -1955,7 +1956,8 @@ static ssize_t ath10k_read_quiet_period(struct file *file, char __user *ubuf,
 static const struct file_operations fops_quiet_period = {
 	.read = ath10k_read_quiet_period,
 	.write = ath10k_write_quiet_period,
-	.open = simple_open
+	.open = simple_open,
+	.owner = THIS_MODULE,
 };
 
 static ssize_t ath10k_write_btcoex(struct file *file,
@@ -2039,7 +2041,8 @@ static ssize_t ath10k_read_btcoex(struct file *file, char __user *ubuf,
 static const struct file_operations fops_btcoex = {
 	.read = ath10k_read_btcoex,
 	.write = ath10k_write_btcoex,
-	.open = simple_open
+	.open = simple_open,
+	.owner = THIS_MODULE,
 };
 
 static ssize_t ath10k_write_enable_extd_tx_stats(struct file *file,
@@ -2094,7 +2097,8 @@ static ssize_t ath10k_read_enable_extd_tx_stats(struct file *file,
 static const struct file_operations fops_enable_extd_tx_stats = {
 	.read = ath10k_read_enable_extd_tx_stats,
 	.write = ath10k_write_enable_extd_tx_stats,
-	.open = simple_open
+	.open = simple_open,
+	.owner = THIS_MODULE,
 };
 
 static ssize_t ath10k_write_peer_stats(struct file *file,
@@ -2163,7 +2167,8 @@ static ssize_t ath10k_read_peer_stats(struct file *file, char __user *ubuf,
 static const struct file_operations fops_peer_stats = {
 	.read = ath10k_read_peer_stats,
 	.write = ath10k_write_peer_stats,
-	.open = simple_open
+	.open = simple_open,
+	.owner = THIS_MODULE,
 };
 
 static ssize_t ath10k_debug_fw_checksums_read(struct file *file,
