@@ -194,6 +194,7 @@ static const struct file_operations test_ecdh_fops = {
 	.open		= simple_open,
 	.read		= test_ecdh_read,
 	.llseek		= default_llseek,
+	.owner		= THIS_MODULE,
 };
 
 static int __init test_ecdh(void)

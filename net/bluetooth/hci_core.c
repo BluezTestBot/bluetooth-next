@@ -116,6 +116,7 @@ static const struct file_operations dut_mode_fops = {
 	.read		= dut_mode_read,
 	.write		= dut_mode_write,
 	.llseek		= default_llseek,
+	.owner		= THIS_MODULE,
 };
 
 static ssize_t vendor_diag_read(struct file *file, char __user *user_buf,
@@ -172,6 +173,7 @@ static const struct file_operations vendor_diag_fops = {
 	.read		= vendor_diag_read,
 	.write		= vendor_diag_write,
 	.llseek		= default_llseek,
+	.owner		= THIS_MODULE,
 };
 
 static void hci_debugfs_create_basic(struct hci_dev *hdev)

@@ -3407,6 +3407,7 @@ static const struct file_operations force_bredr_smp_fops = {
 	.read		= force_bredr_smp_read,
 	.write		= force_bredr_smp_write,
 	.llseek		= default_llseek,
+	.owner		= THIS_MODULE,
 };
 
 int smp_register(struct hci_dev *hdev)
@@ -3751,6 +3752,7 @@ static const struct file_operations test_smp_fops = {
 	.open		= simple_open,
 	.read		= test_smp_read,
 	.llseek		= default_llseek,
+	.owner		= THIS_MODULE,
 };
 
 static int __init run_selftests(struct crypto_shash *tfm_cmac,

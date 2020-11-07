@@ -71,6 +71,7 @@ static const struct file_operations __name ## _fops = {			      \
 	.read		= __name ## _read,				      \
 	.write		= __name ## _write,				      \
 	.llseek		= default_llseek,				      \
+	.owner		= THIS_MODULE,					      \
 }									      \
 
 #define DEFINE_INFO_ATTRIBUTE(__name, __field)				      \
@@ -284,6 +285,7 @@ static const struct file_operations use_debug_keys_fops = {
 	.open		= simple_open,
 	.read		= use_debug_keys_read,
 	.llseek		= default_llseek,
+	.owner		= THIS_MODULE,
 };
 
 static ssize_t sc_only_mode_read(struct file *file, char __user *user_buf,
@@ -302,6 +304,7 @@ static const struct file_operations sc_only_mode_fops = {
 	.open		= simple_open,
 	.read		= sc_only_mode_read,
 	.llseek		= default_llseek,
+	.owner		= THIS_MODULE,
 };
 
 DEFINE_INFO_ATTRIBUTE(hardware_info, hw_info);
@@ -438,6 +441,7 @@ static const struct file_operations ssp_debug_mode_fops = {
 	.open		= simple_open,
 	.read		= ssp_debug_mode_read,
 	.llseek		= default_llseek,
+	.owner		= THIS_MODULE,
 };
 
 static int auto_accept_delay_set(void *data, u64 val)
@@ -726,6 +730,7 @@ static const struct file_operations force_static_address_fops = {
 	.read		= force_static_address_read,
 	.write		= force_static_address_write,
 	.llseek		= default_llseek,
+	.owner		= THIS_MODULE,
 };
 
 static int white_list_show(struct seq_file *f, void *ptr)
@@ -1117,6 +1122,7 @@ static const struct file_operations force_no_mitm_fops = {
 	.read		= force_no_mitm_read,
 	.write		= force_no_mitm_write,
 	.llseek		= default_llseek,
+	.owner		= THIS_MODULE,
 };
 
 DEFINE_QUIRK_ATTRIBUTE(quirk_strict_duplicate_filter,

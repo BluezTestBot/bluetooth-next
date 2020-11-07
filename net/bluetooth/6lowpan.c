@@ -1214,6 +1214,7 @@ static const struct file_operations lowpan_control_fops = {
 	.write		= lowpan_control_write,
 	.llseek		= seq_lseek,
 	.release	= single_release,
+	.owner		= THIS_MODULE,
 };
 
 static void disconnect_devices(void)
