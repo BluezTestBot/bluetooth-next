@@ -355,6 +355,7 @@ static const struct file_operations fops_wsm_dumps = {
 	.open = simple_open,
 	.write = cw1200_wsm_dumps,
 	.llseek = default_llseek,
+	.owner = THIS_MODULE,
 };
 
 int cw1200_debug_init(struct cw1200_common *priv)
