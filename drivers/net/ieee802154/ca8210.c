@@ -2672,7 +2672,8 @@ static const struct file_operations test_int_fops = {
 	.open =           ca8210_test_int_open,
 	.release =        NULL,
 	.unlocked_ioctl = ca8210_test_int_ioctl,
-	.poll =           ca8210_test_int_poll
+	.poll =           ca8210_test_int_poll,
+	.owner =	  THIS_MODULE,
 };
 
 /* Init/Deinit */
