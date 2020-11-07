@@ -593,7 +593,8 @@ static ssize_t ath11k_read_enable_extd_tx_stats(struct file *file,
 static const struct file_operations fops_extd_tx_stats = {
 	.read = ath11k_read_enable_extd_tx_stats,
 	.write = ath11k_write_enable_extd_tx_stats,
-	.open = simple_open
+	.open = simple_open,
+	.owner = THIS_MODULE,
 };
 
 static ssize_t ath11k_write_extd_rx_stats(struct file *file,
@@ -686,6 +687,7 @@ static const struct file_operations fops_extd_rx_stats = {
 	.read = ath11k_read_extd_rx_stats,
 	.write = ath11k_write_extd_rx_stats,
 	.open = simple_open,
+	.owner = THIS_MODULE,
 };
 
 static int ath11k_fill_bp_stats(struct ath11k_base *ab,
@@ -1057,7 +1059,8 @@ static ssize_t ath11k_write_simulate_radar(struct file *file,
 
 static const struct file_operations fops_simulate_radar = {
 	.write = ath11k_write_simulate_radar,
-	.open = simple_open
+	.open = simple_open,
+	.owner = THIS_MODULE,
 };
 
 int ath11k_debugfs_register(struct ath11k *ar)
