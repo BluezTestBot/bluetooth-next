@@ -127,6 +127,7 @@ static const struct file_operations name##_ops = {			\
 	.write = (_write),						\
 	.open = simple_open,						\
 	.llseek = generic_file_llseek,					\
+	.owner = THIS_MODULE,						\
 }
 
 #define _IEEE80211_IF_FILE_R_FN(name)					\

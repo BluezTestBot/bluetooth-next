@@ -46,6 +46,7 @@ static const struct file_operations name## _ops = {			\
 	.read = name## _read,						\
 	.open = simple_open,						\
 	.llseek = generic_file_llseek,					\
+	.owner = THIS_MODULE,						\
 };
 
 #define DEBUGFS_READONLY_FILE(name, fmt, value...)		\
@@ -148,6 +149,7 @@ static const struct file_operations aqm_ops = {
 	.read = aqm_read,
 	.open = simple_open,
 	.llseek = default_llseek,
+	.owner = THIS_MODULE,
 };
 
 static ssize_t airtime_flags_read(struct file *file,
@@ -201,6 +203,7 @@ static const struct file_operations airtime_flags_ops = {
 	.read = airtime_flags_read,
 	.open = simple_open,
 	.llseek = default_llseek,
+	.owner = THIS_MODULE,
 };
 
 static ssize_t aql_txq_limit_read(struct file *file,
@@ -282,6 +285,7 @@ static const struct file_operations aql_txq_limit_ops = {
 	.read = aql_txq_limit_read,
 	.open = simple_open,
 	.llseek = default_llseek,
+	.owner = THIS_MODULE,
 };
 
 static ssize_t force_tx_status_read(struct file *file,
@@ -334,6 +338,7 @@ static const struct file_operations force_tx_status_ops = {
 	.read = force_tx_status_read,
 	.open = simple_open,
 	.llseek = default_llseek,
+	.owner = THIS_MODULE,
 };
 
 #ifdef CONFIG_PM
@@ -354,6 +359,7 @@ static const struct file_operations reset_ops = {
 	.write = reset_write,
 	.open = simple_open,
 	.llseek = noop_llseek,
+	.owner = THIS_MODULE,
 };
 #endif
 
@@ -537,6 +543,7 @@ static const struct file_operations stats_ ##name## _ops = {		\
 	.read = stats_ ##name## _read,					\
 	.open = simple_open,						\
 	.llseek = generic_file_llseek,					\
+	.owner = THIS_MODULE,						\
 };
 
 #define DEBUGFS_STATS_ADD(name)					\

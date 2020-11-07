@@ -30,6 +30,7 @@ static const struct file_operations key_ ##name## _ops = {		\
 	.read = key_##name##_read,					\
 	.open = simple_open,						\
 	.llseek = generic_file_llseek,					\
+	.owner = THIS_MODULE,						\
 }
 
 #define KEY_OPS_W(name)							\
@@ -38,6 +39,7 @@ static const struct file_operations key_ ##name## _ops = {		\
 	.write = key_##name##_write,					\
 	.open = simple_open,						\
 	.llseek = generic_file_llseek,					\
+	.owner = THIS_MODULE,						\
 }
 
 #define KEY_FILE(name, format)						\
@@ -53,6 +55,7 @@ static const struct file_operations key_ ##name## _ops = {		\
 	.read = key_conf_##name##_read,					\
 	.open = simple_open,						\
 	.llseek = generic_file_llseek,					\
+	.owner = THIS_MODULE,						\
 }
 
 #define KEY_CONF_FILE(name, format)					\

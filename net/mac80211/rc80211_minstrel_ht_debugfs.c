@@ -173,6 +173,7 @@ static const struct file_operations minstrel_ht_stat_fops = {
 	.read = minstrel_stats_read,
 	.release = minstrel_stats_release,
 	.llseek = no_llseek,
+	.owner = THIS_MODULE,
 };
 
 static char *
@@ -311,6 +312,7 @@ static const struct file_operations minstrel_ht_stat_csv_fops = {
 	.read = minstrel_stats_read,
 	.release = minstrel_stats_release,
 	.llseek = no_llseek,
+	.owner = THIS_MODULE,
 };
 
 void
