@@ -87,6 +87,7 @@ const struct file_operations i2400m_rx_stats_fops = {
 	.read =		i2400m_rx_stats_read,
 	.write =	i2400m_rx_stats_write,
 	.llseek =	default_llseek,
+	.owner =	THIS_MODULE,
 };
 
 
@@ -140,6 +141,7 @@ const struct file_operations i2400m_tx_stats_fops = {
 	.read =		i2400m_tx_stats_read,
 	.write =	i2400m_tx_stats_write,
 	.llseek =	default_llseek,
+	.owner =	THIS_MODULE,
 };
 
 
