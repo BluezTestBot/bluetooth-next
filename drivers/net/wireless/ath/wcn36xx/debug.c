@@ -93,6 +93,7 @@ static const struct file_operations fops_wcn36xx_bmps = {
 	.open = simple_open,
 	.read  =       read_file_bool_bmps,
 	.write =       write_file_bool_bmps,
+	.owner = THIS_MODULE,
 };
 
 static ssize_t write_file_dump(struct file *file,
@@ -134,6 +135,7 @@ static ssize_t write_file_dump(struct file *file,
 static const struct file_operations fops_wcn36xx_dump = {
 	.open = simple_open,
 	.write =       write_file_dump,
+	.owner = THIS_MODULE,
 };
 
 #define ADD_FILE(name, mode, fop, priv_data)		\
