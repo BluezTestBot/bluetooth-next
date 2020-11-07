@@ -69,6 +69,7 @@ static const struct file_operations file_ops_common = {
 	.read = seq_read,
 	.llseek = seq_lseek,
 	.release = single_release,
+	.owner = THIS_MODULE,
 };
 
 static int rtl_debug_get_mac_page(struct seq_file *m, void *v)
