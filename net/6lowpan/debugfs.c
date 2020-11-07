@@ -161,6 +161,7 @@ static const struct file_operations lowpan_ctx_pfx_fops = {
 	.write		= lowpan_ctx_pfx_write,
 	.llseek		= seq_lseek,
 	.release	= single_release,
+	.owner          = THIS_MODULE,
 };
 
 static void lowpan_dev_debugfs_ctx_init(struct net_device *dev,
