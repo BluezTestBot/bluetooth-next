@@ -1188,6 +1188,7 @@ static const struct file_operations bus_reset_fops = {
 	.open	= simple_open,
 	.llseek	= no_llseek,
 	.write	= bus_reset_write,
+	.owner = THIS_MODULE,
 };
 
 static int brcmf_bus_started(struct brcmf_pub *drvr, struct cfg80211_ops *ops)
