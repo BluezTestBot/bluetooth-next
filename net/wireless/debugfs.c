@@ -26,6 +26,7 @@ static const struct file_operations name## _ops = {			\
 	.read = name## _read,						\
 	.open = simple_open,						\
 	.llseek = generic_file_llseek,					\
+	.owner = THIS_MODULE,						\
 }
 
 DEBUGFS_READONLY_FILE(rts_threshold, 20, "%d",
@@ -97,6 +98,7 @@ static const struct file_operations ht40allow_map_ops = {
 	.read = ht40allow_map_read,
 	.open = simple_open,
 	.llseek = default_llseek,
+	.owner = THIS_MODULE,
 };
 
 #define DEBUGFS_ADD(name)						\
