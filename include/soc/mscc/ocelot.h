@@ -559,6 +559,8 @@ enum ocelot_tag_prefix {
 struct ocelot;
 
 struct ocelot_ops {
+	struct net_device *(*port_to_netdev)(struct ocelot *ocelot, int port);
+	int (*netdev_to_port)(struct net_device *dev);
 	int (*reset)(struct ocelot *ocelot);
 	u16 (*wm_enc)(u16 value);
 };
@@ -569,18 +571,21 @@ struct ocelot_vcap_block {
 	int pol_lpr;
 };
 
+struct ocelot_vlan {
+	bool valid;
+	u16 vid;
+};
+
 struct ocelot_port {
 	struct ocelot			*ocelot;
 
 	struct regmap			*target;
 
 	bool				vlan_aware;
-
-	/* Ingress default VLAN (pvid) */
-	u16				pvid;
-
-	/* Egress default VLAN (vid) */
-	u16				vid;
+	/* VLAN that untagged frames are classified to, on ingress */
+	struct ocelot_vlan		pvid_vlan;
+	/* The VLAN ID that will be transmitted as untagged, on egress */
+	struct ocelot_vlan		native_vlan;
 
 	u8				ptp_cmd;
 	struct sk_buff_head		tx_skbs;
@@ -630,8 +635,10 @@ struct ocelot {
 	u32				*lags;
 
 	struct list_head		multicast;
+	struct list_head		pgids;
 
-	struct ocelot_vcap_block	block;
+	struct list_head		dummy_rules;
+	struct ocelot_vcap_block	block[3];
 	struct vcap_props		*vcap;
 
 	/* Workqueue to check statistics for overflow with its lock */
@@ -727,8 +734,8 @@ int ocelot_get_ts_info(struct ocelot *ocelot, int port,
 void ocelot_set_ageing_time(struct ocelot *ocelot, unsigned int msecs);
 void ocelot_adjust_link(struct ocelot *ocelot, int port,
 			struct phy_device *phydev);
-void ocelot_port_vlan_filtering(struct ocelot *ocelot, int port,
-				bool vlan_aware);
+int ocelot_port_vlan_filtering(struct ocelot *ocelot, int port, bool enabled,
+			       struct switchdev_trans *trans);
 void ocelot_bridge_stp_state_set(struct ocelot *ocelot, int port, u8 state);
 int ocelot_port_bridge_join(struct ocelot *ocelot, int port,
 			    struct net_device *bridge);
@@ -740,6 +747,8 @@ int ocelot_fdb_add(struct ocelot *ocelot, int port,
 		   const unsigned char *addr, u16 vid);
 int ocelot_fdb_del(struct ocelot *ocelot, int port,
 		   const unsigned char *addr, u16 vid);
+int ocelot_vlan_prepare(struct ocelot *ocelot, int port, u16 vid, bool pvid,
+			bool untagged);
 int ocelot_vlan_add(struct ocelot *ocelot, int port, u16 vid, bool pvid,
 		    bool untagged);
 int ocelot_vlan_del(struct ocelot *ocelot, int port, u16 vid);

@@ -1578,15 +1578,16 @@ static int mv88e6xxx_port_check_hw_vlan(struct dsa_switch *ds, int port,
 }
 
 static int mv88e6xxx_port_vlan_filtering(struct dsa_switch *ds, int port,
-					 bool vlan_filtering)
+					 bool vlan_filtering,
+					 struct switchdev_trans *trans)
 {
 	struct mv88e6xxx_chip *chip = ds->priv;
 	u16 mode = vlan_filtering ? MV88E6XXX_PORT_CTL2_8021Q_MODE_SECURE :
 		MV88E6XXX_PORT_CTL2_8021Q_MODE_DISABLED;
 	int err;
 
-	if (!chip->info->max_vid)
-		return -EOPNOTSUPP;
+	if (switchdev_trans_ph_prepare(trans))
+		return chip->info->max_vid ? 0 : -EOPNOTSUPP;
 
 	mv88e6xxx_reg_lock(chip);
 	err = mv88e6xxx_port_set_8021q_mode(chip, port, mode);
@@ -2850,6 +2851,7 @@ static int mv88e6xxx_setup(struct dsa_switch *ds)
 
 	chip->ds = ds;
 	ds->slave_mii_bus = mv88e6xxx_default_mdio_bus(chip);
+	ds->configure_vlan_while_not_filtering = true;
 
 	mv88e6xxx_reg_lock(chip);
 

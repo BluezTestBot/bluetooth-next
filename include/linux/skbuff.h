@@ -2548,6 +2548,11 @@ static inline int skb_mac_header_was_set(const struct sk_buff *skb)
 	return skb->mac_header != (typeof(skb->mac_header))~0U;
 }
 
+static inline void skb_unset_mac_header(struct sk_buff *skb)
+{
+	skb->mac_header = (typeof(skb->mac_header))~0U;
+}
+
 static inline void skb_reset_mac_header(struct sk_buff *skb)
 {
 	skb->mac_header = skb->data - skb->head;
@@ -3545,7 +3550,7 @@ int skb_kill_datagram(struct sock *sk, struct sk_buff *skb, unsigned int flags);
 int skb_copy_bits(const struct sk_buff *skb, int offset, void *to, int len);
 int skb_store_bits(struct sk_buff *skb, int offset, const void *from, int len);
 __wsum skb_copy_and_csum_bits(const struct sk_buff *skb, int offset, u8 *to,
-			      int len, __wsum csum);
+			      int len);
 int skb_splice_bits(struct sk_buff *skb, struct sock *sk, unsigned int offset,
 		    struct pipe_inode_info *pipe, unsigned int len,
 		    unsigned int flags);
@@ -3568,6 +3573,9 @@ int skb_ensure_writable(struct sk_buff *skb, int write_len);
 int __skb_vlan_pop(struct sk_buff *skb, u16 *vlan_tci);
 int skb_vlan_pop(struct sk_buff *skb);
 int skb_vlan_push(struct sk_buff *skb, __be16 vlan_proto, u16 vlan_tci);
+int skb_eth_pop(struct sk_buff *skb);
+int skb_eth_push(struct sk_buff *skb, const unsigned char *dst,
+		 const unsigned char *src);
 int skb_mpls_push(struct sk_buff *skb, __be32 mpls_lse, __be16 mpls_proto,
 		  int mac_len, bool ethernet);
 int skb_mpls_pop(struct sk_buff *skb, __be16 next_proto, int mac_len,
@@ -4143,6 +4151,9 @@ enum skb_ext_id {
 #if IS_ENABLED(CONFIG_MPTCP)
 	SKB_EXT_MPTCP,
 #endif
+#if IS_ENABLED(CONFIG_KCOV)
+	SKB_EXT_KCOV_HANDLE,
+#endif
 	SKB_EXT_NUM, /* must be last */
 };
 
@@ -4596,6 +4607,36 @@ static inline void skb_reset_redirect(struct sk_buff *skb)
 	skb->redirected = 0;
 #endif
 }
+
+#ifdef CONFIG_KCOV
+static inline void skb_set_kcov_handle(struct sk_buff *skb,
+				       const u64 kcov_handle)
+{
+	/* Do not allocate skb extensions only to set kcov_handle to zero
+	 * (as it is zero by default). However, if the extensions are
+	 * already allocated, update kcov_handle anyway since
+	 * skb_set_kcov_handle can be called to zero a previously set
+	 * value.
+	 */
+	if (skb_has_extensions(skb) || kcov_handle) {
+		u64 *kcov_handle_ptr = skb_ext_add(skb, SKB_EXT_KCOV_HANDLE);
+
+		if (kcov_handle_ptr)
+			*kcov_handle_ptr = kcov_handle;
+	}
+}
+
+static inline u64 skb_get_kcov_handle(struct sk_buff *skb)
+{
+	u64 *kcov_handle = skb_ext_find(skb, SKB_EXT_KCOV_HANDLE);
+
+	return kcov_handle ? *kcov_handle : 0;
+}
+#else
+static inline void skb_set_kcov_handle(struct sk_buff *skb,
+				       const u64 kcov_handle) { }
+static inline u64 skb_get_kcov_handle(struct sk_buff *skb) { return 0; }
+#endif /* CONFIG_KCOV */
 
 #endif	/* __KERNEL__ */
 #endif	/* _LINUX_SKBUFF_H */

@@ -70,6 +70,7 @@ Contents:
    lapb-module
    mac80211-injection
    mpls-sysctl
+   mptcp-sysctl
    multiqueue
    netconsole
    netdev-features
@@ -96,6 +97,7 @@ Contents:
    statistics
    strparser
    switchdev
+   sysfs-tagging
    tc-actions-env-rules
    tcp-thin
    team

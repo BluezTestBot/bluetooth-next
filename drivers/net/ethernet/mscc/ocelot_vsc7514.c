@@ -320,6 +320,8 @@ static const u32 *ocelot_regmap[TARGET_MAX] = {
 	[QSYS] = ocelot_qsys_regmap,
 	[REW] = ocelot_rew_regmap,
 	[SYS] = ocelot_sys_regmap,
+	[S0] = ocelot_vcap_regmap,
+	[S1] = ocelot_vcap_regmap,
 	[S2] = ocelot_vcap_regmap,
 	[PTP] = ocelot_ptp_regmap,
 	[DEV_GMII] = ocelot_dev_gmii_regmap,
@@ -754,6 +756,8 @@ static int ocelot_reset(struct ocelot *ocelot)
  */
 static u16 ocelot_wm_enc(u16 value)
 {
+	WARN_ON(value >= 16 * BIT(8));
+
 	if (value >= BIT(8))
 		return BIT(8) | (value / 16);
 
@@ -763,6 +767,8 @@ static u16 ocelot_wm_enc(u16 value)
 static const struct ocelot_ops ocelot_ops = {
 	.reset			= ocelot_reset,
 	.wm_enc			= ocelot_wm_enc,
+	.port_to_netdev		= ocelot_port_to_netdev,
+	.netdev_to_port		= ocelot_netdev_to_port,
 };
 
 static const struct vcap_field vsc7514_vcap_es0_keys[] = {

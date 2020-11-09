@@ -217,7 +217,7 @@
  *   MX8MP FlexCAN3  03.00.17.01    yes       yes        no      yes       yes          yes
  *   VF610 FlexCAN3  ?               no       yes        no      yes       yes?          no
  * LS1021A FlexCAN2  03.00.04.00     no       yes        no       no       yes           no
- * LX2160A FlexCAN3  03.00.23.00     no       yes        no       no       yes          yes
+ * LX2160A FlexCAN3  03.00.23.00     no       yes        no      yes       yes          yes
  *
  * Some SOCs do not have the RX_WARN & TX_WARN interrupt line connected.
  */
@@ -333,8 +333,6 @@ struct flexcan_stop_mode {
 	struct regmap *gpr;
 	u8 req_gpr;
 	u8 req_bit;
-	u8 ack_gpr;
-	u8 ack_bit;
 };
 
 struct flexcan_priv {
@@ -402,19 +400,19 @@ static struct flexcan_devtype_data fsl_imx8mp_devtype_data = {
 static const struct flexcan_devtype_data fsl_vf610_devtype_data = {
 	.quirks = FLEXCAN_QUIRK_DISABLE_RXFG | FLEXCAN_QUIRK_ENABLE_EACEN_RRS |
 		FLEXCAN_QUIRK_DISABLE_MECR | FLEXCAN_QUIRK_USE_OFF_TIMESTAMP |
-		FLEXCAN_QUIRK_BROKEN_PERR_STATE,
+		FLEXCAN_QUIRK_BROKEN_PERR_STATE | FLEXCAN_QUIRK_SUPPORT_ECC,
 };
 
 static const struct flexcan_devtype_data fsl_ls1021a_r2_devtype_data = {
 	.quirks = FLEXCAN_QUIRK_DISABLE_RXFG | FLEXCAN_QUIRK_ENABLE_EACEN_RRS |
-		FLEXCAN_QUIRK_DISABLE_MECR | FLEXCAN_QUIRK_BROKEN_PERR_STATE |
-		FLEXCAN_QUIRK_USE_OFF_TIMESTAMP,
+		FLEXCAN_QUIRK_BROKEN_PERR_STATE | FLEXCAN_QUIRK_USE_OFF_TIMESTAMP,
 };
 
 static const struct flexcan_devtype_data fsl_lx2160a_r1_devtype_data = {
 	.quirks = FLEXCAN_QUIRK_DISABLE_RXFG | FLEXCAN_QUIRK_ENABLE_EACEN_RRS |
 		FLEXCAN_QUIRK_DISABLE_MECR | FLEXCAN_QUIRK_BROKEN_PERR_STATE |
-		FLEXCAN_QUIRK_USE_OFF_TIMESTAMP | FLEXCAN_QUIRK_SUPPORT_FD,
+		FLEXCAN_QUIRK_USE_OFF_TIMESTAMP | FLEXCAN_QUIRK_SUPPORT_FD |
+		FLEXCAN_QUIRK_SUPPORT_ECC,
 };
 
 static const struct can_bittiming_const flexcan_bittiming_const = {
@@ -1847,14 +1845,14 @@ static int flexcan_setup_stop_mode(struct platform_device *pdev)
 	struct device_node *gpr_np;
 	struct flexcan_priv *priv;
 	phandle phandle;
-	u32 out_val[5];
+	u32 out_val[3];
 	int ret;
 
 	if (!np)
 		return -EINVAL;
 
 	/* stop mode property format is:
-	 * <&gpr req_gpr req_bit ack_gpr ack_bit>.
+	 * <&gpr req_gpr>.
 	 */
 	ret = of_property_read_u32_array(np, "fsl,stop-mode", out_val,
 					 ARRAY_SIZE(out_val));
@@ -1880,13 +1878,10 @@ static int flexcan_setup_stop_mode(struct platform_device *pdev)
 
 	priv->stm.req_gpr = out_val[1];
 	priv->stm.req_bit = out_val[2];
-	priv->stm.ack_gpr = out_val[3];
-	priv->stm.ack_bit = out_val[4];
 
 	dev_dbg(&pdev->dev,
-		"gpr %s req_gpr=0x02%x req_bit=%u ack_gpr=0x02%x ack_bit=%u\n",
-		gpr_np->full_name, priv->stm.req_gpr, priv->stm.req_bit,
-		priv->stm.ack_gpr, priv->stm.ack_bit);
+		"gpr %s req_gpr=0x02%x req_bit=%u\n",
+		gpr_np->full_name, priv->stm.req_gpr, priv->stm.req_bit);
 
 	device_set_wakeup_capable(&pdev->dev, true);
 
@@ -2067,6 +2062,8 @@ static int flexcan_remove(struct platform_device *pdev)
 {
 	struct net_device *dev = platform_get_drvdata(pdev);
 
+	device_set_wakeup_enable(&pdev->dev, false);
+	device_set_wakeup_capable(&pdev->dev, false);
 	unregister_flexcandev(dev);
 	pm_runtime_disable(&pdev->dev);
 	free_candev(dev);

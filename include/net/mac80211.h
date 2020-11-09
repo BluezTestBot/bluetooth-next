@@ -627,6 +627,9 @@ struct ieee80211_fils_discovery {
  * @fils_discovery: FILS discovery configuration
  * @unsol_bcast_probe_resp_interval: Unsolicited broadcast probe response
  *	interval.
+ * @s1g: BSS is S1G BSS (affects Association Request format).
+ * @beacon_tx_rate: The configured beacon transmit rate that needs to be passed
+ *	to driver when rate control is offloaded to firmware.
  */
 struct ieee80211_bss_conf {
 	const u8 *bssid;
@@ -696,6 +699,8 @@ struct ieee80211_bss_conf {
 	struct cfg80211_he_bss_color he_bss_color;
 	struct ieee80211_fils_discovery fils_discovery;
 	u32 unsol_bcast_probe_resp_interval;
+	bool s1g;
+	struct cfg80211_bitrate_mask beacon_tx_rate;
 };
 
 /**
@@ -832,6 +837,8 @@ enum mac80211_tx_info_flags {
 };
 
 #define IEEE80211_TX_CTL_STBC_SHIFT		23
+
+#define IEEE80211_TX_RC_S1G_MCS IEEE80211_TX_RC_VHT_MCS
 
 /**
  * enum mac80211_tx_control_flags - flags to describe transmit control
@@ -3304,7 +3311,7 @@ enum ieee80211_roc_type {
 };
 
 /**
- * enum ieee80211_reconfig_complete_type - reconfig type
+ * enum ieee80211_reconfig_type - reconfig type
  *
  * This enum is used by the reconfig_complete() callback to indicate what
  * reconfiguration type was completed.
@@ -5403,11 +5410,15 @@ void ieee80211_sched_scan_stopped(struct ieee80211_hw *hw);
  * @IEEE80211_IFACE_ITER_RESUME_ALL: During resume, iterate over all
  *	interfaces, even if they haven't been re-added to the driver yet.
  * @IEEE80211_IFACE_ITER_ACTIVE: Iterate only active interfaces (netdev is up).
+ * @IEEE80211_IFACE_SKIP_SDATA_NOT_IN_DRIVER: Skip any interfaces where SDATA
+ *	is not in the driver.  This may fix crashes during firmware recovery
+ *	for instance.
  */
 enum ieee80211_interface_iteration_flags {
 	IEEE80211_IFACE_ITER_NORMAL	= 0,
 	IEEE80211_IFACE_ITER_RESUME_ALL	= BIT(0),
 	IEEE80211_IFACE_ITER_ACTIVE	= BIT(1),
+	IEEE80211_IFACE_SKIP_SDATA_NOT_IN_DRIVER	= BIT(2),
 };
 
 /**
@@ -6323,7 +6334,8 @@ bool ieee80211_tx_prepare_skb(struct ieee80211_hw *hw,
 			      int band, struct ieee80211_sta **sta);
 
 /**
- * Sanity-check and parse the radiotap header of injected frames
+ * ieee80211_parse_tx_radiotap - Sanity-check and parse the radiotap header
+ *				 of injected frames
  * @skb: packet injected by userspace
  * @dev: the &struct device of this 802.11 device
  */
@@ -6378,7 +6390,7 @@ int ieee80211_parse_p2p_noa(const struct ieee80211_p2p_noa_attr *attr,
 void ieee80211_update_p2p_noa(struct ieee80211_noa_data *data, u32 tsf);
 
 /**
- * ieee80211_tdls_oper - request userspace to perform a TDLS operation
+ * ieee80211_tdls_oper_request - request userspace to perform a TDLS operation
  * @vif: virtual interface
  * @peer: the peer's destination address
  * @oper: the requested TDLS operation

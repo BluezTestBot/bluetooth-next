@@ -652,7 +652,7 @@ static const struct nla_policy packet_policy[OVS_PACKET_ATTR_MAX + 1] = {
 	[OVS_PACKET_ATTR_HASH] = { .type = NLA_U64 },
 };
 
-static const struct genl_ops dp_packet_genl_ops[] = {
+static const struct genl_small_ops dp_packet_genl_ops[] = {
 	{ .cmd = OVS_PACKET_CMD_EXECUTE,
 	  .validate = GENL_DONT_VALIDATE_STRICT | GENL_DONT_VALIDATE_DUMP,
 	  .flags = GENL_UNS_ADMIN_PERM, /* Requires CAP_NET_ADMIN privilege. */
@@ -668,8 +668,8 @@ static struct genl_family dp_packet_genl_family __ro_after_init = {
 	.policy = packet_policy,
 	.netnsok = true,
 	.parallel_ops = true,
-	.ops = dp_packet_genl_ops,
-	.n_ops = ARRAY_SIZE(dp_packet_genl_ops),
+	.small_ops = dp_packet_genl_ops,
+	.n_small_ops = ARRAY_SIZE(dp_packet_genl_ops),
 	.module = THIS_MODULE,
 };
 
@@ -1453,7 +1453,7 @@ static const struct nla_policy flow_policy[OVS_FLOW_ATTR_MAX + 1] = {
 	[OVS_FLOW_ATTR_UFID_FLAGS] = { .type = NLA_U32 },
 };
 
-static const struct genl_ops dp_flow_genl_ops[] = {
+static const struct genl_small_ops dp_flow_genl_ops[] = {
 	{ .cmd = OVS_FLOW_CMD_NEW,
 	  .validate = GENL_DONT_VALIDATE_STRICT | GENL_DONT_VALIDATE_DUMP,
 	  .flags = GENL_UNS_ADMIN_PERM, /* Requires CAP_NET_ADMIN privilege. */
@@ -1485,8 +1485,8 @@ static struct genl_family dp_flow_genl_family __ro_after_init = {
 	.policy = flow_policy,
 	.netnsok = true,
 	.parallel_ops = true,
-	.ops = dp_flow_genl_ops,
-	.n_ops = ARRAY_SIZE(dp_flow_genl_ops),
+	.small_ops = dp_flow_genl_ops,
+	.n_small_ops = ARRAY_SIZE(dp_flow_genl_ops),
 	.mcgrps = &ovs_dp_flow_multicast_group,
 	.n_mcgrps = 1,
 	.module = THIS_MODULE,
@@ -1703,12 +1703,12 @@ static int ovs_dp_cmd_new(struct sk_buff *skb, struct genl_info *info)
 	parms.port_no = OVSP_LOCAL;
 	parms.upcall_portids = a[OVS_DP_ATTR_UPCALL_PID];
 
-	err = ovs_dp_change(dp, a);
-	if (err)
-		goto err_destroy_meters;
-
 	/* So far only local changes have been made, now need the lock. */
 	ovs_lock();
+
+	err = ovs_dp_change(dp, a);
+	if (err)
+		goto err_unlock_and_destroy_meters;
 
 	vport = new_vport(&parms);
 	if (IS_ERR(vport)) {
@@ -1725,8 +1725,7 @@ static int ovs_dp_cmd_new(struct sk_buff *skb, struct genl_info *info)
 				ovs_dp_reset_user_features(skb, info);
 		}
 
-		ovs_unlock();
-		goto err_destroy_meters;
+		goto err_unlock_and_destroy_meters;
 	}
 
 	err = ovs_dp_cmd_fill_info(dp, reply, info->snd_portid,
@@ -1741,7 +1740,8 @@ static int ovs_dp_cmd_new(struct sk_buff *skb, struct genl_info *info)
 	ovs_notify(&dp_datapath_genl_family, reply, info);
 	return 0;
 
-err_destroy_meters:
+err_unlock_and_destroy_meters:
+	ovs_unlock();
 	ovs_meters_exit(dp);
 err_destroy_ports:
 	kfree(dp->ports);
@@ -1918,7 +1918,7 @@ static const struct nla_policy datapath_policy[OVS_DP_ATTR_MAX + 1] = {
 		PCPU_MIN_UNIT_SIZE / sizeof(struct mask_cache_entry)),
 };
 
-static const struct genl_ops dp_datapath_genl_ops[] = {
+static const struct genl_small_ops dp_datapath_genl_ops[] = {
 	{ .cmd = OVS_DP_CMD_NEW,
 	  .validate = GENL_DONT_VALIDATE_STRICT | GENL_DONT_VALIDATE_DUMP,
 	  .flags = GENL_UNS_ADMIN_PERM, /* Requires CAP_NET_ADMIN privilege. */
@@ -1950,8 +1950,8 @@ static struct genl_family dp_datapath_genl_family __ro_after_init = {
 	.policy = datapath_policy,
 	.netnsok = true,
 	.parallel_ops = true,
-	.ops = dp_datapath_genl_ops,
-	.n_ops = ARRAY_SIZE(dp_datapath_genl_ops),
+	.small_ops = dp_datapath_genl_ops,
+	.n_small_ops = ARRAY_SIZE(dp_datapath_genl_ops),
 	.mcgrps = &ovs_dp_datapath_multicast_group,
 	.n_mcgrps = 1,
 	.module = THIS_MODULE,
@@ -2401,7 +2401,7 @@ static const struct nla_policy vport_policy[OVS_VPORT_ATTR_MAX + 1] = {
 	[OVS_VPORT_ATTR_NETNSID] = { .type = NLA_S32 },
 };
 
-static const struct genl_ops dp_vport_genl_ops[] = {
+static const struct genl_small_ops dp_vport_genl_ops[] = {
 	{ .cmd = OVS_VPORT_CMD_NEW,
 	  .validate = GENL_DONT_VALIDATE_STRICT | GENL_DONT_VALIDATE_DUMP,
 	  .flags = GENL_UNS_ADMIN_PERM, /* Requires CAP_NET_ADMIN privilege. */
@@ -2433,8 +2433,8 @@ struct genl_family dp_vport_genl_family __ro_after_init = {
 	.policy = vport_policy,
 	.netnsok = true,
 	.parallel_ops = true,
-	.ops = dp_vport_genl_ops,
-	.n_ops = ARRAY_SIZE(dp_vport_genl_ops),
+	.small_ops = dp_vport_genl_ops,
+	.n_small_ops = ARRAY_SIZE(dp_vport_genl_ops),
 	.mcgrps = &ovs_dp_vport_multicast_group,
 	.n_mcgrps = 1,
 	.module = THIS_MODULE,

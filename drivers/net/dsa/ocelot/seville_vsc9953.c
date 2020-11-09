@@ -840,7 +840,7 @@ static struct vcap_props vsc9953_vcap_props[] = {
 		.action_type_width = 1,
 		.action_table = {
 			[IS2_ACTION_TYPE_NORMAL] = {
-				.width = 44,
+				.width = 50, /* HIT_CNT not included */
 				.count = 2
 			},
 			[IS2_ACTION_TYPE_SMAC_SIP] = {
@@ -1049,6 +1049,8 @@ static int vsc9953_prevalidate_phy_mode(struct ocelot *ocelot, int port,
  */
 static u16 vsc9953_wm_enc(u16 value)
 {
+	WARN_ON(value >= 16 * BIT(9));
+
 	if (value >= BIT(9))
 		return BIT(9) | (value / 16);
 
@@ -1058,6 +1060,8 @@ static u16 vsc9953_wm_enc(u16 value)
 static const struct ocelot_ops vsc9953_ops = {
 	.reset			= vsc9953_reset,
 	.wm_enc			= vsc9953_wm_enc,
+	.port_to_netdev		= felix_port_to_netdev,
+	.netdev_to_port		= felix_netdev_to_port,
 };
 
 static int vsc9953_mdio_bus_alloc(struct ocelot *ocelot)
@@ -1177,7 +1181,7 @@ static const struct felix_info seville_info_vsc9953 = {
 	.stats_layout		= vsc9953_stats_layout,
 	.num_stats		= ARRAY_SIZE(vsc9953_stats_layout),
 	.vcap			= vsc9953_vcap_props,
-	.shared_queue_sz	= 2048 * 1024,
+	.shared_queue_sz	= 256 * 1024,
 	.num_mact_rows		= 2048,
 	.num_ports		= 10,
 	.mdio_bus_alloc		= vsc9953_mdio_bus_alloc,

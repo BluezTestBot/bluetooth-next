@@ -1496,7 +1496,7 @@ static void node_lost_contact(struct tipc_node *n,
 
 	/* Clean up broadcast state */
 	tipc_bcast_remove_peer(n->net, n->bc_entry.link);
-	__skb_queue_purge(&n->bc_entry.namedq);
+	skb_queue_purge(&n->bc_entry.namedq);
 
 	/* Abort any ongoing link failover */
 	for (i = 0; i < MAX_BEARERS; i++) {
@@ -1638,7 +1638,7 @@ static void tipc_lxc_xmit(struct net *peer_net, struct sk_buff_head *list)
 		return;
 	default:
 		return;
-	};
+	}
 }
 
 /**

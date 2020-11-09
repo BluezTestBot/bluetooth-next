@@ -112,20 +112,41 @@ static void felix_bridge_leave(struct dsa_switch *ds, int port,
 	ocelot_port_bridge_leave(ocelot, port, br);
 }
 
-/* This callback needs to be present */
 static int felix_vlan_prepare(struct dsa_switch *ds, int port,
 			      const struct switchdev_obj_port_vlan *vlan)
 {
+	struct ocelot *ocelot = ds->priv;
+	u16 vid, flags = vlan->flags;
+	int err;
+
+	/* Ocelot switches copy frames as-is to the CPU, so the flags:
+	 * egress-untagged or not, pvid or not, make no difference. This
+	 * behavior is already better than what DSA just tries to approximate
+	 * when it installs the VLAN with the same flags on the CPU port.
+	 * Just accept any configuration, and don't let ocelot deny installing
+	 * multiple native VLANs on the NPI port, because the switch doesn't
+	 * look at the port tag settings towards the NPI interface anyway.
+	 */
+	if (port == ocelot->npi)
+		return 0;
+
+	for (vid = vlan->vid_begin; vid <= vlan->vid_end; vid++) {
+		err = ocelot_vlan_prepare(ocelot, port, vid,
+					  flags & BRIDGE_VLAN_INFO_PVID,
+					  flags & BRIDGE_VLAN_INFO_UNTAGGED);
+		if (err)
+			return err;
+	}
+
 	return 0;
 }
 
-static int felix_vlan_filtering(struct dsa_switch *ds, int port, bool enabled)
+static int felix_vlan_filtering(struct dsa_switch *ds, int port, bool enabled,
+				struct switchdev_trans *trans)
 {
 	struct ocelot *ocelot = ds->priv;
 
-	ocelot_port_vlan_filtering(ocelot, port, enabled);
-
-	return 0;
+	return ocelot_port_vlan_filtering(ocelot, port, enabled, trans);
 }
 
 static void felix_vlan_add(struct dsa_switch *ds, int port,
@@ -135,9 +156,6 @@ static void felix_vlan_add(struct dsa_switch *ds, int port,
 	u16 flags = vlan->flags;
 	u16 vid;
 	int err;
-
-	if (dsa_is_cpu_port(ds, port))
-		flags &= ~BRIDGE_VLAN_INFO_UNTAGGED;
 
 	for (vid = vlan->vid_begin; vid <= vlan->vid_end; vid++) {
 		err = ocelot_vlan_add(ocelot, port, vid,
@@ -810,3 +828,25 @@ const struct dsa_switch_ops felix_switch_ops = {
 	.cls_flower_stats	= felix_cls_flower_stats,
 	.port_setup_tc		= felix_port_setup_tc,
 };
+
+struct net_device *felix_port_to_netdev(struct ocelot *ocelot, int port)
+{
+	struct felix *felix = ocelot_to_felix(ocelot);
+	struct dsa_switch *ds = felix->ds;
+
+	if (!dsa_is_user_port(ds, port))
+		return NULL;
+
+	return dsa_to_port(ds, port)->slave;
+}
+
+int felix_netdev_to_port(struct net_device *dev)
+{
+	struct dsa_port *dp;
+
+	dp = dsa_port_from_netdev(dev);
+	if (IS_ERR(dp))
+		return -EINVAL;
+
+	return dp->index;
+}

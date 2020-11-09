@@ -324,6 +324,12 @@ static int nsim_dev_resources_register(struct devlink *devlink)
 		return err;
 	}
 
+	/* Resources for nexthops */
+	err = devlink_resource_register(devlink, "nexthops", (u64)-1,
+					NSIM_RESOURCE_NEXTHOPS,
+					DEVLINK_RESOURCE_ID_PARENT_TOP,
+					&params);
+
 out:
 	return err;
 }
@@ -701,6 +707,7 @@ static int nsim_dev_reload_create(struct nsim_dev *nsim_dev,
 static void nsim_dev_reload_destroy(struct nsim_dev *nsim_dev);
 
 static int nsim_dev_reload_down(struct devlink *devlink, bool netns_change,
+				enum devlink_reload_action action, enum devlink_reload_limit limit,
 				struct netlink_ext_ack *extack)
 {
 	struct nsim_dev *nsim_dev = devlink_priv(devlink);
@@ -717,7 +724,8 @@ static int nsim_dev_reload_down(struct devlink *devlink, bool netns_change,
 	return 0;
 }
 
-static int nsim_dev_reload_up(struct devlink *devlink,
+static int nsim_dev_reload_up(struct devlink *devlink, enum devlink_reload_action action,
+			      enum devlink_reload_limit limit, u32 *actions_performed,
 			      struct netlink_ext_ack *extack)
 {
 	struct nsim_dev *nsim_dev = devlink_priv(devlink);
@@ -730,6 +738,7 @@ static int nsim_dev_reload_up(struct devlink *devlink,
 		return -EINVAL;
 	}
 
+	*actions_performed = BIT(DEVLINK_RELOAD_ACTION_DRIVER_REINIT);
 	return nsim_dev_reload_create(nsim_dev, extack);
 }
 
@@ -886,6 +895,7 @@ nsim_dev_devlink_trap_policer_counter_get(struct devlink *devlink,
 static const struct devlink_ops nsim_dev_devlink_ops = {
 	.supported_flash_update_params = DEVLINK_SUPPORT_FLASH_UPDATE_COMPONENT |
 					 DEVLINK_SUPPORT_FLASH_UPDATE_OVERWRITE_MASK,
+	.reload_actions = BIT(DEVLINK_RELOAD_ACTION_DRIVER_REINIT),
 	.reload_down = nsim_dev_reload_down,
 	.reload_up = nsim_dev_reload_up,
 	.info_get = nsim_dev_info_get,

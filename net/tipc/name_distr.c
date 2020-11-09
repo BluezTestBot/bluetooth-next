@@ -244,24 +244,6 @@ static void tipc_publ_purge(struct net *net, struct publication *publ, u32 addr)
 		kfree_rcu(p, rcu);
 }
 
-/**
- * tipc_dist_queue_purge - remove deferred updates from a node that went down
- */
-static void tipc_dist_queue_purge(struct net *net, u32 addr)
-{
-	struct tipc_net *tn = net_generic(net, tipc_net_id);
-	struct distr_queue_item *e, *tmp;
-
-	spin_lock_bh(&tn->nametbl_lock);
-	list_for_each_entry_safe(e, tmp, &tn->dist_queue, next) {
-		if (e->node != addr)
-			continue;
-		list_del(&e->next);
-		kfree(e);
-	}
-	spin_unlock_bh(&tn->nametbl_lock);
-}
-
 void tipc_publ_notify(struct net *net, struct list_head *nsub_list,
 		      u32 addr, u16 capabilities)
 {
@@ -272,7 +254,6 @@ void tipc_publ_notify(struct net *net, struct list_head *nsub_list,
 
 	list_for_each_entry_safe(publ, tmp, nsub_list, binding_node)
 		tipc_publ_purge(net, publ, addr);
-	tipc_dist_queue_purge(net, addr);
 	spin_lock_bh(&tn->nametbl_lock);
 	if (!(capabilities & TIPC_NAMED_BCAST))
 		nt->rc_dests--;
@@ -327,8 +308,13 @@ static struct sk_buff *tipc_named_dequeue(struct sk_buff_head *namedq,
 	struct tipc_msg *hdr;
 	u16 seqno;
 
+	spin_lock_bh(&namedq->lock);
 	skb_queue_walk_safe(namedq, skb, tmp) {
-		skb_linearize(skb);
+		if (unlikely(skb_linearize(skb))) {
+			__skb_unlink(skb, namedq);
+			kfree_skb(skb);
+			continue;
+		}
 		hdr = buf_msg(skb);
 		seqno = msg_named_seqno(hdr);
 		if (msg_is_last_bulk(hdr)) {
@@ -338,12 +324,14 @@ static struct sk_buff *tipc_named_dequeue(struct sk_buff_head *namedq,
 
 		if (msg_is_bulk(hdr) || msg_is_legacy(hdr)) {
 			__skb_unlink(skb, namedq);
+			spin_unlock_bh(&namedq->lock);
 			return skb;
 		}
 
 		if (*open && (*rcv_nxt == seqno)) {
 			(*rcv_nxt)++;
 			__skb_unlink(skb, namedq);
+			spin_unlock_bh(&namedq->lock);
 			return skb;
 		}
 
@@ -353,6 +341,7 @@ static struct sk_buff *tipc_named_dequeue(struct sk_buff_head *namedq,
 			continue;
 		}
 	}
+	spin_unlock_bh(&namedq->lock);
 	return NULL;
 }
 

@@ -1056,7 +1056,9 @@ struct ice_aq_task {
 int ice_aq_wait_for_event(struct ice_pf *pf, u16 opcode, unsigned long timeout,
 			  struct ice_rq_event_info *event)
 {
+	struct device *dev = ice_pf_to_dev(pf);
 	struct ice_aq_task *task;
+	unsigned long start;
 	long ret;
 	int err;
 
@@ -1072,6 +1074,8 @@ int ice_aq_wait_for_event(struct ice_pf *pf, u16 opcode, unsigned long timeout,
 	spin_lock_bh(&pf->aq_wait_lock);
 	hlist_add_head(&task->entry, &pf->aq_wait_list);
 	spin_unlock_bh(&pf->aq_wait_lock);
+
+	start = jiffies;
 
 	ret = wait_event_interruptible_timeout(pf->aq_wait_queue, task->state,
 					       timeout);
@@ -1090,6 +1094,11 @@ int ice_aq_wait_for_event(struct ice_pf *pf, u16 opcode, unsigned long timeout,
 		err = -EINVAL;
 		break;
 	}
+
+	dev_dbg(dev, "Waited %u msecs (max %u msecs) for firmware response to op 0x%04x\n",
+		jiffies_to_msecs(jiffies - start),
+		jiffies_to_msecs(timeout),
+		opcode);
 
 	spin_lock_bh(&pf->aq_wait_lock);
 	hlist_del(&task->entry);
@@ -2416,7 +2425,7 @@ int ice_destroy_xdp_rings(struct ice_vsi *vsi)
 	int i, v_idx;
 
 	/* q_vectors are freed in reset path so there's no point in detaching
-	 * rings; in case of rebuild being triggered not from reset reset bits
+	 * rings; in case of rebuild being triggered not from reset bits
 	 * in pf->state won't be set, so additionally check first q_vector
 	 * against NULL
 	 */
@@ -2953,7 +2962,7 @@ static int ice_cfg_netdev(struct ice_vsi *vsi)
 	u8 mac_addr[ETH_ALEN];
 	int err;
 
-	err = ice_devlink_create_port(pf);
+	err = ice_devlink_create_port(vsi);
 	if (err)
 		return err;
 
@@ -2994,7 +3003,7 @@ static int ice_cfg_netdev(struct ice_vsi *vsi)
 	if (err)
 		goto err_free_netdev;
 
-	devlink_port_type_eth_set(&pf->devlink_port, vsi->netdev);
+	devlink_port_type_eth_set(&vsi->devlink_port, vsi->netdev);
 
 	netif_carrier_off(vsi->netdev);
 
@@ -3007,7 +3016,7 @@ err_free_netdev:
 	free_netdev(vsi->netdev);
 	vsi->netdev = NULL;
 err_destroy_devlink_port:
-	ice_devlink_destroy_port(pf);
+	ice_devlink_destroy_port(vsi);
 	return err;
 }
 
@@ -3169,10 +3178,8 @@ static int ice_setup_pf_sw(struct ice_pf *pf)
 		return -EBUSY;
 
 	vsi = ice_pf_vsi_setup(pf, pf->hw.port_info);
-	if (!vsi) {
-		status = -ENOMEM;
-		goto unroll_vsi_setup;
-	}
+	if (!vsi)
+		return -ENOMEM;
 
 	status = ice_cfg_netdev(vsi);
 	if (status) {
@@ -3219,12 +3226,7 @@ unroll_napi_add:
 	}
 
 unroll_vsi_setup:
-	if (vsi) {
-		ice_vsi_free_q_vectors(vsi);
-		ice_vsi_delete(vsi);
-		ice_vsi_put_qs(vsi);
-		ice_vsi_clear(vsi);
-	}
+	ice_vsi_release(vsi);
 	return status;
 }
 
@@ -4249,7 +4251,6 @@ probe_done:
 err_send_version_unroll:
 	ice_vsi_release_all(pf);
 err_alloc_sw_unroll:
-	ice_devlink_destroy_port(pf);
 	set_bit(__ICE_SERVICE_DIS, pf->state);
 	set_bit(__ICE_DOWN, pf->state);
 	devm_kfree(dev, pf->first_sw);
@@ -4364,7 +4365,6 @@ static void ice_remove(struct pci_dev *pdev)
 	if (!ice_is_safe_mode(pf))
 		ice_remove_arfs(pf);
 	ice_setup_mc_magic_wake(pf);
-	ice_devlink_destroy_port(pf);
 	ice_vsi_release_all(pf);
 	ice_set_wake(pf);
 	ice_free_irq_msix_misc(pf);
@@ -4548,6 +4548,7 @@ static int __maybe_unused ice_suspend(struct device *dev)
 	}
 	ice_clear_interrupt_scheme(pf);
 
+	pci_save_state(pdev);
 	pci_wake_from_d3(pdev, pf->wol_ena);
 	pci_set_power_state(pdev, PCI_D3hot);
 	return 0;

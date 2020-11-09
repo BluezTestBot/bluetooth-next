@@ -4,7 +4,6 @@
 #include "enetc.h"
 #include <linux/tcp.h>
 #include <linux/udp.h>
-#include <linux/of_mdio.h>
 #include <linux/vmalloc.h>
 
 /* ENETC overhead: optional extension BD + 1 BD gap */
@@ -46,40 +45,6 @@ netdev_tx_t enetc_xmit(struct sk_buff *skb, struct net_device *ndev)
 drop_packet_err:
 	dev_kfree_skb_any(skb);
 	return NETDEV_TX_OK;
-}
-
-static bool enetc_tx_csum(struct sk_buff *skb, union enetc_tx_bd *txbd)
-{
-	int l3_start, l3_hsize;
-	u16 l3_flags, l4_flags;
-
-	if (skb->ip_summed != CHECKSUM_PARTIAL)
-		return false;
-
-	switch (skb->csum_offset) {
-	case offsetof(struct tcphdr, check):
-		l4_flags = ENETC_TXBD_L4_TCP;
-		break;
-	case offsetof(struct udphdr, check):
-		l4_flags = ENETC_TXBD_L4_UDP;
-		break;
-	default:
-		skb_checksum_help(skb);
-		return false;
-	}
-
-	l3_start = skb_network_offset(skb);
-	l3_hsize = skb_network_header_len(skb);
-
-	l3_flags = 0;
-	if (skb->protocol == htons(ETH_P_IPV6))
-		l3_flags = ENETC_TXBD_L3_IPV6;
-
-	/* write BD fields */
-	txbd->l3_csoff = enetc_txbd_l3_csoff(l3_start, l3_hsize, l3_flags);
-	txbd->l4_csoff = l4_flags;
-
-	return true;
 }
 
 static void enetc_unmap_tx_buff(struct enetc_bdr *tx_ring,
@@ -147,22 +112,16 @@ static int enetc_map_tx_buffs(struct enetc_bdr *tx_ring, struct sk_buff *skb,
 	if (do_vlan || do_tstamp)
 		flags |= ENETC_TXBD_FLAGS_EX;
 
-	if (enetc_tx_csum(skb, &temp_bd))
-		flags |= ENETC_TXBD_FLAGS_CSUM | ENETC_TXBD_FLAGS_L4CS;
-	else if (tx_ring->tsd_enable)
+	if (tx_ring->tsd_enable)
 		flags |= ENETC_TXBD_FLAGS_TSE | ENETC_TXBD_FLAGS_TXSTART;
 
 	/* first BD needs frm_len and offload flags set */
 	temp_bd.frm_len = cpu_to_le16(skb->len);
 	temp_bd.flags = flags;
 
-	if (flags & ENETC_TXBD_FLAGS_TSE) {
-		u32 temp;
-
-		temp = (skb->skb_mstamp_ns >> 5 & ENETC_TXBD_TXSTART_MASK)
-			| (flags << ENETC_TXBD_FLAGS_OFFSET);
-		temp_bd.txstart = cpu_to_le32(temp);
-	}
+	if (flags & ENETC_TXBD_FLAGS_TSE)
+		temp_bd.txstart = enetc_txbd_set_tx_start(skb->skb_mstamp_ns,
+							  flags);
 
 	if (flags & ENETC_TXBD_FLAGS_EX) {
 		u8 e_flags = 0;
@@ -1392,38 +1351,24 @@ static void enetc_clear_interrupts(struct enetc_ndev_priv *priv)
 		enetc_rxbdr_wr(&priv->si->hw, i, ENETC_RBIER, 0);
 }
 
-static void adjust_link(struct net_device *ndev)
+static int enetc_phylink_connect(struct net_device *ndev)
 {
 	struct enetc_ndev_priv *priv = netdev_priv(ndev);
-	struct phy_device *phydev = ndev->phydev;
-
-	if (priv->active_offloads & ENETC_F_QBV)
-		enetc_sched_speed_set(ndev);
-
-	phy_print_status(phydev);
-}
-
-static int enetc_phy_connect(struct net_device *ndev)
-{
-	struct enetc_ndev_priv *priv = netdev_priv(ndev);
-	struct phy_device *phydev;
 	struct ethtool_eee edata;
+	int err;
 
-	if (!priv->phy_node)
+	if (!priv->phylink)
 		return 0; /* phy-less mode */
 
-	phydev = of_phy_connect(ndev, priv->phy_node, &adjust_link,
-				0, priv->if_mode);
-	if (!phydev) {
+	err = phylink_of_phy_connect(priv->phylink, priv->dev->of_node, 0);
+	if (err) {
 		dev_err(&ndev->dev, "could not attach to PHY\n");
-		return -ENODEV;
+		return err;
 	}
-
-	phy_attached_info(phydev);
 
 	/* disable EEE autoneg, until ENETC driver supports it */
 	memset(&edata, 0, sizeof(struct ethtool_eee));
-	phy_ethtool_set_eee(phydev, &edata);
+	phylink_ethtool_set_eee(priv->phylink, &edata);
 
 	return 0;
 }
@@ -1443,8 +1388,8 @@ void enetc_start(struct net_device *ndev)
 		enable_irq(irq);
 	}
 
-	if (ndev->phydev)
-		phy_start(ndev->phydev);
+	if (priv->phylink)
+		phylink_start(priv->phylink);
 	else
 		netif_carrier_on(ndev);
 
@@ -1460,7 +1405,7 @@ int enetc_open(struct net_device *ndev)
 	if (err)
 		return err;
 
-	err = enetc_phy_connect(ndev);
+	err = enetc_phylink_connect(ndev);
 	if (err)
 		goto err_phy_connect;
 
@@ -1490,8 +1435,8 @@ err_set_queues:
 err_alloc_rx:
 	enetc_free_tx_resources(priv);
 err_alloc_tx:
-	if (ndev->phydev)
-		phy_disconnect(ndev->phydev);
+	if (priv->phylink)
+		phylink_disconnect_phy(priv->phylink);
 err_phy_connect:
 	enetc_free_irqs(priv);
 
@@ -1514,8 +1459,8 @@ void enetc_stop(struct net_device *ndev)
 		napi_disable(&priv->int_vector[i]->napi);
 	}
 
-	if (ndev->phydev)
-		phy_stop(ndev->phydev);
+	if (priv->phylink)
+		phylink_stop(priv->phylink);
 	else
 		netif_carrier_off(ndev);
 
@@ -1529,8 +1474,8 @@ int enetc_close(struct net_device *ndev)
 	enetc_stop(ndev);
 	enetc_clear_bdrs(priv);
 
-	if (ndev->phydev)
-		phy_disconnect(ndev->phydev);
+	if (priv->phylink)
+		phylink_disconnect_phy(priv->phylink);
 	enetc_free_rxtx_rings(priv);
 	enetc_free_rx_resources(priv);
 	enetc_free_tx_resources(priv);
@@ -1780,6 +1725,7 @@ static int enetc_hwtstamp_get(struct net_device *ndev, struct ifreq *ifr)
 
 int enetc_ioctl(struct net_device *ndev, struct ifreq *rq, int cmd)
 {
+	struct enetc_ndev_priv *priv = netdev_priv(ndev);
 #ifdef CONFIG_FSL_ENETC_PTP_CLOCK
 	if (cmd == SIOCSHWTSTAMP)
 		return enetc_hwtstamp_set(ndev, rq);
@@ -1787,9 +1733,10 @@ int enetc_ioctl(struct net_device *ndev, struct ifreq *rq, int cmd)
 		return enetc_hwtstamp_get(ndev, rq);
 #endif
 
-	if (!ndev->phydev)
+	if (!priv->phylink)
 		return -EOPNOTSUPP;
-	return phy_mii_ioctl(ndev->phydev, rq, cmd);
+
+	return phylink_mii_ioctl(priv->phylink, rq, cmd);
 }
 
 int enetc_alloc_msix(struct enetc_ndev_priv *priv)
@@ -1910,8 +1857,7 @@ static void enetc_kfree_si(struct enetc_si *si)
 static void enetc_detect_errata(struct enetc_si *si)
 {
 	if (si->pdev->revision == ENETC_REV1)
-		si->errata = ENETC_ERR_TXCSUM | ENETC_ERR_VLAN_ISOL |
-			     ENETC_ERR_UCMCSWP;
+		si->errata = ENETC_ERR_VLAN_ISOL | ENETC_ERR_UCMCSWP;
 }
 
 int enetc_pci_probe(struct pci_dev *pdev, const char *name, int sizeof_priv)

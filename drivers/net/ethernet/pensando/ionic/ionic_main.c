@@ -64,6 +64,8 @@ static const char *ionic_error_to_str(enum ionic_status_code code)
 		return "IONIC_RC_ERROR";
 	case IONIC_RC_ERDMA:
 		return "IONIC_RC_ERDMA";
+	case IONIC_RC_EBAD_FW:
+		return "IONIC_RC_EBAD_FW";
 	default:
 		return "IONIC_RC_UNKNOWN";
 	}
@@ -309,7 +311,7 @@ int ionic_adminq_post_wait(struct ionic_lif *lif, struct ionic_admin_ctx *ctx)
 
 static void ionic_dev_cmd_clean(struct ionic *ionic)
 {
-	union ionic_dev_cmd_regs *regs = ionic->idev.dev_cmd_regs;
+	union __iomem ionic_dev_cmd_regs *regs = ionic->idev.dev_cmd_regs;
 
 	iowrite32(0, &regs->doorbell);
 	memset_io(&regs->cmd, 0, sizeof(regs->cmd));
@@ -331,7 +333,7 @@ int ionic_dev_cmd_wait(struct ionic *ionic, unsigned long max_seconds)
 	 */
 	max_wait = jiffies + (max_seconds * HZ);
 try_again:
-	opcode = idev->dev_cmd_regs->cmd.cmd.opcode;
+	opcode = readb(&idev->dev_cmd_regs->cmd.cmd.opcode);
 	start_time = jiffies;
 	do {
 		done = ionic_dev_cmd_done(idev);
@@ -429,17 +431,23 @@ int ionic_identify(struct ionic *ionic)
 		sz = min(sizeof(ident->dev), sizeof(idev->dev_cmd_regs->data));
 		memcpy_fromio(&ident->dev, &idev->dev_cmd_regs->data, sz);
 	}
-
 	mutex_unlock(&ionic->dev_cmd_lock);
 
-	if (err)
-		goto err_out_unmap;
+	if (err) {
+		dev_err(ionic->dev, "Cannot identify ionic: %dn", err);
+		goto err_out;
+	}
 
-	ionic_debugfs_add_ident(ionic);
+	err = ionic_lif_identify(ionic, IONIC_LIF_TYPE_CLASSIC,
+				 &ionic->ident.lif);
+	if (err) {
+		dev_err(ionic->dev, "Cannot identify LIFs: %d\n", err);
+		goto err_out;
+	}
 
 	return 0;
 
-err_out_unmap:
+err_out:
 	return err;
 }
 

@@ -205,6 +205,9 @@ struct stmmac_priv {
 	int eee_enabled;
 	int eee_active;
 	int tx_lpi_timer;
+	int tx_lpi_enabled;
+	int eee_tw_timer;
+	bool eee_sw_timer_en;
 	unsigned int mode;
 	unsigned int chain_mode;
 	int extend_desc;

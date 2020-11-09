@@ -182,8 +182,6 @@ static bool gtp_check_ms(struct sk_buff *skb, struct pdp_ctx *pctx,
 static int gtp_rx(struct pdp_ctx *pctx, struct sk_buff *skb,
 			unsigned int hdrlen, unsigned int role)
 {
-	struct pcpu_sw_netstats *stats;
-
 	if (!gtp_check_ms(skb, pctx, hdrlen, role)) {
 		netdev_dbg(pctx->dev, "No PDP ctx for this MS\n");
 		return 1;
@@ -204,11 +202,7 @@ static int gtp_rx(struct pdp_ctx *pctx, struct sk_buff *skb,
 
 	skb->dev = pctx->dev;
 
-	stats = this_cpu_ptr(pctx->dev->tstats);
-	u64_stats_update_begin(&stats->syncp);
-	stats->rx_packets++;
-	stats->rx_bytes += skb->len;
-	u64_stats_update_end(&stats->syncp);
+	dev_sw_netstats_rx_add(pctx->dev, skb->len);
 
 	netif_rx(skb);
 	return 0;
@@ -663,10 +657,6 @@ static int gtp_newlink(struct net *src_net, struct net_device *dev,
 
 	gtp = netdev_priv(dev);
 
-	err = gtp_encap_enable(gtp, data);
-	if (err < 0)
-		return err;
-
 	if (!data[IFLA_GTP_PDP_HASHSIZE]) {
 		hashsize = 1024;
 	} else {
@@ -677,12 +667,16 @@ static int gtp_newlink(struct net *src_net, struct net_device *dev,
 
 	err = gtp_hashtable_new(gtp, hashsize);
 	if (err < 0)
-		goto out_encap;
+		return err;
+
+	err = gtp_encap_enable(gtp, data);
+	if (err < 0)
+		goto out_hashtable;
 
 	err = register_netdevice(dev);
 	if (err < 0) {
 		netdev_dbg(dev, "failed to register new netdev %d\n", err);
-		goto out_hashtable;
+		goto out_encap;
 	}
 
 	gn = net_generic(dev_net(dev), gtp_net_id);
@@ -693,11 +687,11 @@ static int gtp_newlink(struct net *src_net, struct net_device *dev,
 
 	return 0;
 
+out_encap:
+	gtp_encap_disable(gtp);
 out_hashtable:
 	kfree(gtp->addr_hash);
 	kfree(gtp->tid_hash);
-out_encap:
-	gtp_encap_disable(gtp);
 	return err;
 }
 
@@ -1339,7 +1333,7 @@ static const struct nla_policy gtp_genl_policy[GTPA_MAX + 1] = {
 	[GTPA_O_TEI]		= { .type = NLA_U32, },
 };
 
-static const struct genl_ops gtp_genl_ops[] = {
+static const struct genl_small_ops gtp_genl_ops[] = {
 	{
 		.cmd = GTP_CMD_NEWPDP,
 		.validate = GENL_DONT_VALIDATE_STRICT | GENL_DONT_VALIDATE_DUMP,
@@ -1369,8 +1363,8 @@ static struct genl_family gtp_genl_family __ro_after_init = {
 	.policy = gtp_genl_policy,
 	.netnsok	= true,
 	.module		= THIS_MODULE,
-	.ops		= gtp_genl_ops,
-	.n_ops		= ARRAY_SIZE(gtp_genl_ops),
+	.small_ops	= gtp_genl_ops,
+	.n_small_ops	= ARRAY_SIZE(gtp_genl_ops),
 	.mcgrps		= gtp_genl_mcgrps,
 	.n_mcgrps	= ARRAY_SIZE(gtp_genl_mcgrps),
 };

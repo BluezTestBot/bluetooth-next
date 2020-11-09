@@ -60,7 +60,6 @@ EXPORT_SYMBOL_GPL(can_len2dlc);
 
 #ifdef CONFIG_CAN_CALC_BITTIMING
 #define CAN_CALC_MAX_ERROR 50 /* in one-tenth of a percent */
-#define CAN_CALC_SYNC_SEG 1
 
 /* Bit-timing calculation derived from:
  *
@@ -86,8 +85,8 @@ can_update_sample_point(const struct can_bittiming_const *btc,
 	int i;
 
 	for (i = 0; i <= 1; i++) {
-		tseg2 = tseg + CAN_CALC_SYNC_SEG -
-			(sample_point_nominal * (tseg + CAN_CALC_SYNC_SEG)) /
+		tseg2 = tseg + CAN_SYNC_SEG -
+			(sample_point_nominal * (tseg + CAN_SYNC_SEG)) /
 			1000 - i;
 		tseg2 = clamp(tseg2, btc->tseg2_min, btc->tseg2_max);
 		tseg1 = tseg - tseg2;
@@ -96,8 +95,8 @@ can_update_sample_point(const struct can_bittiming_const *btc,
 			tseg2 = tseg - tseg1;
 		}
 
-		sample_point = 1000 * (tseg + CAN_CALC_SYNC_SEG - tseg2) /
-			(tseg + CAN_CALC_SYNC_SEG);
+		sample_point = 1000 * (tseg + CAN_SYNC_SEG - tseg2) /
+			(tseg + CAN_SYNC_SEG);
 		sample_point_error = abs(sample_point_nominal - sample_point);
 
 		if (sample_point <= sample_point_nominal &&
@@ -145,7 +144,7 @@ static int can_calc_bittiming(struct net_device *dev, struct can_bittiming *bt,
 	/* tseg even = round down, odd = round up */
 	for (tseg = (btc->tseg1_max + btc->tseg2_max) * 2 + 1;
 	     tseg >= (btc->tseg1_min + btc->tseg2_min) * 2; tseg--) {
-		tsegall = CAN_CALC_SYNC_SEG + tseg / 2;
+		tsegall = CAN_SYNC_SEG + tseg / 2;
 
 		/* Compute all possible tseg choices (tseg=tseg1+tseg2) */
 		brp = priv->clock.freq / (tsegall * bt->bitrate) + tseg % 2;
@@ -223,7 +222,7 @@ static int can_calc_bittiming(struct net_device *dev, struct can_bittiming *bt,
 
 	/* real bitrate */
 	bt->bitrate = priv->clock.freq /
-		(bt->brp * (CAN_CALC_SYNC_SEG + tseg1 + tseg2));
+		(bt->brp * (CAN_SYNC_SEG + tseg1 + tseg2));
 
 	return 0;
 }
@@ -513,9 +512,13 @@ __can_get_echo_skb(struct net_device *dev, unsigned int idx, u8 *len_ptr)
 		 */
 		struct sk_buff *skb = priv->echo_skb[idx];
 		struct canfd_frame *cf = (struct canfd_frame *)skb->data;
-		u8 len = cf->len;
 
-		*len_ptr = len;
+		/* get the real payload length for netdev statistics */
+		if (cf->can_id & CAN_RTR_FLAG)
+			*len_ptr = 0;
+		else
+			*len_ptr = cf->len;
+
 		priv->echo_skb[idx] = NULL;
 
 		return skb;
@@ -539,7 +542,11 @@ unsigned int can_get_echo_skb(struct net_device *dev, unsigned int idx)
 	if (!skb)
 		return 0;
 
-	netif_rx(skb);
+	skb_get(skb);
+	if (netif_rx(skb) == NET_RX_SUCCESS)
+		dev_consume_skb_any(skb);
+	else
+		dev_kfree_skb_any(skb);
 
 	return len;
 }

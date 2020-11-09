@@ -2745,7 +2745,8 @@ static void __ip6_rt_update_pmtu(struct dst_entry *dst, const struct sock *sk,
 	if (confirm_neigh)
 		dst_confirm_neigh(dst, daddr);
 
-	mtu = max_t(u32, mtu, IPV6_MIN_MTU);
+	if (mtu < IPV6_MIN_MTU)
+		return;
 	if (mtu >= dst_mtu(dst))
 		return;
 
@@ -6037,11 +6038,6 @@ void fib6_rt_update(struct net *net, struct fib6_info *rt,
 	u32 seq = info->nlh ? info->nlh->nlmsg_seq : 0;
 	struct sk_buff *skb;
 	int err = -ENOBUFS;
-
-	/* call_fib6_entry_notifiers will be removed when in-kernel notifier
-	 * is implemented and supported for nexthop objects
-	 */
-	call_fib6_entry_notifiers(net, FIB_EVENT_ENTRY_REPLACE, rt, NULL);
 
 	skb = nlmsg_new(rt6_nlmsg_size(rt), gfp_any());
 	if (!skb)

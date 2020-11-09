@@ -84,6 +84,9 @@ struct sifive_fu540_macb_mgmt {
 #define MACB_WOL_HAS_MAGIC_PACKET	(0x1 << 0)
 #define MACB_WOL_ENABLED		(0x1 << 1)
 
+#define HS_SPEED_10000M			4
+#define MACB_SERDES_RATE_10G		1
+
 /* Graceful stop timeouts in us. We should allow up to
  * 1 frame time (10 Mbits/s, full-duplex, ignoring collisions)
  */
@@ -513,6 +516,7 @@ static void macb_validate(struct phylink_config *config,
 	    state->interface != PHY_INTERFACE_MODE_RMII &&
 	    state->interface != PHY_INTERFACE_MODE_GMII &&
 	    state->interface != PHY_INTERFACE_MODE_SGMII &&
+	    state->interface != PHY_INTERFACE_MODE_10GBASER &&
 	    !phy_interface_mode_is_rgmii(state->interface)) {
 		bitmap_zero(supported, __ETHTOOL_LINK_MODE_MASK_NBITS);
 		return;
@@ -525,9 +529,30 @@ static void macb_validate(struct phylink_config *config,
 		return;
 	}
 
+	if (state->interface == PHY_INTERFACE_MODE_10GBASER &&
+	    !(bp->caps & MACB_CAPS_HIGH_SPEED &&
+	      bp->caps & MACB_CAPS_PCS)) {
+		bitmap_zero(supported, __ETHTOOL_LINK_MODE_MASK_NBITS);
+		return;
+	}
+
 	phylink_set_port_modes(mask);
 	phylink_set(mask, Autoneg);
 	phylink_set(mask, Asym_Pause);
+
+	if (bp->caps & MACB_CAPS_GIGABIT_MODE_AVAILABLE &&
+	    (state->interface == PHY_INTERFACE_MODE_NA ||
+	     state->interface == PHY_INTERFACE_MODE_10GBASER)) {
+		phylink_set(mask, 10000baseCR_Full);
+		phylink_set(mask, 10000baseER_Full);
+		phylink_set(mask, 10000baseKR_Full);
+		phylink_set(mask, 10000baseLR_Full);
+		phylink_set(mask, 10000baseLRM_Full);
+		phylink_set(mask, 10000baseSR_Full);
+		phylink_set(mask, 10000baseT_Full);
+		if (state->interface != PHY_INTERFACE_MODE_NA)
+			goto out;
+	}
 
 	phylink_set(mask, 10baseT_Half);
 	phylink_set(mask, 10baseT_Full);
@@ -545,22 +570,89 @@ static void macb_validate(struct phylink_config *config,
 		if (!(bp->caps & MACB_CAPS_NO_GIGABIT_HALF))
 			phylink_set(mask, 1000baseT_Half);
 	}
-
+out:
 	bitmap_and(supported, supported, mask, __ETHTOOL_LINK_MODE_MASK_NBITS);
 	bitmap_and(state->advertising, state->advertising, mask,
 		   __ETHTOOL_LINK_MODE_MASK_NBITS);
 }
 
-static void macb_mac_pcs_get_state(struct phylink_config *config,
+static void macb_usx_pcs_link_up(struct phylink_pcs *pcs, unsigned int mode,
+				 phy_interface_t interface, int speed,
+				 int duplex)
+{
+	struct macb *bp = container_of(pcs, struct macb, phylink_pcs);
+	u32 config;
+
+	config = gem_readl(bp, USX_CONTROL);
+	config = GEM_BFINS(SERDES_RATE, MACB_SERDES_RATE_10G, config);
+	config = GEM_BFINS(USX_CTRL_SPEED, HS_SPEED_10000M, config);
+	config &= ~(GEM_BIT(TX_SCR_BYPASS) | GEM_BIT(RX_SCR_BYPASS));
+	config |= GEM_BIT(TX_EN);
+	gem_writel(bp, USX_CONTROL, config);
+}
+
+static void macb_usx_pcs_get_state(struct phylink_pcs *pcs,
 				   struct phylink_link_state *state)
+{
+	struct macb *bp = container_of(pcs, struct macb, phylink_pcs);
+	u32 val;
+
+	state->speed = SPEED_10000;
+	state->duplex = 1;
+	state->an_complete = 1;
+
+	val = gem_readl(bp, USX_STATUS);
+	state->link = !!(val & GEM_BIT(USX_BLOCK_LOCK));
+	val = gem_readl(bp, NCFGR);
+	if (val & GEM_BIT(PAE))
+		state->pause = MLO_PAUSE_RX;
+}
+
+static int macb_usx_pcs_config(struct phylink_pcs *pcs,
+			       unsigned int mode,
+			       phy_interface_t interface,
+			       const unsigned long *advertising,
+			       bool permit_pause_to_mac)
+{
+	struct macb *bp = container_of(pcs, struct macb, phylink_pcs);
+
+	gem_writel(bp, USX_CONTROL, gem_readl(bp, USX_CONTROL) |
+		   GEM_BIT(SIGNAL_OK));
+
+	return 0;
+}
+
+static void macb_pcs_get_state(struct phylink_pcs *pcs,
+			       struct phylink_link_state *state)
 {
 	state->link = 0;
 }
 
-static void macb_mac_an_restart(struct phylink_config *config)
+static void macb_pcs_an_restart(struct phylink_pcs *pcs)
 {
 	/* Not supported */
 }
+
+static int macb_pcs_config(struct phylink_pcs *pcs,
+			   unsigned int mode,
+			   phy_interface_t interface,
+			   const unsigned long *advertising,
+			   bool permit_pause_to_mac)
+{
+	return 0;
+}
+
+static const struct phylink_pcs_ops macb_phylink_usx_pcs_ops = {
+	.pcs_get_state = macb_usx_pcs_get_state,
+	.pcs_config = macb_usx_pcs_config,
+	.pcs_link_up = macb_usx_pcs_link_up,
+};
+
+static const struct phylink_pcs_ops macb_phylink_pcs_ops = {
+	.pcs_get_state = macb_pcs_get_state,
+	.pcs_an_restart = macb_pcs_an_restart,
+	.pcs_config = macb_pcs_config,
+};
 
 static void macb_mac_config(struct phylink_config *config, unsigned int mode,
 			    const struct phylink_link_state *state)
@@ -569,24 +661,34 @@ static void macb_mac_config(struct phylink_config *config, unsigned int mode,
 	struct macb *bp = netdev_priv(ndev);
 	unsigned long flags;
 	u32 old_ctrl, ctrl;
+	u32 old_ncr, ncr;
 
 	spin_lock_irqsave(&bp->lock, flags);
 
 	old_ctrl = ctrl = macb_or_gem_readl(bp, NCFGR);
+	old_ncr = ncr = macb_or_gem_readl(bp, NCR);
 
 	if (bp->caps & MACB_CAPS_MACB_IS_EMAC) {
 		if (state->interface == PHY_INTERFACE_MODE_RMII)
 			ctrl |= MACB_BIT(RM9200_RMII);
 	} else if (macb_is_gem(bp)) {
 		ctrl &= ~(GEM_BIT(SGMIIEN) | GEM_BIT(PCSSEL));
+		ncr &= ~GEM_BIT(ENABLE_HS_MAC);
 
-		if (state->interface == PHY_INTERFACE_MODE_SGMII)
+		if (state->interface == PHY_INTERFACE_MODE_SGMII) {
 			ctrl |= GEM_BIT(SGMIIEN) | GEM_BIT(PCSSEL);
+		} else if (state->interface == PHY_INTERFACE_MODE_10GBASER) {
+			ctrl |= GEM_BIT(PCSSEL);
+			ncr |= GEM_BIT(ENABLE_HS_MAC);
+		}
 	}
 
 	/* Apply the new configuration, if any */
 	if (old_ctrl ^ ctrl)
 		macb_or_gem_writel(bp, NCFGR, ctrl);
+
+	if (old_ncr ^ ncr)
+		macb_or_gem_writel(bp, NCR, ncr);
 
 	spin_unlock_irqrestore(&bp->lock, flags);
 }
@@ -664,6 +766,10 @@ static void macb_mac_link_up(struct phylink_config *config,
 
 	macb_or_gem_writel(bp, NCFGR, ctrl);
 
+	if (bp->phy_interface == PHY_INTERFACE_MODE_10GBASER)
+		gem_writel(bp, HS_MAC_CONFIG, GEM_BFINS(HS_MAC_SPEED, HS_SPEED_10000M,
+							gem_readl(bp, HS_MAC_CONFIG)));
+
 	spin_unlock_irqrestore(&bp->lock, flags);
 
 	/* Enable Rx and Tx */
@@ -672,10 +778,28 @@ static void macb_mac_link_up(struct phylink_config *config,
 	netif_tx_wake_all_queues(ndev);
 }
 
+static int macb_mac_prepare(struct phylink_config *config, unsigned int mode,
+			    phy_interface_t interface)
+{
+	struct net_device *ndev = to_net_dev(config->dev);
+	struct macb *bp = netdev_priv(ndev);
+
+	if (interface == PHY_INTERFACE_MODE_10GBASER)
+		bp->phylink_pcs.ops = &macb_phylink_usx_pcs_ops;
+	else if (interface == PHY_INTERFACE_MODE_SGMII)
+		bp->phylink_pcs.ops = &macb_phylink_pcs_ops;
+	else
+		bp->phylink_pcs.ops = NULL;
+
+	if (bp->phylink_pcs.ops)
+		phylink_set_pcs(bp->phylink, &bp->phylink_pcs);
+
+	return 0;
+}
+
 static const struct phylink_mac_ops macb_phylink_ops = {
 	.validate = macb_validate,
-	.mac_pcs_get_state = macb_mac_pcs_get_state,
-	.mac_an_restart = macb_mac_an_restart,
+	.mac_prepare = macb_mac_prepare,
 	.mac_config = macb_mac_config,
 	.mac_link_down = macb_mac_link_down,
 	.mac_link_up = macb_mac_link_up,
@@ -1929,7 +2053,8 @@ static inline int macb_clear_csum(struct sk_buff *skb)
 
 static int macb_pad_and_fcs(struct sk_buff **skb, struct net_device *ndev)
 {
-	bool cloned = skb_cloned(*skb) || skb_header_cloned(*skb);
+	bool cloned = skb_cloned(*skb) || skb_header_cloned(*skb) ||
+		      skb_is_nonlinear(*skb);
 	int padlen = ETH_ZLEN - (*skb)->len;
 	int headroom = skb_headroom(*skb);
 	int tailroom = skb_tailroom(*skb);
@@ -3523,6 +3648,11 @@ static void macb_configure_caps(struct macb *bp,
 		dcfg = gem_readl(bp, DCFG1);
 		if (GEM_BFEXT(IRQCOR, dcfg) == 0)
 			bp->caps |= MACB_CAPS_ISR_CLEAR_ON_WRITE;
+		if (GEM_BFEXT(NO_PCS, dcfg) == 0)
+			bp->caps |= MACB_CAPS_PCS;
+		dcfg = gem_readl(bp, DCFG12);
+		if (GEM_BFEXT(HIGH_SPEED, dcfg) == 1)
+			bp->caps |= MACB_CAPS_HIGH_SPEED;
 		dcfg = gem_readl(bp, DCFG2);
 		if ((dcfg & (GEM_BIT(RX_PKT_BUFF) | GEM_BIT(TX_PKT_BUFF))) == 0)
 			bp->caps |= MACB_CAPS_FIFO_MODE;
@@ -3908,6 +4038,7 @@ static int at91ether_start(struct macb *lp)
 			     MACB_BIT(ISR_TUND)	|
 			     MACB_BIT(ISR_RLE)	|
 			     MACB_BIT(TCOMP)	|
+			     MACB_BIT(RM9200_TBRE)	|
 			     MACB_BIT(ISR_ROVR)	|
 			     MACB_BIT(HRESP));
 
@@ -3924,6 +4055,7 @@ static void at91ether_stop(struct macb *lp)
 			     MACB_BIT(ISR_TUND)	|
 			     MACB_BIT(ISR_RLE)	|
 			     MACB_BIT(TCOMP)	|
+			     MACB_BIT(RM9200_TBRE)	|
 			     MACB_BIT(ISR_ROVR) |
 			     MACB_BIT(HRESP));
 
@@ -3993,24 +4125,34 @@ static netdev_tx_t at91ether_start_xmit(struct sk_buff *skb,
 					struct net_device *dev)
 {
 	struct macb *lp = netdev_priv(dev);
+	unsigned long flags;
 
-	if (macb_readl(lp, TSR) & MACB_BIT(RM9200_BNQ)) {
-		netif_stop_queue(dev);
+	if (lp->rm9200_tx_len < 2) {
+		int desc = lp->rm9200_tx_tail;
 
 		/* Store packet information (to free when Tx completed) */
-		lp->skb = skb;
-		lp->skb_length = skb->len;
-		lp->skb_physaddr = dma_map_single(&lp->pdev->dev, skb->data,
-						  skb->len, DMA_TO_DEVICE);
-		if (dma_mapping_error(&lp->pdev->dev, lp->skb_physaddr)) {
+		lp->rm9200_txq[desc].skb = skb;
+		lp->rm9200_txq[desc].size = skb->len;
+		lp->rm9200_txq[desc].mapping = dma_map_single(&lp->pdev->dev, skb->data,
+							      skb->len, DMA_TO_DEVICE);
+		if (dma_mapping_error(&lp->pdev->dev, lp->rm9200_txq[desc].mapping)) {
 			dev_kfree_skb_any(skb);
 			dev->stats.tx_dropped++;
 			netdev_err(dev, "%s: DMA mapping error\n", __func__);
 			return NETDEV_TX_OK;
 		}
 
+		spin_lock_irqsave(&lp->lock, flags);
+
+		lp->rm9200_tx_tail = (desc + 1) & 1;
+		lp->rm9200_tx_len++;
+		if (lp->rm9200_tx_len > 1)
+			netif_stop_queue(dev);
+
+		spin_unlock_irqrestore(&lp->lock, flags);
+
 		/* Set address of the data in the Transmit Address register */
-		macb_writel(lp, TAR, lp->skb_physaddr);
+		macb_writel(lp, TAR, lp->rm9200_txq[desc].mapping);
 		/* Set length of the packet in the Transmit Control register */
 		macb_writel(lp, TCR, skb->len);
 
@@ -4073,6 +4215,9 @@ static irqreturn_t at91ether_interrupt(int irq, void *dev_id)
 	struct net_device *dev = dev_id;
 	struct macb *lp = netdev_priv(dev);
 	u32 intstatus, ctl;
+	unsigned int desc;
+	unsigned int qlen;
+	u32 tsr;
 
 	/* MAC Interrupt Status register indicates what interrupts are pending.
 	 * It is automatically cleared once read.
@@ -4084,20 +4229,39 @@ static irqreturn_t at91ether_interrupt(int irq, void *dev_id)
 		at91ether_rx(dev);
 
 	/* Transmit complete */
-	if (intstatus & MACB_BIT(TCOMP)) {
+	if (intstatus & (MACB_BIT(TCOMP) | MACB_BIT(RM9200_TBRE))) {
 		/* The TCOM bit is set even if the transmission failed */
 		if (intstatus & (MACB_BIT(ISR_TUND) | MACB_BIT(ISR_RLE)))
 			dev->stats.tx_errors++;
 
-		if (lp->skb) {
-			dev_consume_skb_irq(lp->skb);
-			lp->skb = NULL;
-			dma_unmap_single(&lp->pdev->dev, lp->skb_physaddr,
-					 lp->skb_length, DMA_TO_DEVICE);
+		spin_lock(&lp->lock);
+
+		tsr = macb_readl(lp, TSR);
+
+		/* we have three possibilities here:
+		 *   - all pending packets transmitted (TGO, implies BNQ)
+		 *   - only first packet transmitted (!TGO && BNQ)
+		 *   - two frames pending (!TGO && !BNQ)
+		 * Note that TGO ("transmit go") is called "IDLE" on RM9200.
+		 */
+		qlen = (tsr & MACB_BIT(TGO)) ? 0 :
+			(tsr & MACB_BIT(RM9200_BNQ)) ? 1 : 2;
+
+		while (lp->rm9200_tx_len > qlen) {
+			desc = (lp->rm9200_tx_tail - lp->rm9200_tx_len) & 1;
+			dev_consume_skb_irq(lp->rm9200_txq[desc].skb);
+			lp->rm9200_txq[desc].skb = NULL;
+			dma_unmap_single(&lp->pdev->dev, lp->rm9200_txq[desc].mapping,
+					 lp->rm9200_txq[desc].size, DMA_TO_DEVICE);
 			dev->stats.tx_packets++;
-			dev->stats.tx_bytes += lp->skb_length;
+			dev->stats.tx_bytes += lp->rm9200_txq[desc].size;
+			lp->rm9200_tx_len--;
 		}
-		netif_wake_queue(dev);
+
+		if (lp->rm9200_tx_len < 2 && netif_queue_stopped(dev))
+			netif_wake_queue(dev);
+
+		spin_unlock(&lp->lock);
 	}
 
 	/* Work-around for EMAC Errata section 41.3.1 */
