@@ -238,6 +238,13 @@ enum {
 	 * during the hdev->setup vendor callback.
 	 */
 	HCI_QUIRK_BROKEN_ERR_DATA_REPORTING,
+
+	/* When this quirk is set, the adapter will be powered down during
+	 * system suspend and powerd up on resume. This should be used on
+	 * controllers that don't behave well during suspend, either causing
+	 * spurious wakeups or not entering a suspend state reliably.
+	 */
+	HCI_QUIRK_POWER_DOWN_SYSTEM_SUSPEND,
 };
 
 /* HCI device flags */
