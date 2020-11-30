@@ -32,6 +32,7 @@ static bool force_scofix;
 static bool enable_autosuspend = IS_ENABLED(CONFIG_BT_HCIBTUSB_AUTOSUSPEND);
 
 static bool reset = true;
+static bool force_load_fw;
 
 static struct usb_driver btusb_driver;
 
@@ -2614,8 +2615,15 @@ static int btusb_setup_intel_new(struct hci_dev *hdev)
 		return err;
 
 	/* controller is already having an operational firmware */
-	if (ver.fw_variant == 0x23)
+	if (ver.fw_variant == 0x23) {
+		if (force_load_fw) {
+			btintel_reset_to_bootloader(hdev);
+			force_load_fw = false;
+			return -EAGAIN;
+		}
+		bt_dev_info(hdev, "already in operational mode, not load fw. Set force_load_fw=1 to load fw forcibly");
 		goto finish;
+	}
 
 	rettime = ktime_get();
 	delta = ktime_sub(rettime, calltime);
@@ -4475,6 +4483,9 @@ MODULE_PARM_DESC(enable_autosuspend, "Enable USB autosuspend by default");
 
 module_param(reset, bool, 0644);
 MODULE_PARM_DESC(reset, "Send HCI reset command on initialization");
+
+module_param(force_load_fw, bool, 0644);
+MODULE_PARM_DESC(force_load_fw, "Let Intel BT module load the fw unconditionally during boot");
 
 MODULE_AUTHOR("Marcel Holtmann <marcel@holtmann.org>");
 MODULE_DESCRIPTION("Generic Bluetooth USB driver ver " VERSION);
