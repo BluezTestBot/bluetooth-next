@@ -225,4 +225,3 @@ module_exit(tipc_exit);
 
 MODULE_DESCRIPTION("TIPC: Transparent Inter Process Communication");
 MODULE_LICENSE("Dual BSD/GPL");
-MODULE_VERSION(TIPC_MOD_VER);
