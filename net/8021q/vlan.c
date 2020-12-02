@@ -36,14 +36,9 @@
 #include "vlan.h"
 #include "vlanproc.h"
 
-#define DRV_VERSION "1.8"
-
 /* Global VLAN variables */
 
 unsigned int vlan_net_id __read_mostly;
-
-const char vlan_fullname[] = "802.1Q VLAN Support";
-const char vlan_version[] = DRV_VERSION;
 
 /* End of global variables definitions. */
 
@@ -687,7 +682,7 @@ static int __init vlan_proto_init(void)
 {
 	int err;
 
-	pr_info("%s v%s\n", vlan_fullname, vlan_version);
+	pr_info("802.1Q VLAN Support\n");
 
 	err = register_pernet_subsys(&vlan_net_ops);
 	if (err < 0)
@@ -743,4 +738,3 @@ module_init(vlan_proto_init);
 module_exit(vlan_cleanup_module);
 
 MODULE_LICENSE("GPL");
-MODULE_VERSION(DRV_VERSION);
