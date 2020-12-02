@@ -355,4 +355,3 @@ module_exit(tcp_illinois_unregister);
 MODULE_AUTHOR("Stephen Hemminger, Shao Liu");
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("TCP Illinois");
-MODULE_VERSION("1.0");

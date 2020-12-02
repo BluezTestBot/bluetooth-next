@@ -499,4 +499,3 @@ module_exit(tcpnv_unregister);
 MODULE_AUTHOR("Lawrence Brakmo");
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("TCP NV");
-MODULE_VERSION("1.0");
