@@ -21,8 +21,6 @@
 
 #include <net/6lowpan.h> /* for the compression support */
 
-#define VERSION "0.1"
-
 static struct dentry *lowpan_enable_debugfs;
 static struct dentry *lowpan_control_debugfs;
 
@@ -1316,5 +1314,4 @@ module_exit(bt_6lowpan_exit);
 
 MODULE_AUTHOR("Jukka Rissanen <jukka.rissanen@linux.intel.com>");
 MODULE_DESCRIPTION("Bluetooth 6LoWPAN");
-MODULE_VERSION(VERSION);
 MODULE_LICENSE("GPL");
