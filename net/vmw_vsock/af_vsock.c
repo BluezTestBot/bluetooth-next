@@ -2237,5 +2237,4 @@ module_exit(vsock_exit);
 
 MODULE_AUTHOR("VMware, Inc.");
 MODULE_DESCRIPTION("VMware Virtual Socket Family");
-MODULE_VERSION("1.0.2.0-k");
 MODULE_LICENSE("GPL v2");
