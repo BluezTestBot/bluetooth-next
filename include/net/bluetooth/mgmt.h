@@ -763,9 +763,18 @@ struct mgmt_adv_pattern {
 	__u8 value[31];
 } __packed;
 
+struct mgmt_adv_rssi_thresholds {
+	__s8 high_threshold;
+	__le16 high_threshold_timeout;
+	__s8 low_threshold;
+	__le16 low_threshold_timeout;
+	__u8 sampling_period;
+} __packed;
+
 #define MGMT_OP_ADD_ADV_PATTERNS_MONITOR	0x0052
 struct mgmt_cp_add_adv_patterns_monitor {
 	__u8 pattern_count;
+	struct mgmt_adv_rssi_thresholds rssi;
 	struct mgmt_adv_pattern patterns[];
 } __packed;
 #define MGMT_ADD_ADV_PATTERNS_MONITOR_SIZE	1

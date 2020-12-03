@@ -4237,6 +4237,14 @@ static int add_adv_patterns_monitor(struct sock *sk, struct hci_dev *hdev,
 	INIT_LIST_HEAD(&m->patterns);
 	m->active = false;
 
+	m->rssi.low_threshold = cp->rssi.low_threshold;
+	m->rssi.low_threshold_timeout =
+	    __le16_to_cpu(cp->rssi.low_threshold_timeout);
+	m->rssi.high_threshold = cp->rssi.high_threshold;
+	m->rssi.high_threshold_timeout =
+	    __le16_to_cpu(cp->rssi.high_threshold_timeout);
+	m->rssi.sampling_period = cp->rssi.sampling_period;
+
 	for (i = 0; i < cp->pattern_count; i++) {
 		if (++mp_cnt > HCI_MAX_ADV_MONITOR_NUM_PATTERNS) {
 			err = mgmt_cmd_status(sk, hdev->id,
