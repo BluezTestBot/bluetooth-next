@@ -180,6 +180,7 @@ struct qca_data {
 	u64 rx_votes_off;
 	u64 votes_on;
 	u64 votes_off;
+	u8 fw_build[QCA_FW_BUILD_VER_LEN];
 };
 
 enum qca_speed_type {
@@ -621,12 +622,33 @@ static int qca_open(struct hci_uart *hu)
 	return 0;
 }
 
+static ssize_t fw_build_read(struct file *file, char __user *user_buf,
+			     size_t count, loff_t *ppos)
+{
+	struct hci_dev *hdev = file->private_data;
+	struct hci_uart *hu = hci_get_drvdata(hdev);
+	struct qca_data *qca = hu->priv;
+	u8 length = 0;
+
+	length = strlen(qca->fw_build);
+
+	return simple_read_from_buffer(user_buf, count, ppos, qca->fw_build,
+				       length);
+}
+
+static const struct file_operations fw_build_fops = {
+	.open = simple_open,
+	.read = fw_build_read,
+};
+
 static void qca_debugfs_init(struct hci_dev *hdev)
 {
 	struct hci_uart *hu = hci_get_drvdata(hdev);
 	struct qca_data *qca = hu->priv;
 	struct dentry *ibs_dir;
 	umode_t mode;
+	enum qca_btsoc_type soc_type = qca_soc_type(hu);
+	int ret;
 
 	if (!hdev->debugfs)
 		return;
@@ -659,12 +681,24 @@ static void qca_debugfs_init(struct hci_dev *hdev)
 	debugfs_create_u64("votes_off", mode, ibs_dir, &qca->votes_off);
 	debugfs_create_u32("vote_on_ms", mode, ibs_dir, &qca->vote_on_ms);
 	debugfs_create_u32("vote_off_ms", mode, ibs_dir, &qca->vote_off_ms);
+	if (soc_type == QCA_WCN3991) {
+		debugfs_create_file("fw_build_info", mode, ibs_dir, hdev,
+				    &fw_build_fops);
+	}
 
 	/* read/write */
 	mode = 0644;
 	debugfs_create_u32("wake_retrans", mode, ibs_dir, &qca->wake_retrans);
 	debugfs_create_u32("tx_idle_delay", mode, ibs_dir,
 			   &qca->tx_idle_delay);
+
+	if (soc_type == QCA_WCN3991) {
+		/* get fw build info and log into debugfs fw_build_info */
+		ret = qca_read_fw_build_info(hdev, qca->fw_build);
+		if (ret < 0)
+			bt_dev_err(hdev, "QCA read fw build info failed (%d)",
+				   ret);
+	}
 }
 
 /* Flush protocol data */

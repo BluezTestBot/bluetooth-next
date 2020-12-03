@@ -94,6 +94,54 @@ out:
 }
 EXPORT_SYMBOL_GPL(qca_read_soc_version);
 
+int qca_read_fw_build_info(struct hci_dev *hdev, u8 *fw_build)
+{
+	struct sk_buff *skb;
+	struct edl_event_hdr *edl;
+	char cmd;
+	int err = 0;
+	int build_lbl_len;
+
+	bt_dev_dbg(hdev, "QCA read fw build info");
+
+	cmd = EDL_GET_BUILD_INFO_CMD;
+	skb = __hci_cmd_sync_ev(hdev, EDL_PATCH_CMD_OPCODE, EDL_PATCH_CMD_LEN,
+				&cmd, 0, HCI_INIT_TIMEOUT);
+	if (IS_ERR(skb)) {
+		err = PTR_ERR(skb);
+		bt_dev_err(hdev, "Reading QCA fw build info failed (%d)",
+			   err);
+		return err;
+	}
+
+	edl = (struct edl_event_hdr *)(skb->data);
+	if (!edl) {
+		bt_dev_err(hdev, "QCA read fw build info with no header");
+		err = -EILSEQ;
+		goto out;
+	}
+
+	if (edl->cresp != EDL_CMD_REQ_RES_EVT ||
+	    edl->rtype != EDL_GET_BUILD_INFO_CMD) {
+		bt_dev_err(hdev, "QCA Wrong packet received %d %d", edl->cresp,
+			   edl->rtype);
+		err = -EIO;
+		goto out;
+	}
+
+	build_lbl_len = edl->data[0];
+	if (build_lbl_len <= QCA_FW_BUILD_VER_LEN - 2) {
+		memcpy(fw_build, &edl->data[1], build_lbl_len);
+		*(fw_build + build_lbl_len) = '\n';
+		*(fw_build + build_lbl_len + 1) = '\0';
+	}
+
+out:
+	kfree_skb(skb);
+	return err;
+}
+EXPORT_SYMBOL_GPL(qca_read_fw_build_info);
+
 static int qca_send_reset(struct hci_dev *hdev)
 {
 	struct sk_buff *skb;
