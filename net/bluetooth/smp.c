@@ -922,7 +922,9 @@ static int tk_request(struct l2cap_conn *conn, u8 remote_oob, u8 auth,
 	/* Generate random passkey. */
 	if (smp->method == CFM_PASSKEY) {
 		memset(smp->tk, 0, sizeof(smp->tk));
-		get_random_bytes(&passkey, sizeof(passkey));
+		do {
+			get_random_bytes(&passkey, sizeof(passkey));
+		} while (passkey >= (u32)4200000000);
 		passkey %= 1000000;
 		put_unaligned_le32(passkey, smp->tk);
 		BT_DBG("PassKey: %d", passkey);
