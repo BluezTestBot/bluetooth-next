@@ -1030,13 +1030,22 @@ static void hci_cc_le_read_local_features(struct hci_dev *hdev,
 					  struct sk_buff *skb)
 {
 	struct hci_rp_le_read_local_features *rp = (void *) skb->data;
+	bool cis;
 
 	BT_DBG("%s status 0x%2.2x", hdev->name, rp->status);
 
 	if (rp->status)
 		return;
 
+	/* Check current stored flags */
+	cis = cis_capable(hdev);
+
 	memcpy(hdev->le_features, rp->features, 8);
+
+	/* Attempt to use Read Buffer Size V2 if CIS becomes supported */
+	if (!cis && cis_capable(hdev))
+		/* Read LE Buffer Size V2 */
+		hci_send_cmd(hdev, HCI_OP_LE_READ_BUFFER_SIZE_V2, 0, NULL);
 }
 
 static void hci_cc_le_read_adv_tx_power(struct hci_dev *hdev,
@@ -3247,6 +3256,105 @@ unlock:
 	hci_dev_unlock(hdev);
 }
 
+static void hci_cc_le_read_buffer_size_v2(struct hci_dev *hdev,
+					  struct sk_buff *skb)
+{
+	struct hci_rp_le_read_buffer_size_v2 *rp = (void *) skb->data;
+
+	BT_DBG("%s status 0x%2.2x", hdev->name, rp->status);
+
+	if (rp->status)
+		return;
+
+	hdev->le_mtu   = __le16_to_cpu(rp->acl_mtu);
+	hdev->le_pkts  = __le16_to_cpu(rp->acl_max_pkt);
+	hdev->iso_mtu  = __le16_to_cpu(rp->iso_mtu);
+	hdev->iso_pkts = __le16_to_cpu(rp->iso_max_pkt);
+
+	hdev->le_cnt  = hdev->le_pkts;
+	hdev->iso_cnt = hdev->iso_pkts;
+
+	BT_DBG("%s acl mtu %d:%d iso mtu %d:%d", hdev->name, hdev->acl_mtu,
+	       hdev->acl_pkts, hdev->iso_mtu, hdev->iso_pkts);
+}
+
+static void hci_cc_le_set_cig_params(struct hci_dev *hdev, struct sk_buff *skb)
+{
+	struct hci_rp_le_set_cig_params *rp = (void *) skb->data;
+	struct hci_conn *conn;
+	int i = 0;
+
+	BT_DBG("%s status 0x%2.2x", hdev->name, rp->status);
+
+	hci_dev_lock(hdev);
+
+	rcu_read_lock();
+
+	list_for_each_entry_rcu(conn, &hdev->conn_hash.list, list) {
+		if (conn->type != ISO_LINK || conn->iso_qos.cig != rp->cig_id ||
+		    conn->state == BT_CONNECTED)
+			continue;
+
+		if (rp->status) {
+			conn->state = BT_CLOSED;
+			hci_connect_cfm(conn, rp->status);
+			hci_conn_del(conn);
+			goto unlock;
+		}
+
+		conn->handle = __le16_to_cpu(rp->handle[i++]);
+
+		BT_DBG("%p handle 0x%4.4x link %p state %u", conn, conn->handle,
+		       conn->link, conn->link->state);
+
+		/* Create CIS if LE is already connected */
+		if (conn->link->state == BT_CONNECTED)
+			hci_le_create_cis(conn->link);
+
+		if (i == rp->num_handles)
+			break;
+	}
+
+unlock:
+	rcu_read_unlock();
+
+	hci_dev_unlock(hdev);
+}
+
+static void hci_cs_le_create_cis(struct hci_dev *hdev, u8 status)
+{
+	struct hci_cp_le_create_cis *cp;
+	int i;
+
+	BT_DBG("%s status 0x%2.2x", hdev->name, status);
+
+	if (!status)
+		return;
+
+	cp = hci_sent_cmd_data(hdev, HCI_OP_LE_CREATE_CIS);
+	if (!cp)
+		return;
+
+	hci_dev_lock(hdev);
+
+	/* Remove connection if command failed */
+	for (i = 0; cp->num_cis; cp->num_cis--, i++) {
+		struct hci_conn *conn;
+		u16 handle;
+
+		handle = __le16_to_cpu(cp->cis[i].cis_handle);
+
+		conn = hci_conn_hash_lookup_handle(hdev, handle);
+		if (conn) {
+			conn->state = BT_CLOSED;
+			hci_connect_cfm(conn, status);
+			hci_conn_del(conn);
+		}
+	}
+
+	hci_dev_unlock(hdev);
+}
+
 static void hci_cmd_complete_evt(struct hci_dev *hdev, struct sk_buff *skb,
 				 u16 *opcode, u8 *status,
 				 hci_req_complete_t *req_complete,
@@ -3600,6 +3708,14 @@ static void hci_cmd_complete_evt(struct hci_dev *hdev, struct sk_buff *skb,
 		hci_cc_le_read_transmit_power(hdev, skb);
 		break;
 
+	case HCI_OP_LE_READ_BUFFER_SIZE_V2:
+		hci_cc_le_read_buffer_size_v2(hdev, skb);
+		break;
+
+	case HCI_OP_LE_SET_CIG_PARAMS:
+		hci_cc_le_set_cig_params(hdev, skb);
+		break;
+
 	default:
 		BT_DBG("%s opcode 0x%4.4x", hdev->name, *opcode);
 		break;
@@ -3703,6 +3819,10 @@ static void hci_cmd_status_evt(struct hci_dev *hdev, struct sk_buff *skb,
 
 	case HCI_OP_LE_EXT_CREATE_CONN:
 		hci_cs_le_ext_create_conn(hdev, ev->status);
+		break;
+
+	case HCI_OP_LE_CREATE_CIS:
+		hci_cs_le_create_cis(hdev, ev->status);
 		break;
 
 	default:
@@ -3823,6 +3943,22 @@ static void hci_num_comp_pkts_evt(struct hci_dev *hdev, struct sk_buff *skb)
 			hdev->sco_cnt += count;
 			if (hdev->sco_cnt > hdev->sco_pkts)
 				hdev->sco_cnt = hdev->sco_pkts;
+			break;
+
+		case ISO_LINK:
+			if (hdev->iso_pkts) {
+				hdev->iso_cnt += count;
+				if (hdev->iso_cnt > hdev->iso_pkts)
+					hdev->iso_cnt = hdev->iso_pkts;
+			} if (hdev->le_pkts) {
+				hdev->le_cnt += count;
+				if (hdev->le_cnt > hdev->le_pkts)
+					hdev->le_cnt = hdev->le_pkts;
+			} else {
+				hdev->acl_cnt += count;
+				if (hdev->acl_cnt > hdev->acl_pkts)
+					hdev->acl_cnt = hdev->acl_pkts;
+			}
 			break;
 
 		default:
@@ -5927,6 +6063,101 @@ unlock:
 	hci_dev_unlock(hdev);
 }
 
+static void hci_le_cis_estabilished_evt(struct hci_dev *hdev,
+					struct sk_buff *skb)
+{
+	struct hci_evt_le_cis_established *ev = (void *) skb->data;
+	struct hci_conn *conn;
+
+	BT_DBG("%s status 0x%2.2x", hdev->name, ev->status);
+
+	hci_dev_lock(hdev);
+
+	conn = hci_conn_hash_lookup_handle(hdev, __le16_to_cpu(ev->handle));
+	if (!conn)
+		goto unlock;
+
+	if (!ev->status) {
+		conn->state = BT_CONNECTED;
+		hci_debugfs_create_conn(conn);
+		hci_conn_add_sysfs(conn);
+		hci_iso_setup_path(conn);
+	}
+
+	/* TODO: report the event parameter? */
+	hci_connect_cfm(conn, ev->status);
+	if (ev->status)
+		hci_conn_del(conn);
+
+unlock:
+	hci_dev_unlock(hdev);
+}
+
+static void hci_le_reject_cis(struct hci_dev *hdev, __le16 handle)
+{
+	struct hci_cp_le_reject_cis cp;
+
+	cp.handle = handle;
+	cp.reason = HCI_ERROR_REJ_BAD_ADDR;
+	hci_send_cmd(hdev, HCI_OP_LE_REJECT_CIS, sizeof(cp), &cp);
+}
+
+static void hci_le_accept_cis(struct hci_dev *hdev, __le16 handle)
+{
+	struct hci_cp_le_accept_cis cp;
+
+	cp.handle = handle;
+	hci_send_cmd(hdev, HCI_OP_LE_ACCEPT_CIS, sizeof(cp), &cp);
+}
+
+static void hci_le_cis_req_evt(struct hci_dev *hdev, struct sk_buff *skb)
+{
+	struct hci_evt_le_cis_req *ev = (void *) skb->data;
+	u16 acl_handle, cis_handle;
+	struct hci_conn *acl, *cis;
+	int mask = hdev->link_mode;
+	__u8 flags = 0;
+
+	acl_handle = __le16_to_cpu(ev->acl_handle);
+	cis_handle = __le16_to_cpu(ev->cis_handle);
+
+	BT_DBG("%s acl_handle 0x%4.4x cis_handle 0x%4.4x cig_id 0x%2.2x "
+	       "cis_id 0x%2.2x", hdev->name, acl_handle, cis_handle,
+	       ev->cig_id, ev->cis_id);
+
+	hci_dev_lock(hdev);
+
+	acl = hci_conn_hash_lookup_handle(hdev, acl_handle);
+	if (!acl)
+		goto unlock;
+
+	mask |= hci_proto_connect_ind(hdev, &acl->dst, ISO_LINK, &flags);
+	if (!(mask & HCI_LM_ACCEPT)) {
+		hci_le_reject_cis(hdev, ev->cis_handle);
+		goto unlock;
+	}
+
+	cis = hci_conn_hash_lookup_handle(hdev, cis_handle);
+	if (!cis) {
+		cis = hci_conn_add(hdev, ISO_LINK, &acl->dst, HCI_ROLE_SLAVE);
+		if (!cis) {
+			hci_le_reject_cis(hdev, ev->cis_handle);
+			goto unlock;
+		}
+		cis->handle = cis_handle;
+	}
+
+	if (!(flags & HCI_PROTO_DEFER)) {
+		hci_le_accept_cis(hdev, ev->cis_handle);
+	} else {
+		cis->state = BT_CONNECT2;
+		hci_connect_cfm(cis, 0);
+	}
+
+unlock:
+	hci_dev_unlock(hdev);
+}
+
 static void hci_le_meta_evt(struct hci_dev *hdev, struct sk_buff *skb)
 {
 	struct hci_ev_le_meta *le_ev = (void *) skb->data;
@@ -5978,7 +6209,18 @@ static void hci_le_meta_evt(struct hci_dev *hdev, struct sk_buff *skb)
 		hci_le_ext_adv_term_evt(hdev, skb);
 		break;
 
+	case HCI_EVT_LE_CIS_ESTABLISHED:
+		if (IS_ENABLED(CONFIG_BT_ISO))
+			hci_le_cis_estabilished_evt(hdev, skb);
+		break;
+
+	case HCI_EVT_LE_CIS_REQ:
+		if (IS_ENABLED(CONFIG_BT_ISO))
+			hci_le_cis_req_evt(hdev, skb);
+		break;
+
 	default:
+		BT_DBG("%s event 0x%2.2x", hdev->name, le_ev->subevent);
 		break;
 	}
 }
