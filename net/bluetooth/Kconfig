@@ -86,6 +86,13 @@ config BT_ISO
 	  Connected Isochronous Stream (CIS) and Broadcast Isochronous Stream
 	  (BIS).
 
+config BT_ISO_SOCKET
+	bool "Bluetooth Isochronous (ISO) Socket support (Experimental)"
+	depends on BT_ISO
+	help
+	  Bluetooth Isochronous Socket includes support for BTPROTO_ISO socket
+	  family.
+
 config BT_6LOWPAN
 	tristate "Bluetooth 6LoWPAN support"
 	depends on BT_LE && 6LOWPAN

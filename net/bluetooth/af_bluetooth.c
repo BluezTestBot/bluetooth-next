@@ -758,12 +758,20 @@ static int __init bt_init(void)
 	if (err)
 		goto cleanup_cap;
 
+	if (IS_ENABLED(CONFIG_BT_ISO_SOCKET)) {
+		err = iso_init();
+		if (err)
+			goto cleanup_sco;
+	}
+
 	err = mgmt_init();
 	if (err)
-		goto cleanup_sco;
+		goto cleanup_iso;
 
 	return 0;
 
+cleanup_iso:
+	iso_exit();
 cleanup_sco:
 	sco_exit();
 cleanup_cap:
@@ -780,6 +788,9 @@ cleanup_sysfs:
 static void __exit bt_exit(void)
 {
 	mgmt_exit();
+
+	if (IS_ENABLED(CONFIG_BT_ISO_SOCKET))
+		iso_exit();
 
 	sco_exit();
 

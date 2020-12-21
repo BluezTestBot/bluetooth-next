@@ -489,6 +489,20 @@ static inline void sco_exit(void)
 }
 #endif
 
+#if IS_ENABLED(CONFIG_BT_ISO_SOCKET)
+int iso_init(void);
+void iso_exit(void);
+#else
+static inline int iso_init(void)
+{
+	return 0;
+}
+
+static inline void iso_exit(void)
+{
+}
+#endif
+
 int mgmt_init(void);
 void mgmt_exit(void);
 
