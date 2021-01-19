@@ -547,6 +547,7 @@ struct btusb_data {
 	struct usb_endpoint_descriptor *diag_rx_ep;
 
 	struct gpio_desc *reset_gpio;
+	unsigned int reset_duration_ms;
 
 	__u8 cmdreq_type;
 	__u8 cmdreq;
@@ -566,15 +567,21 @@ struct btusb_data {
 	unsigned cmd_timeout_cnt;
 };
 
-static void btusb_intel_cmd_timeout(struct hci_dev *hdev)
+static void btusb_toggle_gpio(struct gpio_desc *desc, unsigned int duration)
+{
+	gpiod_set_value_cansleep(desc, 1);
+	msleep(duration);
+	gpiod_set_value_cansleep(desc, 0);
+}
+
+static void btusb_gpio_cmd_timeout(struct hci_dev *hdev)
 {
 	struct btusb_data *data = hci_get_drvdata(hdev);
-	struct gpio_desc *reset_gpio = data->reset_gpio;
 
 	if (++data->cmd_timeout_cnt < 5)
 		return;
 
-	if (!reset_gpio) {
+	if (!data->reset_gpio) {
 		bt_dev_err(hdev, "No way to reset. Ignoring and continuing");
 		return;
 	}
@@ -592,39 +599,7 @@ static void btusb_intel_cmd_timeout(struct hci_dev *hdev)
 	}
 
 	bt_dev_err(hdev, "Initiating HW reset via gpio");
-	gpiod_set_value_cansleep(reset_gpio, 1);
-	msleep(100);
-	gpiod_set_value_cansleep(reset_gpio, 0);
-}
-
-static void btusb_rtl_cmd_timeout(struct hci_dev *hdev)
-{
-	struct btusb_data *data = hci_get_drvdata(hdev);
-	struct gpio_desc *reset_gpio = data->reset_gpio;
-
-	if (++data->cmd_timeout_cnt < 5)
-		return;
-
-	if (!reset_gpio) {
-		bt_dev_err(hdev, "No gpio to reset Realtek device, ignoring");
-		return;
-	}
-
-	/* Toggle the hard reset line. The Realtek device is going to
-	 * yank itself off the USB and then replug. The cleanup is handled
-	 * correctly on the way out (standard USB disconnect), and the new
-	 * device is detected cleanly and bound to the driver again like
-	 * it should be.
-	 */
-	if (test_and_set_bit(BTUSB_HW_RESET_ACTIVE, &data->flags)) {
-		bt_dev_err(hdev, "last reset failed? Not resetting again");
-		return;
-	}
-
-	bt_dev_err(hdev, "Reset Realtek device via gpio");
-	gpiod_set_value_cansleep(reset_gpio, 1);
-	msleep(200);
-	gpiod_set_value_cansleep(reset_gpio, 0);
+	btusb_toggle_gpio(data->reset_gpio, data->reset_duration_ms);
 }
 
 static void btusb_qca_cmd_timeout(struct hci_dev *hdev)
@@ -4462,7 +4437,8 @@ static int btusb_probe(struct usb_interface *intf,
 		hdev->shutdown = btusb_shutdown_intel;
 		hdev->set_diag = btintel_set_diag_mfg;
 		hdev->set_bdaddr = btintel_set_bdaddr;
-		hdev->cmd_timeout = btusb_intel_cmd_timeout;
+		hdev->cmd_timeout = btusb_gpio_cmd_timeout;
+		data->reset_duration_ms = 100;
 		set_bit(HCI_QUIRK_STRICT_DUPLICATE_FILTER, &hdev->quirks);
 		set_bit(HCI_QUIRK_SIMULTANEOUS_DISCOVERY, &hdev->quirks);
 		set_bit(HCI_QUIRK_NON_PERSISTENT_DIAG, &hdev->quirks);
@@ -4476,7 +4452,8 @@ static int btusb_probe(struct usb_interface *intf,
 		hdev->hw_error = btintel_hw_error;
 		hdev->set_diag = btintel_set_diag;
 		hdev->set_bdaddr = btintel_set_bdaddr;
-		hdev->cmd_timeout = btusb_intel_cmd_timeout;
+		hdev->cmd_timeout = btusb_gpio_cmd_timeout;
+		data->reset_duration_ms = 100;
 		set_bit(HCI_QUIRK_STRICT_DUPLICATE_FILTER, &hdev->quirks);
 		set_bit(HCI_QUIRK_SIMULTANEOUS_DISCOVERY, &hdev->quirks);
 		set_bit(HCI_QUIRK_NON_PERSISTENT_DIAG, &hdev->quirks);
@@ -4490,7 +4467,8 @@ static int btusb_probe(struct usb_interface *intf,
 		hdev->hw_error = btintel_hw_error;
 		hdev->set_diag = btintel_set_diag;
 		hdev->set_bdaddr = btintel_set_bdaddr;
-		hdev->cmd_timeout = btusb_intel_cmd_timeout;
+		hdev->cmd_timeout = btusb_gpio_cmd_timeout;
+		data->reset_duration_ms = 100;
 		set_bit(HCI_QUIRK_STRICT_DUPLICATE_FILTER, &hdev->quirks);
 		set_bit(HCI_QUIRK_SIMULTANEOUS_DISCOVERY, &hdev->quirks);
 		set_bit(HCI_QUIRK_NON_PERSISTENT_DIAG, &hdev->quirks);
@@ -4557,7 +4535,8 @@ static int btusb_probe(struct usb_interface *intf,
 	    (id->driver_info & BTUSB_REALTEK)) {
 		hdev->setup = btrtl_setup_realtek;
 		hdev->shutdown = btrtl_shutdown_realtek;
-		hdev->cmd_timeout = btusb_rtl_cmd_timeout;
+		hdev->cmd_timeout = btusb_gpio_cmd_timeout;
+		data->reset_duration_ms = 200;
 
 		/* Realtek devices lose their updated firmware over global
 		 * suspend that means host doesn't send SET_FEATURE
