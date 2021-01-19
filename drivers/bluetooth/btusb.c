@@ -578,7 +578,7 @@ static void btusb_gpio_cmd_timeout(struct hci_dev *hdev)
 {
 	struct btusb_data *data = hci_get_drvdata(hdev);
 
-	if (++data->cmd_timeout_cnt < 5)
+	if (++data->cmd_timeout_cnt < 3)
 		return;
 
 	if (!data->reset_gpio) {
