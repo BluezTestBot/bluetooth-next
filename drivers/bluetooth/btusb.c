@@ -6,6 +6,7 @@
  *  Copyright (C) 2005-2008  Marcel Holtmann <marcel@holtmann.org>
  */
 
+#include <linux/debugfs.h>
 #include <linux/dmi.h>
 #include <linux/module.h>
 #include <linux/usb.h>
@@ -573,6 +574,46 @@ static void btusb_toggle_gpio(struct gpio_desc *desc, unsigned int duration)
 	msleep(duration);
 	gpiod_set_value_cansleep(desc, 0);
 }
+
+#ifdef CONFIG_DEBUG_FS
+static ssize_t btusb_debugfs_has_reset_gpio(struct file *file,
+					    char __user *user_buf,
+					    size_t count, loff_t *ppos)
+{
+	struct hci_dev *hdev = file->private_data;
+	struct btusb_data *data = hci_get_drvdata(hdev);
+	char buf[3];
+
+	buf[0] = data->reset_gpio ? 'Y' : 'N';
+	buf[1] = '\n';
+	buf[2] = '\0';
+
+	return simple_read_from_buffer(user_buf, count, ppos, buf, 2);
+}
+
+static ssize_t btusb_debugfs_reset_gpio(struct file *file,
+					const char __user *user_buf,
+					size_t count, loff_t *ppos)
+{
+	struct hci_dev *hdev = file->private_data;
+	struct btusb_data *data = hci_get_drvdata(hdev);
+
+	if (!data->reset_gpio)
+		return -EOPNOTSUPP;
+
+	bt_dev_warn(hdev, "Debugfs triggering HW reset via gpio");
+	btusb_toggle_gpio(data->reset_gpio, data->reset_duration_ms);
+
+	return count;
+}
+
+static const struct file_operations reset_gpio_fops = {
+	.open		= simple_open,
+	.read		= btusb_debugfs_has_reset_gpio,
+	.write		= btusb_debugfs_reset_gpio,
+	.llseek		= default_llseek,
+};
+#endif
 
 static void btusb_gpio_cmd_timeout(struct hci_dev *hdev)
 {
@@ -4624,6 +4665,11 @@ static int btusb_probe(struct usb_interface *intf,
 	err = hci_register_dev(hdev);
 	if (err < 0)
 		goto out_free_dev;
+
+#ifdef CONFIG_DEBUG_FS
+	debugfs_create_file("toggle_hw_reset", 0644, hdev->debugfs, hdev,
+			    &reset_gpio_fops);
+#endif
 
 	usb_set_intfdata(intf, data);
 
