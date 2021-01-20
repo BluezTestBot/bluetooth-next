@@ -38,7 +38,7 @@
 #include "selftest.h"
 
 /* Bluetooth sockets */
-#define BT_MAX_PROTO	8
+#define BT_MAX_PROTO	BTPROTO_LAST + 1
 static const struct net_proto_family *bt_proto[BT_MAX_PROTO];
 static DEFINE_RWLOCK(bt_proto_lock);
 
@@ -52,6 +52,7 @@ static const char *const bt_key_strings[BT_MAX_PROTO] = {
 	"sk_lock-AF_BLUETOOTH-BTPROTO_CMTP",
 	"sk_lock-AF_BLUETOOTH-BTPROTO_HIDP",
 	"sk_lock-AF_BLUETOOTH-BTPROTO_AVDTP",
+	"sk_lock-AF_BLUETOOTH-BTPROTO_ISO",
 };
 
 static struct lock_class_key bt_slock_key[BT_MAX_PROTO];
@@ -64,6 +65,7 @@ static const char *const bt_slock_key_strings[BT_MAX_PROTO] = {
 	"slock-AF_BLUETOOTH-BTPROTO_CMTP",
 	"slock-AF_BLUETOOTH-BTPROTO_HIDP",
 	"slock-AF_BLUETOOTH-BTPROTO_AVDTP",
+	"slock-AF_BLUETOOTH-BTPROTO_ISO",
 };
 
 void bt_sock_reclassify_lock(struct sock *sk, int proto)
@@ -756,12 +758,20 @@ static int __init bt_init(void)
 	if (err)
 		goto cleanup_cap;
 
+	if (IS_ENABLED(CONFIG_BT_ISO_SOCKET)) {
+		err = iso_init();
+		if (err)
+			goto cleanup_sco;
+	}
+
 	err = mgmt_init();
 	if (err)
-		goto cleanup_sco;
+		goto cleanup_iso;
 
 	return 0;
 
+cleanup_iso:
+	iso_exit();
 cleanup_sco:
 	sco_exit();
 cleanup_cap:
@@ -778,6 +788,9 @@ cleanup_sysfs:
 static void __exit bt_exit(void)
 {
 	mgmt_exit();
+
+	if (IS_ENABLED(CONFIG_BT_ISO_SOCKET))
+		iso_exit();
 
 	sco_exit();
 

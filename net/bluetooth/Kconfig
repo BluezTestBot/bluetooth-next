@@ -29,6 +29,7 @@ menuconfig BT
 		SCO audio links
 		L2CAP (Logical Link Control and Adaptation Protocol)
 		SMP (Security Manager Protocol) on LE (Low Energy) links
+		ISO isochronous links
 	     HCI Device drivers (Interface to the hardware)
 	     RFCOMM Module (RFCOMM Protocol)  
 	     BNEP Module (Bluetooth Network Encapsulation Protocol)
@@ -76,6 +77,21 @@ config BT_LE
 	help
 	  Bluetooth Low Energy includes support low-energy physical
 	  layer available with Bluetooth version 4.0 or later.
+
+config BT_ISO
+	bool "Bluetooth Isochronous (ISO) Channels support (Experimental)"
+	depends on BT_LE
+	help
+	  Bluetooth Isochronous Channels includes support for
+	  Connected Isochronous Stream (CIS) and Broadcast Isochronous Stream
+	  (BIS).
+
+config BT_ISO_SOCKET
+	bool "Bluetooth Isochronous (ISO) Socket support (Experimental)"
+	depends on BT_ISO
+	help
+	  Bluetooth Isochronous Socket includes support for BTPROTO_ISO socket
+	  family.
 
 config BT_6LOWPAN
 	tristate "Bluetooth 6LoWPAN support"
