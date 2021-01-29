@@ -3218,8 +3218,10 @@ static void btusb_mtk_wmt_recv(struct urb *urb)
 		 */
 		if (test_bit(BTUSB_TX_WAIT_VND_EVT, &data->flags)) {
 			data->evt_skb = skb_clone(skb, GFP_ATOMIC);
-			if (!data->evt_skb)
+			if (!data->evt_skb) {
+				kfree_skb(skb);
 				goto err_out;
+			}
 		}
 
 		err = hci_recv_frame(hdev, skb);
