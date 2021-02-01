@@ -2554,14 +2554,15 @@ static int btusb_intel_download_firmware_newgen(struct hci_dev *hdev,
 	set_bit(BTUSB_DOWNLOADING, &data->flags);
 
 	/* Start firmware downloading and get boot parameter */
-	err = btintel_download_firmware_newgen(hdev, fw, boot_param,
+	err = btintel_download_firmware_newgen(hdev, ver, fw, boot_param,
 					       INTEL_HW_VARIANT(ver->cnvi_bt),
 					       ver->sbe_type);
 	if (err < 0) {
-		/* When FW download fails, send Intel Reset to retry
-		 * FW download.
-		 */
-		btintel_reset_to_bootloader(hdev);
+		if (err != -EALREADY)
+			/* When FW download fails, send Intel Reset to retry
+			 * FW download.
+			 */
+			btintel_reset_to_bootloader(hdev);
 		goto done;
 	}
 	set_bit(BTUSB_FIRMWARE_LOADED, &data->flags);
@@ -2748,12 +2749,13 @@ static int btusb_intel_download_firmware(struct hci_dev *hdev,
 	set_bit(BTUSB_DOWNLOADING, &data->flags);
 
 	/* Start firmware downloading and get boot parameter */
-	err = btintel_download_firmware(hdev, fw, boot_param);
+	err = btintel_download_firmware(hdev, ver, fw, boot_param);
 	if (err < 0) {
-		/* When FW download fails, send Intel Reset to retry
-		 * FW download.
-		 */
-		btintel_reset_to_bootloader(hdev);
+		if (err != -EALREADY)
+			/* When FW download fails, send Intel Reset to retry
+			 * FW download.
+			 */
+			btintel_reset_to_bootloader(hdev);
 		goto done;
 	}
 	set_bit(BTUSB_FIRMWARE_LOADED, &data->flags);
