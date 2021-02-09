@@ -521,6 +521,7 @@ struct btusb_data {
 
 	struct work_struct work;
 	struct work_struct waker;
+	struct delayed_work reset_work;
 
 	struct usb_anchor deferred;
 	struct usb_anchor tx_anchor;
@@ -561,6 +562,8 @@ struct btusb_data {
 	int (*recv_bulk)(struct btusb_data *data, void *buffer, int count);
 
 	int (*setup_on_usb)(struct hci_dev *hdev);
+
+	void (*btusb_reset_hci_to_bootloader)(struct btusb_data *data);
 
 	int oob_wake_irq;   /* irq for out-of-band wake-on-bt */
 	unsigned cmd_timeout_cnt;
@@ -1385,6 +1388,7 @@ static int btusb_close(struct hci_dev *hdev)
 
 	cancel_work_sync(&data->work);
 	cancel_work_sync(&data->waker);
+	cancel_delayed_work(&data->reset_work);
 
 	clear_bit(BTUSB_ISOC_RUNNING, &data->flags);
 	clear_bit(BTUSB_BULK_RUNNING, &data->flags);
@@ -3106,6 +3110,43 @@ static int btusb_shutdown_intel(struct hci_dev *hdev)
 	return 0;
 }
 
+static void btusb_intel_reset_hci_to_bootloader(struct btusb_data *btdata)
+{
+	btintel_reset_to_bootloader(btdata->hdev);
+}
+
+static void btusb_generic_reset_hci(struct btusb_data *btdata)
+{
+	struct usb_device *udev = btdata->udev;
+	struct usb_interface *intf = btdata->intf;
+	int r;
+
+	/* make sure the usb device is not rt suspended */
+	r = usb_autopm_get_interface(intf);
+	if (r < 0)
+		return;
+
+	r = usb_lock_device_for_reset(udev, NULL);
+	if (r < 0) {
+		usb_autopm_put_interface(intf);
+		return;
+	}
+
+	usb_reset_device(udev);
+
+	usb_unlock_device(udev);
+
+	usb_autopm_put_interface(intf);
+}
+
+static void btusb_reset_work(struct work_struct *work)
+{
+	struct btusb_data *btdata = container_of(work, struct btusb_data,
+						 reset_work.work);
+
+	btdata->btusb_reset_hci_to_bootloader(btdata);
+}
+
 static int btusb_shutdown_intel_new(struct hci_dev *hdev)
 {
 	struct sk_buff *skb;
@@ -3120,6 +3161,19 @@ static int btusb_shutdown_intel_new(struct hci_dev *hdev)
 		return PTR_ERR(skb);
 	}
 	kfree_skb(skb);
+
+	return 0;
+}
+
+static int btusb_reset_controller(struct hci_dev *hdev)
+{
+	struct btusb_data *btdata = hci_get_drvdata(hdev);
+
+	/* reset_work will reset the hci on the USB bus, it will introduce
+	 * calling disconnect() and probe(), so implement it in the process
+	 * context.
+	 */
+	schedule_delayed_work(&btdata->reset_work, 0);
 
 	return 0;
 }
@@ -4572,6 +4626,7 @@ static int btusb_probe(struct usb_interface *intf,
 
 	INIT_WORK(&data->work, btusb_work);
 	INIT_WORK(&data->waker, btusb_waker);
+	INIT_DELAYED_WORK(&data->reset_work, btusb_reset_work);
 	init_usb_anchor(&data->deferred);
 	init_usb_anchor(&data->tx_anchor);
 	spin_lock_init(&data->txlock);
@@ -4623,6 +4678,7 @@ static int btusb_probe(struct usb_interface *intf,
 	hdev->send   = btusb_send_frame;
 	hdev->notify = btusb_notify;
 	hdev->prevent_wake = btusb_prevent_wake;
+	hdev->reset_hci = btusb_reset_controller;
 
 #ifdef CONFIG_PM
 	err = btusb_config_oob_wake(hdev);
@@ -4636,6 +4692,8 @@ static int btusb_probe(struct usb_interface *intf,
 			goto out_free_dev;
 	}
 #endif
+	data->btusb_reset_hci_to_bootloader = btusb_generic_reset_hci;
+
 	if (id->driver_info & BTUSB_CW6622)
 		set_bit(HCI_QUIRK_BROKEN_STORED_LINK_KEY, &hdev->quirks);
 
@@ -4687,6 +4745,7 @@ static int btusb_probe(struct usb_interface *intf,
 		hdev->set_diag = btintel_set_diag;
 		hdev->set_bdaddr = btintel_set_bdaddr;
 		hdev->cmd_timeout = btusb_intel_cmd_timeout;
+		data->btusb_reset_hci_to_bootloader = btusb_intel_reset_hci_to_bootloader;
 		set_bit(HCI_QUIRK_STRICT_DUPLICATE_FILTER, &hdev->quirks);
 		set_bit(HCI_QUIRK_SIMULTANEOUS_DISCOVERY, &hdev->quirks);
 		set_bit(HCI_QUIRK_NON_PERSISTENT_DIAG, &hdev->quirks);
@@ -4707,6 +4766,7 @@ static int btusb_probe(struct usb_interface *intf,
 
 		data->recv_event = btusb_recv_event_intel;
 		data->recv_bulk = btusb_recv_bulk_intel;
+		data->btusb_reset_hci_to_bootloader = btusb_intel_reset_hci_to_bootloader;
 		set_bit(BTUSB_BOOTLOADER, &data->flags);
 	}
 
