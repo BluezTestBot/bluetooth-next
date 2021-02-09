@@ -3775,12 +3775,94 @@ static int read_controller_cap(struct sock *sk, struct hci_dev *hdev,
 				 rp, sizeof(*rp) + cap_len);
 }
 
+struct exp_feature {
+	const u8 *uuid;
+	void (*read_info)(struct hci_dev *hdev, const u8 *uuid, u16 *idx,
+			  struct mgmt_rp_read_exp_features_info *rp);
+	int (*set_info)(struct sock *sk, struct hci_dev *hdev, const u8 *uuid,
+			u16 data_len, struct mgmt_cp_set_exp_feature *cp);
+};
+
+#define EXP_FEATURE_ENTRY(_uuid, _read_info_func, _set_info_func)	\
+	{ .uuid = (_uuid), .read_info = (_read_info_func), \
+	  .set_info = (_set_info_func) }
+
 #ifdef CONFIG_BT_FEATURE_DEBUG
 /* d4992530-b9ec-469f-ab01-6c481c47da1c */
 static const u8 debug_uuid[16] = {
 	0x1c, 0xda, 0x47, 0x1c, 0x48, 0x6c, 0x01, 0xab,
 	0x9f, 0x46, 0xec, 0xb9, 0x30, 0x25, 0x99, 0xd4,
 };
+
+static int exp_debug_feature_changed(bool enabled, struct sock *skip)
+{
+	struct mgmt_ev_exp_feature_changed ev;
+
+	memset(&ev, 0, sizeof(ev));
+	memcpy(ev.uuid, debug_uuid, 16);
+	ev.flags = cpu_to_le32(enabled ? BIT(0) : 0);
+
+	return mgmt_limited_event(MGMT_EV_EXP_FEATURE_CHANGED, NULL,
+				  &ev, sizeof(ev),
+				  HCI_MGMT_EXP_FEATURE_EVENTS, skip);
+}
+
+static void exp_read_debug_info(struct hci_dev *hdev, const u8 *uuid, u16 *idx,
+				struct mgmt_rp_read_exp_features_info *rp)
+{
+	u32 flags;
+
+	if (hdev)
+		return;
+
+	flags = bt_dbg_get() ? BIT(0) : 0;
+	memcpy(rp->features[*idx].uuid, uuid, 16);
+	rp->features[(*idx)++].flags = cpu_to_le32(flags);
+}
+
+static int exp_set_debug(struct sock *sk, struct hci_dev *hdev, const u8 *uuid,
+			 u16 data_len, struct mgmt_cp_set_exp_feature *cp)
+{
+	struct mgmt_rp_set_exp_feature rp;
+	bool val, changed;
+	int err;
+
+	/* Command requires to use the non-controller index */
+	if (hdev)
+		return mgmt_cmd_status(sk, hdev->id,
+				       MGMT_OP_SET_EXP_FEATURE,
+				       MGMT_STATUS_INVALID_INDEX);
+
+	/* Parameters are limited to a single octet */
+	if (data_len != MGMT_SET_EXP_FEATURE_SIZE + 1)
+		return mgmt_cmd_status(sk, MGMT_INDEX_NONE,
+				       MGMT_OP_SET_EXP_FEATURE,
+				       MGMT_STATUS_INVALID_PARAMS);
+
+	/* Only boolean on/off is supported */
+	if (cp->param[0] != 0x00 && cp->param[0] != 0x01)
+		return mgmt_cmd_status(sk, MGMT_INDEX_NONE,
+				       MGMT_OP_SET_EXP_FEATURE,
+				       MGMT_STATUS_INVALID_PARAMS);
+
+	val = !!cp->param[0];
+	changed = val ? !bt_dbg_get() : bt_dbg_get();
+	bt_dbg_set(val);
+
+	memcpy(rp.uuid, uuid, 16);
+	rp.flags = cpu_to_le32(val ? BIT(0) : 0);
+
+	hci_sock_set_flag(sk, HCI_MGMT_EXP_FEATURE_EVENTS);
+
+	err = mgmt_cmd_complete(sk, MGMT_INDEX_NONE,
+				MGMT_OP_SET_EXP_FEATURE, 0,
+				&rp, sizeof(rp));
+
+	if (changed)
+		exp_debug_feature_changed(val, sk);
+
+	return err;
+}
 #endif
 
 /* 671b10b5-42c0-4696-9227-eb28d1b049d6 */
@@ -3795,65 +3877,6 @@ static const u8 rpa_resolution_uuid[16] = {
 	0xea, 0x11, 0x73, 0xc2, 0x48, 0xa1, 0xc0, 0x15,
 };
 
-static int read_exp_features_info(struct sock *sk, struct hci_dev *hdev,
-				  void *data, u16 data_len)
-{
-	char buf[62];	/* Enough space for 3 features */
-	struct mgmt_rp_read_exp_features_info *rp = (void *)buf;
-	u16 idx = 0;
-	u32 flags;
-
-	bt_dev_dbg(hdev, "sock %p", sk);
-
-	memset(&buf, 0, sizeof(buf));
-
-#ifdef CONFIG_BT_FEATURE_DEBUG
-	if (!hdev) {
-		flags = bt_dbg_get() ? BIT(0) : 0;
-
-		memcpy(rp->features[idx].uuid, debug_uuid, 16);
-		rp->features[idx].flags = cpu_to_le32(flags);
-		idx++;
-	}
-#endif
-
-	if (hdev) {
-		if (test_bit(HCI_QUIRK_VALID_LE_STATES, &hdev->quirks) &&
-		    (hdev->le_states[4] & 0x08) &&	/* Central */
-		    (hdev->le_states[4] & 0x40) &&	/* Peripheral */
-		    (hdev->le_states[3] & 0x10))	/* Simultaneous */
-			flags = BIT(0);
-		else
-			flags = 0;
-
-		memcpy(rp->features[idx].uuid, simult_central_periph_uuid, 16);
-		rp->features[idx].flags = cpu_to_le32(flags);
-		idx++;
-	}
-
-	if (hdev && use_ll_privacy(hdev)) {
-		if (hci_dev_test_flag(hdev, HCI_ENABLE_LL_PRIVACY))
-			flags = BIT(0) | BIT(1);
-		else
-			flags = BIT(1);
-
-		memcpy(rp->features[idx].uuid, rpa_resolution_uuid, 16);
-		rp->features[idx].flags = cpu_to_le32(flags);
-		idx++;
-	}
-
-	rp->feature_count = cpu_to_le16(idx);
-
-	/* After reading the experimental features information, enable
-	 * the events to update client on any future change.
-	 */
-	hci_sock_set_flag(sk, HCI_MGMT_EXP_FEATURE_EVENTS);
-
-	return mgmt_cmd_complete(sk, hdev ? hdev->id : MGMT_INDEX_NONE,
-				 MGMT_OP_READ_EXP_FEATURES_INFO,
-				 0, rp, sizeof(*rp) + (20 * idx));
-}
-
 static int exp_ll_privacy_feature_changed(bool enabled, struct hci_dev *hdev,
 					  struct sock *skip)
 {
@@ -3866,33 +3889,160 @@ static int exp_ll_privacy_feature_changed(bool enabled, struct hci_dev *hdev,
 	return mgmt_limited_event(MGMT_EV_EXP_FEATURE_CHANGED, hdev,
 				  &ev, sizeof(ev),
 				  HCI_MGMT_EXP_FEATURE_EVENTS, skip);
-
 }
 
-#ifdef CONFIG_BT_FEATURE_DEBUG
-static int exp_debug_feature_changed(bool enabled, struct sock *skip)
+static void exp_read_le_status(struct hci_dev *hdev, const u8 *uuid, u16 *idx,
+			       struct mgmt_rp_read_exp_features_info *rp)
 {
-	struct mgmt_ev_exp_feature_changed ev;
+	u32 flags;
 
-	memset(&ev, 0, sizeof(ev));
-	memcpy(ev.uuid, debug_uuid, 16);
-	ev.flags = cpu_to_le32(enabled ? BIT(0) : 0);
+	if (!hdev)
+		return;
+	if (test_bit(HCI_QUIRK_VALID_LE_STATES, &hdev->quirks) &&
+	    (hdev->le_states[4] & 0x08) &&	/* Central */
+	    (hdev->le_states[4] & 0x40) &&	/* Peripheral */
+	    (hdev->le_states[3] & 0x10))	/* Simultaneous */
+		flags = BIT(0);
+	else
+		flags = 0;
 
-	return mgmt_limited_event(MGMT_EV_EXP_FEATURE_CHANGED, NULL,
-				  &ev, sizeof(ev),
-				  HCI_MGMT_EXP_FEATURE_EVENTS, skip);
+	memcpy(rp->features[*idx].uuid, uuid, 16);
+	rp->features[(*idx)++].flags = cpu_to_le32(flags);
 }
+
+static void exp_read_rpa_resolution(struct hci_dev *hdev, const u8 *uuid, u16 *idx,
+				    struct mgmt_rp_read_exp_features_info *rp)
+{
+	u32 flags;
+
+	if (hdev && use_ll_privacy(hdev)) {
+		if (hci_dev_test_flag(hdev, HCI_ENABLE_LL_PRIVACY))
+			flags = BIT(0) | BIT(1);
+		else
+			flags = BIT(1);
+
+		memcpy(rp->features[*idx].uuid, uuid, 16);
+		rp->features[(*idx)++].flags = cpu_to_le32(flags);
+	}
+}
+
+static int exp_set_rpa_resolution(struct sock *sk, struct hci_dev *hdev,
+				  const u8 *uuid, u16 data_len,
+				  struct mgmt_cp_set_exp_feature *cp)
+{
+	struct mgmt_rp_set_exp_feature rp;
+	bool val, changed;
+	int err;
+	u32 flags;
+
+	/* Command requires to use the controller index */
+	if (!hdev)
+		return mgmt_cmd_status(sk, MGMT_INDEX_NONE,
+				       MGMT_OP_SET_EXP_FEATURE,
+				       MGMT_STATUS_INVALID_INDEX);
+
+	/* Changes can only be made when controller is powered down */
+	if (hdev_is_powered(hdev))
+		return mgmt_cmd_status(sk, hdev->id,
+				       MGMT_OP_SET_EXP_FEATURE,
+				       MGMT_STATUS_NOT_POWERED);
+
+	/* Parameters are limited to a single octet */
+	if (data_len != MGMT_SET_EXP_FEATURE_SIZE + 1)
+		return mgmt_cmd_status(sk, hdev->id,
+				       MGMT_OP_SET_EXP_FEATURE,
+				       MGMT_STATUS_INVALID_PARAMS);
+
+	/* Only boolean on/off is supported */
+	if (cp->param[0] != 0x00 && cp->param[0] != 0x01)
+		return mgmt_cmd_status(sk, hdev->id,
+				       MGMT_OP_SET_EXP_FEATURE,
+				       MGMT_STATUS_INVALID_PARAMS);
+
+	val = !!cp->param[0];
+
+	if (val) {
+		changed = !hci_dev_test_flag(hdev,
+					     HCI_ENABLE_LL_PRIVACY);
+		hci_dev_set_flag(hdev, HCI_ENABLE_LL_PRIVACY);
+		hci_dev_clear_flag(hdev, HCI_ADVERTISING);
+
+		/* Enable LL privacy + supported settings changed */
+		flags = BIT(0) | BIT(1);
+	} else {
+		changed = hci_dev_test_flag(hdev,
+					    HCI_ENABLE_LL_PRIVACY);
+		hci_dev_clear_flag(hdev, HCI_ENABLE_LL_PRIVACY);
+
+		/* Disable LL privacy + supported settings changed */
+		flags = BIT(1);
+	}
+
+	memcpy(rp.uuid, uuid, 16);
+	rp.flags = cpu_to_le32(flags);
+
+	hci_sock_set_flag(sk, HCI_MGMT_EXP_FEATURE_EVENTS);
+
+	err = mgmt_cmd_complete(sk, hdev->id,
+				MGMT_OP_SET_EXP_FEATURE, 0,
+				&rp, sizeof(rp));
+
+	if (changed)
+		exp_ll_privacy_feature_changed(val, hdev, sk);
+
+	return err;
+}
+
+static const struct exp_feature exp_feature_list[] = {
+#ifdef CONFIG_BT_FEATURE_DEBUG
+	EXP_FEATURE_ENTRY(debug_uuid, exp_read_debug_info,
+			  exp_set_debug),
 #endif
+	EXP_FEATURE_ENTRY(simult_central_periph_uuid, exp_read_le_status,
+			  NULL),
+	EXP_FEATURE_ENTRY(rpa_resolution_uuid, exp_read_rpa_resolution,
+			  exp_set_rpa_resolution),
+	{}
+};
+
+static int read_exp_features_info(struct sock *sk, struct hci_dev *hdev,
+				  void *data, u16 data_len)
+{
+	char buf[62] = {0}; /* Enough space for 3 features */
+	struct mgmt_rp_read_exp_features_info *rp = (void *)buf;
+	u16 idx = 0;
+	int i;
+
+	bt_dev_dbg(hdev, "sock %p", sk);
+
+	for (i = 0; exp_feature_list[i].uuid; i++)
+		if (exp_feature_list[i].read_info)
+			exp_feature_list[i].read_info(hdev,
+						      exp_feature_list[i].uuid,
+						      &idx, rp);
+	rp->feature_count = cpu_to_le16(idx);
+
+	/* After reading the experimental features information, enable
+	 * the events to update client on any future change.
+	 */
+	hci_sock_set_flag(sk, HCI_MGMT_EXP_FEATURE_EVENTS);
+
+	return mgmt_cmd_complete(sk, hdev ? hdev->id : MGMT_INDEX_NONE,
+				 MGMT_OP_READ_EXP_FEATURES_INFO,
+				 0, rp, sizeof(*rp) + (20 * idx));
+}
 
 static int set_exp_feature(struct sock *sk, struct hci_dev *hdev,
 			   void *data, u16 data_len)
 {
 	struct mgmt_cp_set_exp_feature *cp = data;
-	struct mgmt_rp_set_exp_feature rp;
+	int i;
 
 	bt_dev_dbg(hdev, "sock %p", sk);
 
 	if (!memcmp(cp->uuid, ZERO_KEY, 16)) {
+		struct mgmt_rp_set_exp_feature rp;
+
 		memset(rp.uuid, 0, 16);
 		rp.flags = cpu_to_le32(0);
 
@@ -3924,111 +4074,10 @@ static int set_exp_feature(struct sock *sk, struct hci_dev *hdev,
 					 &rp, sizeof(rp));
 	}
 
-#ifdef CONFIG_BT_FEATURE_DEBUG
-	if (!memcmp(cp->uuid, debug_uuid, 16)) {
-		bool val, changed;
-		int err;
-
-		/* Command requires to use the non-controller index */
-		if (hdev)
-			return mgmt_cmd_status(sk, hdev->id,
-					       MGMT_OP_SET_EXP_FEATURE,
-					       MGMT_STATUS_INVALID_INDEX);
-
-		/* Parameters are limited to a single octet */
-		if (data_len != MGMT_SET_EXP_FEATURE_SIZE + 1)
-			return mgmt_cmd_status(sk, MGMT_INDEX_NONE,
-					       MGMT_OP_SET_EXP_FEATURE,
-					       MGMT_STATUS_INVALID_PARAMS);
-
-		/* Only boolean on/off is supported */
-		if (cp->param[0] != 0x00 && cp->param[0] != 0x01)
-			return mgmt_cmd_status(sk, MGMT_INDEX_NONE,
-					       MGMT_OP_SET_EXP_FEATURE,
-					       MGMT_STATUS_INVALID_PARAMS);
-
-		val = !!cp->param[0];
-		changed = val ? !bt_dbg_get() : bt_dbg_get();
-		bt_dbg_set(val);
-
-		memcpy(rp.uuid, debug_uuid, 16);
-		rp.flags = cpu_to_le32(val ? BIT(0) : 0);
-
-		hci_sock_set_flag(sk, HCI_MGMT_EXP_FEATURE_EVENTS);
-
-		err = mgmt_cmd_complete(sk, MGMT_INDEX_NONE,
-					MGMT_OP_SET_EXP_FEATURE, 0,
-					&rp, sizeof(rp));
-
-		if (changed)
-			exp_debug_feature_changed(val, sk);
-
-		return err;
-	}
-#endif
-
-	if (!memcmp(cp->uuid, rpa_resolution_uuid, 16)) {
-		bool val, changed;
-		int err;
-		u32 flags;
-
-		/* Command requires to use the controller index */
-		if (!hdev)
-			return mgmt_cmd_status(sk, MGMT_INDEX_NONE,
-					       MGMT_OP_SET_EXP_FEATURE,
-					       MGMT_STATUS_INVALID_INDEX);
-
-		/* Changes can only be made when controller is powered down */
-		if (hdev_is_powered(hdev))
-			return mgmt_cmd_status(sk, hdev->id,
-					       MGMT_OP_SET_EXP_FEATURE,
-					       MGMT_STATUS_NOT_POWERED);
-
-		/* Parameters are limited to a single octet */
-		if (data_len != MGMT_SET_EXP_FEATURE_SIZE + 1)
-			return mgmt_cmd_status(sk, hdev->id,
-					       MGMT_OP_SET_EXP_FEATURE,
-					       MGMT_STATUS_INVALID_PARAMS);
-
-		/* Only boolean on/off is supported */
-		if (cp->param[0] != 0x00 && cp->param[0] != 0x01)
-			return mgmt_cmd_status(sk, hdev->id,
-					       MGMT_OP_SET_EXP_FEATURE,
-					       MGMT_STATUS_INVALID_PARAMS);
-
-		val = !!cp->param[0];
-
-		if (val) {
-			changed = !hci_dev_test_flag(hdev,
-						     HCI_ENABLE_LL_PRIVACY);
-			hci_dev_set_flag(hdev, HCI_ENABLE_LL_PRIVACY);
-			hci_dev_clear_flag(hdev, HCI_ADVERTISING);
-
-			/* Enable LL privacy + supported settings changed */
-			flags = BIT(0) | BIT(1);
-		} else {
-			changed = hci_dev_test_flag(hdev,
-						    HCI_ENABLE_LL_PRIVACY);
-			hci_dev_clear_flag(hdev, HCI_ENABLE_LL_PRIVACY);
-
-			/* Disable LL privacy + supported settings changed */
-			flags = BIT(1);
-		}
-
-		memcpy(rp.uuid, rpa_resolution_uuid, 16);
-		rp.flags = cpu_to_le32(flags);
-
-		hci_sock_set_flag(sk, HCI_MGMT_EXP_FEATURE_EVENTS);
-
-		err = mgmt_cmd_complete(sk, hdev->id,
-					MGMT_OP_SET_EXP_FEATURE, 0,
-					&rp, sizeof(rp));
-
-		if (changed)
-			exp_ll_privacy_feature_changed(val, hdev, sk);
-
-		return err;
-	}
+	for (i = 0; exp_feature_list[i].uuid; i++)
+		if (!memcmp(cp->uuid, exp_feature_list[i].uuid, 16))
+			return exp_feature_list[i].set_info(sk, hdev, exp_feature_list[i].uuid,
+							    data_len, cp);
 
 	return mgmt_cmd_status(sk, hdev ? hdev->id : MGMT_INDEX_NONE,
 			       MGMT_OP_SET_EXP_FEATURE,
