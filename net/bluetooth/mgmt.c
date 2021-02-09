@@ -3877,6 +3877,12 @@ static const u8 rpa_resolution_uuid[16] = {
 	0xea, 0x11, 0x73, 0xc2, 0x48, 0xa1, 0xc0, 0x15,
 };
 
+/* 3f06cef5-2b4f-4c22-b1f4-64bb4733e637 */
+static const u8 reset_hci_uuid[16] = {
+	0x37, 0xe6, 0x33, 0x47, 0xbb, 0x64, 0xf4, 0xb1,
+	0x22, 0x4c, 0x4f, 0x2b, 0xf5, 0xce, 0x06, 0x3f,
+};
+
 static int exp_ll_privacy_feature_changed(bool enabled, struct hci_dev *hdev,
 					  struct sock *skip)
 {
@@ -3993,6 +3999,53 @@ static int exp_set_rpa_resolution(struct sock *sk, struct hci_dev *hdev,
 	return err;
 }
 
+static void exp_read_reset_hci_info(struct hci_dev *hdev, const u8 *uuid, u16 *idx,
+				    struct mgmt_rp_read_exp_features_info *rp)
+{
+	u32 flags;
+
+	if (!hdev)
+		return;
+
+	if (!hdev->reset_hci)
+		return;
+
+	flags = BIT(0);
+	memcpy(rp->features[*idx].uuid, uuid, sizeof(rp->features[*idx].uuid));
+	rp->features[(*idx)++].flags = cpu_to_le32(flags);
+}
+
+static int exp_set_reset_hci(struct sock *sk, struct hci_dev *hdev,
+			     const u8 *uuid, u16 data_len,
+			     struct mgmt_cp_set_exp_feature *cp)
+{
+	struct mgmt_rp_set_exp_feature rp;
+	int err;
+
+	/* Command requires to use the controller index */
+	if (!hdev)
+		return mgmt_cmd_status(sk, MGMT_INDEX_NONE,
+				       MGMT_OP_SET_EXP_FEATURE,
+				       MGMT_STATUS_INVALID_INDEX);
+
+	if (!hdev->reset_hci)
+		return mgmt_cmd_status(sk, hdev->id,
+				       MGMT_OP_SET_EXP_FEATURE,
+				       MGMT_STATUS_NOT_SUPPORTED);
+
+	hdev->reset_hci(hdev);
+
+	memcpy(rp.uuid, uuid, sizeof(rp.uuid));
+	rp.flags = cpu_to_le32(BIT(0));
+
+	hci_sock_set_flag(sk, HCI_MGMT_EXP_FEATURE_EVENTS);
+
+	err = mgmt_cmd_complete(sk, hdev->id,
+				MGMT_OP_SET_EXP_FEATURE, 0,
+				&rp, sizeof(rp));
+	return err;
+}
+
 static const struct exp_feature exp_feature_list[] = {
 #ifdef CONFIG_BT_FEATURE_DEBUG
 	EXP_FEATURE_ENTRY(debug_uuid, exp_read_debug_info,
@@ -4002,13 +4055,15 @@ static const struct exp_feature exp_feature_list[] = {
 			  NULL),
 	EXP_FEATURE_ENTRY(rpa_resolution_uuid, exp_read_rpa_resolution,
 			  exp_set_rpa_resolution),
+	EXP_FEATURE_ENTRY(reset_hci_uuid, exp_read_reset_hci_info,
+			  exp_set_reset_hci),
 	{}
 };
 
 static int read_exp_features_info(struct sock *sk, struct hci_dev *hdev,
 				  void *data, u16 data_len)
 {
-	char buf[62] = {0}; /* Enough space for 3 features */
+	char buf[82] = {0}; /* Enough space for 4 features */
 	struct mgmt_rp_read_exp_features_info *rp = (void *)buf;
 	u16 idx = 0;
 	int i;
