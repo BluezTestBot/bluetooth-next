@@ -1096,6 +1096,34 @@ static int max_key_size_get(void *data, u64 *val)
 DEFINE_DEBUGFS_ATTRIBUTE(max_key_size_fops, max_key_size_get,
 			  max_key_size_set, "%llu\n");
 
+static int le_l2cap_min_key_size_set(void *data, u64 val)
+{
+	struct hci_dev *hdev = data;
+
+	if (val > SMP_MAX_ENC_KEY_SIZE || val < SMP_MIN_ENC_KEY_SIZE)
+		return -EINVAL;
+
+	hci_dev_lock(hdev);
+	hdev->le_l2cap_min_key_size = val;
+	hci_dev_unlock(hdev);
+
+	return 0;
+}
+
+static int le_l2cap_min_key_size_get(void *data, u64 *val)
+{
+	struct hci_dev *hdev = data;
+
+	hci_dev_lock(hdev);
+	*val = hdev->le_l2cap_min_key_size;
+	hci_dev_unlock(hdev);
+
+	return 0;
+}
+
+DEFINE_DEBUGFS_ATTRIBUTE(le_l2cap_min_key_size_fops, le_l2cap_min_key_size_get,
+			 le_l2cap_min_key_size_set, "%llu\n");
+
 static int auth_payload_timeout_set(void *data, u64 val)
 {
 	struct hci_dev *hdev = data;
@@ -1226,6 +1254,8 @@ void hci_debugfs_create_le(struct hci_dev *hdev)
 			    &min_key_size_fops);
 	debugfs_create_file("max_key_size", 0644, hdev->debugfs, hdev,
 			    &max_key_size_fops);
+	debugfs_create_file("le_l2cap_min_key_size", 0644, hdev->debugfs, hdev,
+			    &le_l2cap_min_key_size_fops);
 	debugfs_create_file("auth_payload_timeout", 0644, hdev->debugfs, hdev,
 			    &auth_payload_timeout_fops);
 	debugfs_create_file("force_no_mitm", 0644, hdev->debugfs, hdev,

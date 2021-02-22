@@ -3788,6 +3788,7 @@ struct hci_dev *hci_alloc_dev(void)
 	hdev->conn_info_max_age = DEFAULT_CONN_INFO_MAX_AGE;
 	hdev->auth_payload_timeout = DEFAULT_AUTH_PAYLOAD_TIMEOUT;
 	hdev->min_enc_key_size = HCI_MIN_ENC_KEY_SIZE;
+	hdev->le_l2cap_min_key_size = HCI_MIN_ENC_KEY_SIZE;
 
 	/* default 1.28 sec page scan */
 	hdev->def_page_scan_type = PAGE_SCAN_TYPE_STANDARD;
