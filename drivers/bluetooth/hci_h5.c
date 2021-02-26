@@ -14,6 +14,7 @@
 #include <linux/of_device.h>
 #include <linux/serdev.h>
 #include <linux/skbuff.h>
+#include <linux/suspend.h>
 
 #include <net/bluetooth/bluetooth.h>
 #include <net/bluetooth/hci_core.h>
@@ -875,6 +876,13 @@ static int h5_btrtl_setup(struct h5 *h5)
 	unsigned int controller_baudrate;
 	bool flow_control;
 	int err;
+
+	/*
+	 * Since h5_btrtl_resume() does a device_reprobe() the suspend handling
+	 * done by the hci_suspend_notifier is not necessary; it actually causes
+	 * delays and a bunch of errors to get logged, so disable it.
+	 */
+	unregister_pm_notifier(&h5->hu->hdev->suspend_notifier);
 
 	btrtl_dev = btrtl_initialize(h5->hu->hdev, h5->id);
 	if (IS_ERR(btrtl_dev))
