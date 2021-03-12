@@ -5921,7 +5921,7 @@ static inline int l2cap_ecred_conn_req(struct l2cap_conn *conn,
 	struct l2cap_ecred_conn_req *req = (void *) data;
 	struct {
 		struct l2cap_ecred_conn_rsp rsp;
-		__le16 dcid[5];
+		__le16 dcid[L2CAP_ECRED_MAX_CID];
 	} __packed pdu;
 	struct l2cap_chan *chan, *pchan;
 	u16 mtu, mps;
@@ -5973,7 +5973,7 @@ static inline int l2cap_ecred_conn_req(struct l2cap_conn *conn,
 	cmd_len -= sizeof(*req);
 	num_scid = cmd_len / sizeof(u16);
 
-	for (i = 0; i < num_scid; i++) {
+	for (i = 0; i < num_scid && i < ARRAY_SIZE(pdu.dcid); i++) {
 		u16 scid = __le16_to_cpu(req->scid[i]);
 
 		BT_DBG("scid[%d] 0x%4.4x", i, scid);
