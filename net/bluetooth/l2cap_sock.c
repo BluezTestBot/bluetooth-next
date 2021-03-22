@@ -182,6 +182,13 @@ static int l2cap_sock_connect(struct socket *sock, struct sockaddr *addr,
 
 	BT_DBG("sk %p", sk);
 
+	lock_sock(sk);
+	if (sock_flag(sk, SOCK_ZAPPED)) {
+		release_sock(sk);
+		return -EINVAL;
+	}
+	release_sock(sk);
+
 	if (!addr || alen < offsetofend(struct sockaddr, sa_family) ||
 	    addr->sa_family != AF_BLUETOOTH)
 		return -EINVAL;
