@@ -379,6 +379,7 @@ struct hci_dev {
 	__u16		auth_payload_timeout;
 	__u8		min_enc_key_size;
 	__u8		max_enc_key_size;
+	__u8		le_l2cap_min_key_size;
 	__u8		pairing_opts;
 	__u8		ssp_debug_mode;
 	__u8		hw_error_code;

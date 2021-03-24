@@ -5746,6 +5746,20 @@ static inline int l2cap_bredr_sig_cmd(struct l2cap_conn *conn,
 	return err;
 }
 
+static bool le_l2cap_key_size_sufficient(struct hci_conn *hcon, u8 sec_level)
+{
+	struct smp_ltk *ltk;
+
+	if (sec_level == BT_SECURITY_LOW)
+		return true;
+
+	ltk = hci_find_ltk(hcon->hdev, &hcon->dst, hcon->dst_type, hcon->role);
+	if (ltk && ltk->enc_size >= hcon->hdev->le_l2cap_min_key_size)
+		return true;
+
+	return false;
+}
+
 static int l2cap_le_connect_req(struct l2cap_conn *conn,
 				struct l2cap_cmd_hdr *cmd, u16 cmd_len,
 				u8 *data)
@@ -5788,6 +5802,12 @@ static int l2cap_le_connect_req(struct l2cap_conn *conn,
 	if (!smp_sufficient_security(conn->hcon, pchan->sec_level,
 				     SMP_ALLOW_STK)) {
 		result = L2CAP_CR_LE_AUTHENTICATION;
+		chan = NULL;
+		goto response_unlock;
+	}
+
+	if (!le_l2cap_key_size_sufficient(conn->hcon, pchan->sec_level)) {
+		result = L2CAP_CR_LE_BAD_KEY_SIZE;
 		chan = NULL;
 		goto response_unlock;
 	}
@@ -5978,6 +5998,11 @@ static inline int l2cap_ecred_conn_req(struct l2cap_conn *conn,
 	if (!smp_sufficient_security(conn->hcon, pchan->sec_level,
 				     SMP_ALLOW_STK)) {
 		result = L2CAP_CR_LE_AUTHENTICATION;
+		goto unlock;
+	}
+
+	if (!le_l2cap_key_size_sufficient(conn->hcon, pchan->sec_level)) {
+		result = L2CAP_CR_LE_BAD_KEY_SIZE;
 		goto unlock;
 	}
 
