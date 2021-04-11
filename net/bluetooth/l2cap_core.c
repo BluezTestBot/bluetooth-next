@@ -5981,7 +5981,7 @@ static inline int l2cap_ecred_conn_req(struct l2cap_conn *conn,
 
 	result = L2CAP_CR_LE_SUCCESS;
 
-	for (i = 0; i < num_scid; i++) {
+	for (i = 0; i < num_scid && i < ARRAY_SIZE(pdu.dcid); i++) {
 		u16 scid = __le16_to_cpu(req->scid[i]);
 
 		BT_DBG("scid[%d] 0x%4.4x", i, scid);
