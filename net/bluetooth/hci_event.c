@@ -887,6 +887,179 @@ static void hci_cc_read_data_block_size(struct hci_dev *hdev,
 	       hdev->block_cnt, hdev->block_len);
 }
 
+static void hci_cc_read_local_codecs(struct hci_dev *hdev,
+				     struct sk_buff *skb)
+{
+	__u8 num_codecs;
+	__u8 *ptr;
+	struct hci_op_read_local_codec_caps caps;
+
+	bt_dev_dbg(hdev, "status 0x%2.2x", skb->data[0]);
+
+	if (skb->data[0])
+		return;
+
+	/* enumerate standard codecs */
+	skb_pull(skb, 1);
+	num_codecs = skb->data[0];
+
+	bt_dev_dbg(hdev, "Number of standard codecs: %u", num_codecs);
+
+	skb_pull(skb, 1);
+	ptr = (__u8 *)skb->data;
+
+	skb_pull(skb, num_codecs);
+
+	while (num_codecs--) {
+		caps.codec_id[0] = *ptr++;
+		caps.transport = 0x00;
+		caps.direction = 0x00;
+
+		hci_send_cmd(hdev, HCI_OP_READ_LOCAL_CODEC_CAPS, sizeof(caps),
+			     &caps);
+	}
+
+	/* enumerate vendor specific codecs */
+	num_codecs = skb->data[0];
+	skb_pull(skb, 1);
+
+	bt_dev_dbg(hdev, "Number of vendor specific codecs: %u", num_codecs);
+
+	ptr = (__u8 *)skb->data;
+
+	while (num_codecs--) {
+		caps.codec_id[0] = 0xFF;
+		memcpy(&caps.codec_id[1], ptr, 4);
+		ptr += 4;
+		caps.transport = 0x00;
+		caps.direction = 0x00;
+
+		hci_send_cmd(hdev, HCI_OP_READ_LOCAL_CODEC_CAPS, sizeof(caps),
+			     &caps);
+	}
+}
+
+static void hci_cc_read_local_codecs_v2(struct hci_dev *hdev,
+					struct sk_buff *skb)
+{
+	__u8 num_codecs, transport;
+	__u8 *ptr;
+	struct hci_op_read_local_codec_caps caps;
+
+	bt_dev_dbg(hdev, "status 0x%2.2x", skb->data[0]);
+
+	if (skb->data[0])
+		return;
+
+	/* enumerate standard codecs */
+	skb_pull(skb, 1);
+	num_codecs = skb->data[0];
+
+	bt_dev_info(hdev, "Number of standard codecs: %u", num_codecs);
+
+	skb_pull(skb, 1);
+	ptr = (__u8 *)skb->data;
+
+	skb_pull(skb, num_codecs * 2);
+
+	while (num_codecs--) {
+		caps.codec_id[0] = *ptr++;
+		transport = *ptr++;
+		caps.direction = 0x00;
+
+		if (transport & LOCAL_CODEC_ACL_MASK) {
+			caps.transport = LOCAL_CODEC_ACL;
+			hci_send_cmd(hdev, HCI_OP_READ_LOCAL_CODEC_CAPS, sizeof(caps),
+				     &caps);
+		}
+
+		if (transport & LOCAL_CODEC_SCO_MASK) {
+			caps.transport = LOCAL_CODEC_SCO;
+			hci_send_cmd(hdev, HCI_OP_READ_LOCAL_CODEC_CAPS, sizeof(caps),
+				     &caps);
+		}
+
+		if (transport & LOCAL_CODEC_LEBIS_MASK) {
+			caps.transport = LOCAL_CODEC_LEBIS;
+			hci_send_cmd(hdev, HCI_OP_READ_LOCAL_CODEC_CAPS, sizeof(caps),
+				     &caps);
+		}
+
+		if (transport & LOCAL_CODEC_LECIS_MASK) {
+			caps.transport = LOCAL_CODEC_LECIS;
+			hci_send_cmd(hdev, HCI_OP_READ_LOCAL_CODEC_CAPS, sizeof(caps),
+				     &caps);
+		}
+	}
+
+	/* enumerate vendor specific codecs */
+	num_codecs = skb->data[0];
+	skb_pull(skb, 1);
+
+	bt_dev_info(hdev, "Number of vendor specific codecs: %u", num_codecs);
+
+	ptr = (__u8 *)skb->data;
+
+	while (num_codecs--) {
+		caps.codec_id[0] = 0xFF;
+		memcpy(&caps.codec_id[1], ptr, 4);
+		ptr += 4;
+		transport = *ptr++;
+		caps.direction = 0x00;
+
+		if (transport & LOCAL_CODEC_ACL_MASK) {
+			caps.transport = LOCAL_CODEC_ACL;
+			hci_send_cmd(hdev, HCI_OP_READ_LOCAL_CODEC_CAPS, sizeof(caps),
+				     &caps);
+		}
+
+		if (transport & LOCAL_CODEC_SCO_MASK) {
+			caps.transport = LOCAL_CODEC_SCO;
+			hci_send_cmd(hdev, HCI_OP_READ_LOCAL_CODEC_CAPS, sizeof(caps),
+				     &caps);
+		}
+
+		if (transport & LOCAL_CODEC_LEBIS) {
+			caps.transport = LOCAL_CODEC_LEBIS;
+			hci_send_cmd(hdev, HCI_OP_READ_LOCAL_CODEC_CAPS, sizeof(caps),
+				     &caps);
+		}
+
+		if (transport & LOCAL_CODEC_LECIS_MASK) {
+			caps.transport = LOCAL_CODEC_LECIS;
+			hci_send_cmd(hdev, HCI_OP_READ_LOCAL_CODEC_CAPS, sizeof(caps),
+				     &caps);
+		}
+	}
+}
+
+static void hci_cc_read_local_codec_caps(struct hci_dev *hdev,
+					 struct sk_buff *skb)
+{
+	struct hci_op_read_local_codec_caps *sent;
+	struct hci_rp_read_local_codec_caps *rp;
+
+	rp = (void *)skb->data;
+
+	bt_dev_dbg(hdev, "status 0x%2.2x", rp->status);
+
+	if (rp->status)
+		return;
+
+	sent = hci_sent_cmd_data(hdev, HCI_OP_READ_LOCAL_CODEC_CAPS);
+
+	if (!sent)
+		return;
+
+	hci_dev_lock(hdev);
+
+	bt_dev_info(hdev, "Adding Codec. No of caps: %u", rp->num_caps);
+
+	hci_codec_list_add(&hdev->local_codecs, rp, skb->len - 2, sent);
+
+	hci_dev_unlock(hdev);
+}
+
 static void hci_cc_read_clock(struct hci_dev *hdev, struct sk_buff *skb)
 {
 	struct hci_rp_read_clock *rp = (void *) skb->data;
@@ -3452,6 +3625,18 @@ static void hci_cmd_complete_evt(struct hci_dev *hdev, struct sk_buff *skb,
 
 	case HCI_OP_READ_DATA_BLOCK_SIZE:
 		hci_cc_read_data_block_size(hdev, skb);
+		break;
+
+	case HCI_OP_READ_LOCAL_CODECS:
+		hci_cc_read_local_codecs(hdev, skb);
+		break;
+
+	case HCI_OP_READ_LOCAL_CODECS_V2:
+		hci_cc_read_local_codecs_v2(hdev, skb);
+		break;
+
+	case HCI_OP_READ_LOCAL_CODEC_CAPS:
+		hci_cc_read_local_codec_caps(hdev, skb);
 		break;
 
 	case HCI_OP_READ_FLOW_CONTROL_MODE:
