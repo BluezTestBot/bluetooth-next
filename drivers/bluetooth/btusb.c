@@ -2532,7 +2532,7 @@ static int btusb_intel_download_firmware_newgen(struct hci_dev *hdev,
 	}
 
 	btusb_setup_intel_newgen_get_fw_name(ver, fwname, sizeof(fwname), "sfi");
-	err = request_firmware(&fw, fwname, &hdev->dev);
+	err = firmware_request_nowarn(&fw, fwname, &hdev->dev);
 	if (err < 0) {
 		if (!test_bit(BTUSB_BOOTLOADER, &data->flags)) {
 			/* Firmware has already been loaded */
@@ -2702,7 +2702,7 @@ download:
 		return -EINVAL;
 	}
 
-	err = request_firmware(&fw, fwname, &hdev->dev);
+	err = firmware_request_nowarn(&fw, fwname, &hdev->dev);
 	if (err < 0) {
 		if (!test_bit(BTUSB_BOOTLOADER, &data->flags)) {
 			/* Firmware has already been loaded */
