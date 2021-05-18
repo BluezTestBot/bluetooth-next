@@ -1300,6 +1300,14 @@ error:
 }
 EXPORT_SYMBOL_GPL(btintel_read_offload_usecases);
 
+int btintel_get_data_path_id(struct hci_dev *hdev)
+{
+	if (!test_bit(HCI_QUIRK_HFP_OFFLOAD_CODECS_SUPPORTED, &hdev->quirks))
+		return -EOPNOTSUPP;
+	return 1;
+}
+EXPORT_SYMBOL_GPL(btintel_get_data_path_id);
+
 MODULE_AUTHOR("Marcel Holtmann <marcel@holtmann.org>");
 MODULE_DESCRIPTION("Bluetooth support for Intel devices ver " VERSION);
 MODULE_VERSION(VERSION);
