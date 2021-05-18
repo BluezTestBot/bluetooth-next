@@ -246,6 +246,13 @@ enum {
 	 * HCI after resume.
 	 */
 	HCI_QUIRK_NO_SUSPEND_NOTIFIER,
+
+	/* When this quirk is set, then controller supports offload codecs
+	 * for HFP.
+	 * This quirk can be set before hci_register_dev is called or
+	 * during the hdev->setup vendor callback.
+	 */
+	HCI_QUIRK_HFP_OFFLOAD_CODECS_SUPPORTED,
 };
 
 /* HCI device flags */

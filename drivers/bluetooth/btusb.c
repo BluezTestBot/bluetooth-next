@@ -2993,6 +2993,8 @@ static int btusb_setup_intel_newgen(struct hci_dev *hdev)
 	/* Set DDC mask for available debug features */
 	btintel_set_debug_features(hdev, &features);
 
+	btintel_read_offload_usecases(hdev);
+
 	/* Read the Intel version information after loading the FW  */
 	err = btintel_read_version_tlv(hdev, &version);
 	if (err)
