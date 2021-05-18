@@ -948,6 +948,11 @@ static int sco_sock_getsockopt(struct socket *sock, int level, int optname,
 	struct bt_voice voice;
 	u32 phys;
 	int pkt_status;
+	struct codec_list *c;
+	u8 num_codecs, i, __user *ptr;
+	struct hci_dev *hdev;
+	struct hci_codec_caps *caps;
+	__u8	data_path;
 
 	BT_DBG("sk %p", sk);
 
@@ -1010,6 +1015,110 @@ static int sco_sock_getsockopt(struct socket *sock, int level, int optname,
 
 		if (put_user(sco_pi(sk)->conn->mtu, (u32 __user *)optval))
 			err = -EFAULT;
+		break;
+
+	case BT_CODEC:
+		num_codecs = 0;
+		len = 0;
+
+		hdev = hci_get_route(&sco_pi(sk)->dst, &sco_pi(sk)->src, BDADDR_BREDR);
+
+		if (!hdev) {
+			err = -EBADFD;
+			break;
+		}
+
+		if (!test_bit(HCI_QUIRK_HFP_OFFLOAD_CODECS_SUPPORTED, &hdev->quirks)) {
+			err = -EOPNOTSUPP;
+			break;
+		}
+
+		if (!hdev->get_data_path_id) {
+			err = -EOPNOTSUPP;
+			break;
+		}
+
+		hci_dev_lock(hdev);
+		list_for_each_entry(c, &hdev->local_codecs, list) {
+			if (c->transport != TRANSPORT_SCO_ESCO)
+				continue;
+			num_codecs++;
+			for (i = 0, caps = c->caps; i < c->num_caps; i++) {
+				len += 1 + caps->len;
+				caps = (void *)&caps->data[caps->len];
+			}
+			len += sizeof(struct bt_codec);
+		}
+		hci_dev_unlock(hdev);
+
+		if (len > 255) {
+			err = -ENOMEM;
+			break;
+		}
+
+		ptr = optval;
+		if (put_user(num_codecs, ptr)) {
+			err = -EFAULT;
+			break;
+		}
+		ptr += sizeof(num_codecs);
+
+		hci_dev_lock(hdev);
+		list_for_each_entry(c, &hdev->local_codecs, list) {
+			if (c->transport != TRANSPORT_SCO_ESCO)
+				continue;
+
+			if (put_user(c->id, ptr)) {
+				err = -EFAULT;
+				goto unlock;
+			}
+			ptr += sizeof(c->id);
+
+			if (put_user(c->cid, ptr)) {
+				err = -EFAULT;
+				goto unlock;
+			}
+			ptr += sizeof(c->cid);
+
+			if (put_user(c->vid, ptr)) {
+				err = -EFAULT;
+				goto unlock;
+			}
+			ptr += sizeof(c->vid);
+
+			err = hdev->get_data_path_id(hdev);
+			if (err < 0) {
+				err = -EFAULT;
+				goto unlock;
+			}
+			data_path = (__u8)err;
+			if (put_user(data_path, ptr)) {
+				err = -EFAULT;
+				goto unlock;
+			}
+			ptr += sizeof(data_path);
+
+			if (put_user(c->num_caps, ptr)) {
+				err = -EFAULT;
+				goto unlock;
+			}
+			ptr += sizeof(c->num_caps);
+
+			len = 0;
+			for (i = 0, caps = c->caps; i < c->num_caps; i++) {
+				len += 1 + caps->len;
+				caps = (void *)&caps->data[caps->len];
+			}
+
+			if (len && copy_to_user(ptr, c->caps, len)) {
+				err = -EFAULT;
+				goto unlock;
+			}
+			ptr += len;
+		}
+unlock:
+		hci_dev_unlock(hdev);
+
 		break;
 
 	default:
