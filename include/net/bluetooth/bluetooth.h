@@ -174,6 +174,7 @@ struct bt_codecs {
 } __packed;
 
 #define CODING_FORMAT_CVSD	0x02
+#define CODING_FORMAT_TRANS	0x03
 
 __printf(1, 2)
 void bt_info(const char *fmt, ...);
