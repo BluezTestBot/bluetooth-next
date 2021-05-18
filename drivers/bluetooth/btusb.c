@@ -4632,6 +4632,7 @@ static int btusb_probe(struct usb_interface *intf,
 		hdev->set_bdaddr = btintel_set_bdaddr;
 		hdev->cmd_timeout = btusb_intel_cmd_timeout;
 		hdev->get_data_path_id = btintel_get_data_path_id;
+		hdev->configure_data_path = btintel_configure_data_path;
 		set_bit(HCI_QUIRK_STRICT_DUPLICATE_FILTER, &hdev->quirks);
 		set_bit(HCI_QUIRK_SIMULTANEOUS_DISCOVERY, &hdev->quirks);
 		set_bit(HCI_QUIRK_NON_PERSISTENT_DIAG, &hdev->quirks);

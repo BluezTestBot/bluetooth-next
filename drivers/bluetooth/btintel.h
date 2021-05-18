@@ -177,6 +177,8 @@ int btintel_set_debug_features(struct hci_dev *hdev,
 			       const struct intel_debug_features *features);
 int btintel_read_offload_usecases(struct hci_dev *hdev);
 int btintel_get_data_path_id(struct hci_dev *hdev);
+int btintel_configure_data_path(struct hci_dev *hdev, __u8 type,
+				struct bt_codec *codec);
 #else
 
 static inline int btintel_check_bdaddr(struct hci_dev *hdev)
@@ -315,6 +317,12 @@ static int btintel_read_offload_usecases(struct hci_dev *hdev)
 }
 
 static int btintel_get_data_path_id(struct hci_dev *hdev)
+{
+	return -EOPNOTSUPP;
+}
+
+static int btintel_configure_data_path(struct hci_dev *hdev, __u8 type,
+				       struct bt_codec *codec)
 {
 	return -EOPNOTSUPP;
 }
