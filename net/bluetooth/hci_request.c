@@ -631,7 +631,7 @@ static u8 *create_uuid128_list(struct hci_dev *hdev, u8 *data, ptrdiff_t len)
 	return ptr;
 }
 
-static void create_eir(struct hci_dev *hdev, u8 *data)
+void create_eir(struct hci_dev *hdev, u8 *data)
 {
 	u8 *ptr = data;
 	size_t name_len;
