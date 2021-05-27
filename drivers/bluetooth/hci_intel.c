@@ -925,7 +925,7 @@ static int intel_recv_lpm(struct hci_dev *hdev, struct sk_buff *skb)
 
 	switch (lpm->opcode) {
 	case LPM_OP_TX_NOTIFY:
-		if (lpm->dlen < 1) {
+		if (lpm->dlen < 1 || skb->len < struct_size(lpm, data, 1)) {
 			bt_dev_err(hu->hdev, "Invalid LPM notification packet");
 			break;
 		}
@@ -959,10 +959,10 @@ static int intel_recv_lpm(struct hci_dev *hdev, struct sk_buff *skb)
 	.maxlen = HCI_LPM_MAX_SIZE
 
 static const struct h4_recv_pkt intel_recv_pkts[] = {
-	{ H4_RECV_ACL,    .recv = hci_recv_frame   },
-	{ H4_RECV_SCO,    .recv = hci_recv_frame   },
-	{ H4_RECV_EVENT,  .recv = intel_recv_event },
-	{ INTEL_RECV_LPM, .recv = intel_recv_lpm   },
+	{ H4_RECV_ACL,    .recv = hci_recv_frame, .hlen = sizeof(struct bt_skb_cb) },
+	{ H4_RECV_SCO,    .recv = hci_recv_frame, .hlen = sizeof(struct bt_skb_cb) },
+	{ H4_RECV_EVENT,  .recv = intel_recv_event, .hlen = sizeof(struct hci_event_hdr) },
+	{ INTEL_RECV_LPM, .recv = intel_recv_lpm, .hlen = sizeof(struct hci_lpm_pkt) },
 };
 
 static int intel_recv(struct hci_uart *hu, const void *data, int count)
