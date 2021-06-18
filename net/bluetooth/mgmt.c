@@ -5265,11 +5265,47 @@ done:
 	return err;
 }
 
+// FIXME: This really needs to moved some more common place
+void create_eir(struct hci_dev *hdev, u8 *data);
+
+static void do_update_eir(struct hci_dev *hdev)
+{
+	struct hci_cp_write_eir cp;
+	struct sk_buff *skb;
+
+	if (!hdev_is_powered(hdev))
+		return;
+
+	if (!lmp_ext_inq_capable(hdev))
+		return;
+
+	if (!hci_dev_test_flag(hdev, HCI_SSP_ENABLED))
+		return;
+
+	if (hci_dev_test_flag(hdev, HCI_SERVICE_CACHE))
+		return;
+
+	// FIXME: can these tests be done before calling the work?
+
+	memset(&cp, 0, sizeof(cp));
+
+	create_eir(hdev, cp.data);
+
+	if (memcmp(cp.data, hdev->eir, sizeof(cp.data)) == 0)
+		return;
+
+	memcpy(hdev->eir, cp.data, sizeof(cp.data));
+
+	skb = __hci_cmd_sync(hdev, HCI_OP_WRITE_EIR, sizeof(cp), &cp,
+			     HCI_INIT_TIMEOUT);
+	if (!IS_ERR_OR_NULL(skb))
+		kfree_skb(skb);
+}
+
 static int set_device_id(struct sock *sk, struct hci_dev *hdev, void *data,
 			 u16 len)
 {
 	struct mgmt_cp_set_device_id *cp = data;
-	struct hci_request req;
 	int err;
 	__u16 source;
 
@@ -5291,11 +5327,9 @@ static int set_device_id(struct sock *sk, struct hci_dev *hdev, void *data,
 	err = mgmt_cmd_complete(sk, hdev->id, MGMT_OP_SET_DEVICE_ID, 0,
 				NULL, 0);
 
-	hci_req_init(&req, hdev);
-	__hci_req_update_eir(&req);
-	hci_req_run(&req, NULL);
-
 	hci_dev_unlock(hdev);
+
+	hci_cmd_sync_queue(hdev, do_update_eir);
 
 	return err;
 }
