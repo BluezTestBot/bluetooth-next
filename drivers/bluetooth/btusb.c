@@ -4079,6 +4079,7 @@ static int btusb_setup_qca_download_fw(struct hci_dev *hdev,
 
 	sent += size;
 	count -= size;
+	msleep(20);
 
 	/* ep2 need time to switch from function acl to function dfu,
 	 * so we add 20ms delay here.
