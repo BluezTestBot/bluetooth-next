@@ -67,6 +67,7 @@ struct sco_pinfo {
 	__u32		flags;
 	__u16		setting;
 	__u8		cmsg_mask;
+	struct bt_codec codec;
 	struct sco_conn	*conn;
 };
 
@@ -239,7 +240,7 @@ static int sco_connect(struct sock *sk)
 	}
 
 	hcon = hci_connect_sco(hdev, type, &sco_pi(sk)->dst,
-			       sco_pi(sk)->setting);
+			       sco_pi(sk)->setting, &sco_pi(sk)->codec);
 	if (IS_ERR(hcon)) {
 		err = PTR_ERR(hcon);
 		goto done;
@@ -438,6 +439,7 @@ static void __sco_sock_close(struct sock *sk)
 		sock_set_flag(sk, SOCK_ZAPPED);
 		break;
 	}
+
 }
 
 /* Must be called on unlocked socket. */
@@ -499,6 +501,10 @@ static struct sock *sco_sock_alloc(struct net *net, struct socket *sock,
 	sk->sk_state    = BT_OPEN;
 
 	sco_pi(sk)->setting = BT_VOICE_CVSD_16BIT;
+	sco_pi(sk)->codec.id = CODING_FORMAT_CVSD;
+	sco_pi(sk)->codec.cid = 0xffff;
+	sco_pi(sk)->codec.vid = 0xffff;
+	sco_pi(sk)->codec.data_path = 0x00;
 
 	timer_setup(&sk->sk_timer, sco_sock_timeout, 0);
 
@@ -808,6 +814,9 @@ static int sco_sock_setsockopt(struct socket *sock, int level, int optname,
 	struct sock *sk = sock->sk;
 	int len, err = 0;
 	struct bt_voice voice;
+	struct bt_codecs *codecs;
+	struct hci_dev *hdev;
+	__u8 buffer[255];
 	u32 opt;
 
 	BT_DBG("sk %p", sk);
@@ -856,6 +865,15 @@ static int sco_sock_setsockopt(struct socket *sock, int level, int optname,
 		}
 
 		sco_pi(sk)->setting = voice.setting;
+		hdev = hci_get_route(&sco_pi(sk)->dst, &sco_pi(sk)->src,
+				     BDADDR_BREDR);
+		if (!hdev) {
+			err = -EBADFD;
+			break;
+		}
+		if (use_enhanced_sco_conn(hdev) &&
+		    voice.setting == BT_VOICE_TRANSPARENT)
+			sco_pi(sk)->codec.id = CODING_FORMAT_TRANSPARENT;
 		break;
 
 	case BT_PKT_STATUS:
@@ -868,6 +886,56 @@ static int sco_sock_setsockopt(struct socket *sock, int level, int optname,
 			sco_pi(sk)->cmsg_mask |= SCO_CMSG_PKT_STATUS;
 		else
 			sco_pi(sk)->cmsg_mask &= SCO_CMSG_PKT_STATUS;
+		break;
+
+	case BT_CODEC:
+		if (sk->sk_state != BT_OPEN && sk->sk_state != BT_BOUND &&
+		    sk->sk_state != BT_CONNECT2) {
+			err = -EINVAL;
+			break;
+		}
+
+		hdev = hci_get_route(&sco_pi(sk)->dst, &sco_pi(sk)->src, BDADDR_BREDR);
+		if (!hdev) {
+			err = -EBADFD;
+			break;
+		}
+
+		if (!hdev->set_data_path) {
+			err = -EOPNOTSUPP;
+			break;
+		}
+
+		if (optlen < sizeof(struct bt_codecs) || optlen > 255) {
+			err = -EINVAL;
+			break;
+		}
+
+		if (copy_from_sockptr(buffer, optval, optlen)) {
+			err = -EFAULT;
+			break;
+		}
+
+		codecs = (void *)buffer;
+
+		if (codecs->num_codecs > 1) {
+			err = -EINVAL;
+			break;
+		}
+
+		if (codecs->codecs[0].data_path) {
+			err = hdev->set_data_path(hdev, SCO_LINK,
+						  codecs->codecs);
+			if (err < 0)
+				break;
+
+			if (codecs->codecs[0].id == 0xff) {
+				sco_pi(sk)->codec.cid = codecs->codecs[0].cid;
+				sco_pi(sk)->codec.vid = codecs->codecs[0].vid;
+			}
+		}
+		sco_pi(sk)->codec.id = codecs->codecs[0].id;
+		sco_pi(sk)->codec.data_path = codecs->codecs[0].data_path;
 		break;
 
 	default:
@@ -944,10 +1012,15 @@ static int sco_sock_getsockopt(struct socket *sock, int level, int optname,
 			       char __user *optval, int __user *optlen)
 {
 	struct sock *sk = sock->sk;
-	int len, err = 0;
+	int len, err = 0, buf_len;
 	struct bt_voice voice;
 	u32 phys;
 	int pkt_status;
+	struct codec_list *c;
+	u8 num_codecs, i, __user *ptr;
+	struct hci_dev *hdev;
+	struct hci_codec_caps *caps;
+	__u8	data_path;
 
 	BT_DBG("sk %p", sk);
 
@@ -1010,6 +1083,110 @@ static int sco_sock_getsockopt(struct socket *sock, int level, int optname,
 
 		if (put_user(sco_pi(sk)->conn->mtu, (u32 __user *)optval))
 			err = -EFAULT;
+		break;
+
+	case BT_CODEC:
+		num_codecs = 0;
+		buf_len = 0;
+
+		hdev = hci_get_route(&sco_pi(sk)->dst, &sco_pi(sk)->src, BDADDR_BREDR);
+		if (!hdev) {
+			err = -EBADFD;
+			break;
+		}
+
+		if (!hdev->get_data_path) {
+			err = -EOPNOTSUPP;
+			break;
+		}
+
+		hci_dev_lock(hdev);
+		/* find total buffer size  required to copy codec + caps */
+		list_for_each_entry(c, &hdev->local_codecs, list) {
+			if (c->transport != TRANSPORT_SCO_ESCO)
+				continue;
+			num_codecs++;
+			for (i = 0, caps = c->caps; i < c->num_caps; i++) {
+				buf_len += 1 + caps->len;
+				caps = (void *)&caps->data[caps->len];
+			}
+			buf_len += sizeof(struct bt_codec);
+		}
+		hci_dev_unlock(hdev);
+
+		buf_len += sizeof(struct bt_codecs);
+		if (buf_len > len) {
+			err = -ENOBUFS;
+			break;
+		}
+		ptr = optval;
+
+		if (put_user(num_codecs, ptr)) {
+			err = -EFAULT;
+			break;
+		}
+		ptr += sizeof(num_codecs);
+
+		hci_dev_lock(hdev);
+		list_for_each_entry(c, &hdev->local_codecs, list) {
+			if (c->transport != TRANSPORT_SCO_ESCO)
+				continue;
+
+			if (put_user(c->id, ptr)) {
+				err = -EFAULT;
+				goto unlock;
+			}
+			ptr += sizeof(c->id);
+
+			if (put_user(c->cid, ptr)) {
+				err = -EFAULT;
+				goto unlock;
+			}
+			ptr += sizeof(c->cid);
+
+			if (put_user(c->vid, ptr)) {
+				err = -EFAULT;
+				goto unlock;
+			}
+			ptr += sizeof(c->vid);
+
+			err = hdev->get_data_path(hdev);
+			if (err < 0) {
+				err = -EFAULT;
+				goto unlock;
+			}
+
+			data_path = (__u8)err;
+			if (put_user(data_path, ptr)) {
+				err = -EFAULT;
+				goto unlock;
+			}
+			ptr += sizeof(data_path);
+
+			if (put_user(c->num_caps, ptr)) {
+				err = -EFAULT;
+				goto unlock;
+			}
+			ptr += sizeof(c->num_caps);
+
+			len = 0;
+			for (i = 0, caps = c->caps; i < c->num_caps; i++) {
+				len += 1 + caps->len;
+				caps = (void *)&caps->data[caps->len];
+			}
+
+			if (len && copy_to_user(ptr, c->caps, len)) {
+				err = -EFAULT;
+				goto unlock;
+			}
+			ptr += len;
+		}
+
+		if (put_user(buf_len, optlen))
+			err = -EFAULT;
+unlock:
+		hci_dev_unlock(hdev);
+
 		break;
 
 	default:
