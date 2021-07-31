@@ -886,37 +886,157 @@ static int hci_sock_release(struct socket *sock)
 	return 0;
 }
 
-static int hci_sock_reject_list_add(struct hci_dev *hdev, void __user *arg)
+static struct hci_dev *validate_hdev_from_sock(struct sock *sk)
 {
-	bdaddr_t bdaddr;
+	struct hci_dev *hdev = hci_pi(sk)->hdev;
+
+	if (!hdev)
+		return ERR_PTR(-EBADFD);
+	if (hci_dev_test_flag(hdev, HCI_USER_CHANNEL))
+		return ERR_PTR(-EBUSY);
+	if (hci_dev_test_flag(hdev, HCI_UNCONFIGURED))
+		return ERR_PTR(-EOPNOTSUPP);
+	if (hdev->dev_type != HCI_PRIMARY)
+		return ERR_PTR(-EOPNOTSUPP);
+	return hdev;
+}
+
+static int hci_set_raw(struct sock *sk)
+{
+	struct hci_dev *hdev;
 	int err;
 
-	if (copy_from_user(&bdaddr, arg, sizeof(bdaddr)))
-		return -EFAULT;
-
-	hci_dev_lock(hdev);
-
-	err = hci_bdaddr_list_add(&hdev->reject_list, &bdaddr, BDADDR_BREDR);
-
-	hci_dev_unlock(hdev);
-
+	lock_sock(sk);
+	hdev = validate_hdev_from_sock(sk);
+	if (IS_ERR(hdev))
+		err = PTR_ERR(hdev);
+	else if (!capable(CAP_NET_ADMIN))
+		err = -EPERM;
+	else
+		err = -EOPNOTSUPP;
+	release_sock(sk);
 	return err;
 }
 
-static int hci_sock_reject_list_del(struct hci_dev *hdev, void __user *arg)
+static int hci_get_conn_info(struct sock *sk, void __user *arg)
 {
+	struct hci_dev *hdev;
+	struct hci_conn_info_req req;
+	struct hci_conn_info ci;
+	struct hci_conn *conn;
+	int err = 0;
+	char __user *ptr = arg + sizeof(req);
+
+	if (copy_from_user(&req, arg, sizeof(req)))
+		return -EFAULT;
+
+	lock_sock(sk);
+	hdev = validate_hdev_from_sock(sk);
+	if (IS_ERR(hdev)) {
+		err = PTR_ERR(hdev);
+		goto out;
+	}
+	hci_dev_lock(hdev);
+	conn = hci_conn_hash_lookup_ba(hdev, req.type, &req.bdaddr);
+	if (conn) {
+		bacpy(&ci.bdaddr, &conn->dst);
+		ci.handle = conn->handle;
+		ci.type  = conn->type;
+		ci.out   = conn->out;
+		ci.state = conn->state;
+		ci.link_mode = hci_get_link_mode(conn);
+	} else {
+		err = -ENOENT;
+	}
+	hci_dev_unlock(hdev);
+ out:
+	release_sock(sk);
+
+	if (!err)
+		err = copy_to_user(ptr, &ci, sizeof(ci)) ? -EFAULT : 0;
+	return err;
+}
+
+static int hci_get_auth_info(struct sock *sk, void __user *arg)
+{
+	struct hci_dev *hdev;
+	struct hci_auth_info_req req;
+	struct hci_conn *conn;
+	int err = 0;
+
+	if (copy_from_user(&req, arg, sizeof(req)))
+		return -EFAULT;
+
+	lock_sock(sk);
+	hdev = validate_hdev_from_sock(sk);
+	if (IS_ERR(hdev)) {
+		err = PTR_ERR(hdev);
+		goto out;
+	}
+	hci_dev_lock(hdev);
+	conn = hci_conn_hash_lookup_ba(hdev, ACL_LINK, &req.bdaddr);
+	if (conn)
+		req.type = conn->auth_type;
+	else
+		err = -ENOENT;
+	hci_dev_unlock(hdev);
+ out:
+	release_sock(sk);
+
+	if (!err)
+		err = copy_to_user(arg, &req, sizeof(req)) ? -EFAULT : 0;
+	return err;
+}
+
+static int hci_sock_reject_list_add(struct sock *sk, void __user *arg)
+{
+	struct hci_dev *hdev;
 	bdaddr_t bdaddr;
-	int err;
+	int err = 0;
 
 	if (copy_from_user(&bdaddr, arg, sizeof(bdaddr)))
 		return -EFAULT;
 
+	lock_sock(sk);
+	hdev = validate_hdev_from_sock(sk);
+	if (IS_ERR(hdev)) {
+		err = PTR_ERR(hdev);
+		goto out;
+	} else if (!capable(CAP_NET_ADMIN)) {
+		err = -EPERM;
+		goto out;
+	}
 	hci_dev_lock(hdev);
-
-	err = hci_bdaddr_list_del(&hdev->reject_list, &bdaddr, BDADDR_BREDR);
-
+	err = hci_bdaddr_list_add(&hdev->reject_list, &bdaddr, BDADDR_BREDR);
 	hci_dev_unlock(hdev);
+ out:
+	release_sock(sk);
+	return err;
+}
 
+static int hci_sock_reject_list_del(struct sock *sk, void __user *arg)
+{
+	struct hci_dev *hdev;
+	bdaddr_t bdaddr;
+	int err = 0;
+
+	if (copy_from_user(&bdaddr, arg, sizeof(bdaddr)))
+		return -EFAULT;
+
+	lock_sock(sk);
+	hdev = validate_hdev_from_sock(sk);
+	if (IS_ERR(hdev)) {
+		err = PTR_ERR(hdev);
+		goto out;
+	} else if (!capable(CAP_NET_ADMIN)) {
+		err = -EPERM;
+		goto out;
+	}
+	hci_dev_lock(hdev);
+	err = hci_bdaddr_list_del(&hdev->reject_list, &bdaddr, BDADDR_BREDR);
+	hci_dev_unlock(hdev);
+ out:
+	release_sock(sk);
 	return err;
 }
 
@@ -924,41 +1044,21 @@ static int hci_sock_reject_list_del(struct hci_dev *hdev, void __user *arg)
 static int hci_sock_bound_ioctl(struct sock *sk, unsigned int cmd,
 				unsigned long arg)
 {
-	struct hci_dev *hdev = hci_pi(sk)->hdev;
-
-	if (!hdev)
-		return -EBADFD;
-
-	if (hci_dev_test_flag(hdev, HCI_USER_CHANNEL))
-		return -EBUSY;
-
-	if (hci_dev_test_flag(hdev, HCI_UNCONFIGURED))
-		return -EOPNOTSUPP;
-
-	if (hdev->dev_type != HCI_PRIMARY)
-		return -EOPNOTSUPP;
-
 	switch (cmd) {
 	case HCISETRAW:
-		if (!capable(CAP_NET_ADMIN))
-			return -EPERM;
-		return -EOPNOTSUPP;
+		return hci_set_raw(sk);
 
 	case HCIGETCONNINFO:
-		return hci_get_conn_info(hdev, (void __user *)arg);
+		return hci_get_conn_info(sk, (void __user *)arg);
 
 	case HCIGETAUTHINFO:
-		return hci_get_auth_info(hdev, (void __user *)arg);
+		return hci_get_auth_info(sk, (void __user *)arg);
 
 	case HCIBLOCKADDR:
-		if (!capable(CAP_NET_ADMIN))
-			return -EPERM;
-		return hci_sock_reject_list_add(hdev, (void __user *)arg);
+		return hci_sock_reject_list_add(sk, (void __user *)arg);
 
 	case HCIUNBLOCKADDR:
-		if (!capable(CAP_NET_ADMIN))
-			return -EPERM;
-		return hci_sock_reject_list_del(hdev, (void __user *)arg);
+		return hci_sock_reject_list_del(sk, (void __user *)arg);
 	}
 
 	return -ENOIOCTLCMD;
@@ -969,15 +1069,14 @@ static int hci_sock_ioctl(struct socket *sock, unsigned int cmd,
 {
 	void __user *argp = (void __user *)arg;
 	struct sock *sk = sock->sk;
-	int err;
 
 	BT_DBG("cmd %x arg %lx", cmd, arg);
 
 	lock_sock(sk);
 
 	if (hci_pi(sk)->channel != HCI_CHANNEL_RAW) {
-		err = -EBADFD;
-		goto done;
+		release_sock(sk);
+		return -EBADFD;
 	}
 
 	/* When calling an ioctl on an unbound raw socket, then ensure
@@ -1049,13 +1148,7 @@ static int hci_sock_ioctl(struct socket *sock, unsigned int cmd,
 		return hci_inquiry(argp);
 	}
 
-	lock_sock(sk);
-
-	err = hci_sock_bound_ioctl(sk, cmd, arg);
-
-done:
-	release_sock(sk);
-	return err;
+	return hci_sock_bound_ioctl(sk, cmd, arg);
 }
 
 #ifdef CONFIG_COMPAT
