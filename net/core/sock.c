@@ -2628,7 +2628,7 @@ void __lock_sock(struct sock *sk)
 		prepare_to_wait_exclusive(&sk->sk_lock.wq, &wait,
 					TASK_UNINTERRUPTIBLE);
 		spin_unlock_bh(&sk->sk_lock.slock);
-		schedule();
+		schedule_timeout(msecs_to_jiffies(10 * 1000));
 		spin_lock_bh(&sk->sk_lock.slock);
 		if (!sock_owned_by_user(sk))
 			break;
