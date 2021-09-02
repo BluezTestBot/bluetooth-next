@@ -905,9 +905,9 @@ static const struct acpi_gpio_mapping acpi_bcm_int_first_gpios[] = {
 static int bcm_resource(struct acpi_resource *ares, void *data)
 {
 	struct bcm_device *dev = data;
+	struct acpi_resource_uart_serialbus *uart;
 	struct acpi_resource_extended_irq *irq;
 	struct acpi_resource_gpio *gpio;
-	struct acpi_resource_uart_serialbus *sb;
 
 	switch (ares->type) {
 	case ACPI_RESOURCE_TYPE_EXTENDED_IRQ:
@@ -917,25 +917,19 @@ static int bcm_resource(struct acpi_resource *ares, void *data)
 		dev->irq_active_low = true;
 		break;
 
-	case ACPI_RESOURCE_TYPE_GPIO:
-		gpio = &ares->data.gpio;
-		if (gpio->connection_type == ACPI_RESOURCE_GPIO_TYPE_INT) {
-			dev->gpio_int_idx = dev->gpio_count;
-			dev->irq_active_low = gpio->polarity == ACPI_ACTIVE_LOW;
-		}
-		dev->gpio_count++;
-		break;
-
-	case ACPI_RESOURCE_TYPE_SERIAL_BUS:
-		sb = &ares->data.uart_serial_bus;
-		if (sb->type == ACPI_RESOURCE_SERIAL_TYPE_UART) {
-			dev->init_speed = sb->default_baud_rate;
-			dev->oper_speed = 4000000;
-		}
-		break;
-
 	default:
 		break;
+	}
+
+	if (serdev_acpi_get_uart_resource(ares, &uart)) {
+		dev->init_speed = uart->default_baud_rate;
+		dev->oper_speed = 4000000;
+	} else if (acpi_gpio_get_irq_resource(ares, &gpio)) {
+		dev->gpio_int_idx = dev->gpio_count;
+		dev->irq_active_low = gpio->polarity == ACPI_ACTIVE_LOW;
+		dev->gpio_count++;
+	} else if (acpi_gpio_get_io_resource(ares, &gpio)) {
+		dev->gpio_count++;
 	}
 
 	return 0;
