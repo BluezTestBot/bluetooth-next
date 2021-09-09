@@ -1801,7 +1801,6 @@ int hci_dev_do_close(struct hci_dev *hdev)
 	hci_sock_dev_event(hdev, HCI_DEV_DOWN);
 
 	aosp_do_close(hdev);
-	msft_do_close(hdev);
 
 	if (hdev->flush)
 		hdev->flush(hdev);
@@ -4021,6 +4020,8 @@ void hci_unregister_dev(struct hci_dev *hdev)
 		unregister_pm_notifier(&hdev->suspend_notifier);
 		cancel_work_sync(&hdev->suspend_prepare);
 	}
+
+	msft_do_close(hdev);
 
 	hci_dev_do_close(hdev);
 
