@@ -1297,18 +1297,22 @@ static void sco_conn_ready(struct sco_conn *conn)
 			return;
 		}
 
+		sock_hold(parent);
+		sco_conn_unlock(conn);
+
 		lock_sock(parent);
 
 		sk = sco_sock_alloc(sock_net(parent), NULL,
 				    BTPROTO_SCO, GFP_ATOMIC, 0);
 		if (!sk) {
 			release_sock(parent);
-			sco_conn_unlock(conn);
+			sock_put(parent);
 			return;
 		}
 
 		sco_sock_init(sk, parent);
 
+		sco_conn_lock(conn);
 		bacpy(&sco_pi(sk)->src, &conn->hcon->src);
 		bacpy(&sco_pi(sk)->dst, &conn->hcon->dst);
 
@@ -1322,10 +1326,10 @@ static void sco_conn_ready(struct sco_conn *conn)
 
 		/* Wake up parent */
 		parent->sk_data_ready(parent);
+		sco_conn_unlock(conn);
 
 		release_sock(parent);
-
-		sco_conn_unlock(conn);
+		sock_put(parent);
 	}
 }
 
