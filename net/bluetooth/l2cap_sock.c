@@ -1839,8 +1839,7 @@ static struct sock *l2cap_sock_alloc(struct net *net, struct socket *sock,
 		return NULL;
 	}
 
-	l2cap_chan_hold(chan);
-
+	/* chan's refcnt is held in l2cap_chan_create() */
 	l2cap_pi(sk)->chan = chan;
 
 	return sk;
