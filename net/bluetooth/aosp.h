@@ -8,9 +8,16 @@
 void aosp_do_open(struct hci_dev *hdev);
 void aosp_do_close(struct hci_dev *hdev);
 
+int aosp_set_quality_report(struct hci_dev *hdev, bool enable);
+
 #else
 
 static inline void aosp_do_open(struct hci_dev *hdev) {}
 static inline void aosp_do_close(struct hci_dev *hdev) {}
+
+static inline int aosp_set_quality_report(struct hci_dev *hdev, bool enable)
+{
+	return false;
+}
 
 #endif
