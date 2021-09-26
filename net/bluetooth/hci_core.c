@@ -1315,6 +1315,21 @@ static void hci_dev_get_bd_addr_from_property(struct hci_dev *hdev)
 	bacpy(&hdev->public_addr, &ba);
 }
 
+static void hci_set_quality_report(struct hci_dev *hdev)
+{
+#ifdef CONFIG_BT_AOSPEXT
+	if (hdev->aosp_capable) {
+		/* The hdev->set_quality_report callback is setup here for
+		 * the vendors that support AOSP quality report specification.
+		 * Note that Intel, while supporting a distinct telemetry
+		 * quality report specification, sets up the
+		 * hdev->set_quality_report callback in the btusb module.
+		 */
+		hdev->set_quality_report = aosp_set_quality_report;
+	}
+#endif
+}
+
 static int hci_dev_do_open(struct hci_dev *hdev)
 {
 	int ret = 0;
@@ -1393,6 +1408,8 @@ static int hci_dev_do_open(struct hci_dev *hdev)
 
 		if (ret)
 			goto setup_failed;
+
+		hci_set_quality_report(hdev);
 
 		if (test_bit(HCI_QUIRK_USE_BDADDR_PROPERTY, &hdev->quirks)) {
 			if (!bacmp(&hdev->public_addr, BDADDR_ANY))
