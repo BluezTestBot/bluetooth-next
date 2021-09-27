@@ -61,8 +61,8 @@ static inline int msft_set_filter_enable(struct hci_dev *hdev, bool enable)
 	return -EOPNOTSUPP;
 }
 
-void msft_suspend(struct hci_dev *hdev) {}
-void msft_resume(struct hci_dev *hdev) {}
+static inline void msft_suspend(struct hci_dev *hdev) {}
+static inline void msft_resume(struct hci_dev *hdev) {}
 
 static inline bool msft_curve_validity(struct hci_dev *hdev)
 {
