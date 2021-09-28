@@ -23,6 +23,8 @@ void aosp_do_open(struct hci_dev *hdev)
 	if (IS_ERR(skb))
 		return;
 
+	/* TODO set hdev->aosp_quality_report accordingly */
+
 	kfree_skb(skb);
 }
 
@@ -32,4 +34,19 @@ void aosp_do_close(struct hci_dev *hdev)
 		return;
 
 	bt_dev_dbg(hdev, "Cleanup of AOSP extension");
+}
+
+int aosp_set_quality_report(struct hci_dev *hdev, bool enable)
+{
+	if (!hdev->aosp_quality_report)
+		return -EOPNOTSUPP;
+
+	/* TODO execute HCI command */
+
+	return -EOPNOTSUPP;
+}
+
+bool aosp_has_quality_report(struct hci_dev *hdev)
+{
+	return hdev->aosp_quality_report;
 }
