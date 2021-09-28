@@ -5,9 +5,7 @@
  */
 
 #include <linux/module.h>
-#include <linux/slab.h>
 #include <linux/rpmsg.h>
-#include <linux/of.h>
 
 #include <linux/soc/qcom/wcnss_ctrl.h>
 #include <linux/platform_device.h>
@@ -15,7 +13,6 @@
 #include <net/bluetooth/bluetooth.h>
 #include <net/bluetooth/hci_core.h>
 
-#include "btqca.h"
 
 struct btqcomsmd {
 	struct hci_dev *hdev;
