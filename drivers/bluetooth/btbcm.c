@@ -353,6 +353,10 @@ static int btbcm_read_info(struct hci_dev *hdev)
 		return PTR_ERR(skb);
 
 	bt_dev_info(hdev, "BCM: chip id %u", skb->data[1]);
+
+	if (skb->data[1] == 150)
+		set_bit(HCI_QUIRK_BROKEN_READ_TRANSMIT_POWER, &hdev->quirks);
+
 	kfree_skb(skb);
 
 	/* Read Controller Features */
