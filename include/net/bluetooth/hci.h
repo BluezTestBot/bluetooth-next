@@ -246,6 +246,17 @@ enum {
 	 * HCI after resume.
 	 */
 	HCI_QUIRK_NO_SUSPEND_NOTIFIER,
+
+	/* When this quirk is set, LE Read Transmit Power is disabled.
+	 * This is mainly due to the fact that the HCI LE Read Transmit
+	 * Power command is advertised, but not supported; these
+	 * controllers often reply with unknown command and need a hard
+	 * reset.
+	 *
+	 * This quirk can be set before hci_register_dev is called or
+	 * during the hdev->setup vendor callback.
+	 */
+	HCI_QUIRK_BROKEN_READ_TRANSMIT_POWER,
 };
 
 /* HCI device flags */
