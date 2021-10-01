@@ -162,6 +162,15 @@ static struct bt_sock_list hci_sk_list = {
 	.lock = __RW_LOCK_UNLOCKED(hci_sk_list.lock)
 };
 
+void hci_sock_set_flag_all(int nr)
+{
+	struct sock *sk;
+
+	sk_for_each(sk, &hci_sk_list.head) {
+		hci_sock_set_flag(sk, nr);
+	}
+}
+
 static bool is_filtered_packet(struct sock *sk, struct sk_buff *skb)
 {
 	struct hci_filter *flt;

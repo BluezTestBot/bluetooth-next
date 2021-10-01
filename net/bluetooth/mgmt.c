@@ -3890,7 +3890,7 @@ static int read_exp_features_info(struct sock *sk, struct hci_dev *hdev,
 	/* After reading the experimental features information, enable
 	 * the events to update client on any future change.
 	 */
-	hci_sock_set_flag(sk, HCI_MGMT_EXP_FEATURE_EVENTS);
+	hci_sock_set_flag_all(HCI_MGMT_EXP_FEATURE_EVENTS);
 
 	return mgmt_cmd_complete(sk, hdev ? hdev->id : MGMT_INDEX_NONE,
 				 MGMT_OP_READ_EXP_FEATURES_INFO,
@@ -3975,7 +3975,7 @@ static int set_zero_key_func(struct sock *sk, struct hci_dev *hdev,
 			exp_ll_privacy_feature_changed(false, hdev, sk);
 	}
 
-	hci_sock_set_flag(sk, HCI_MGMT_EXP_FEATURE_EVENTS);
+	hci_sock_set_flag_all(HCI_MGMT_EXP_FEATURE_EVENTS);
 
 	return mgmt_cmd_complete(sk, hdev ? hdev->id : MGMT_INDEX_NONE,
 				 MGMT_OP_SET_EXP_FEATURE, 0,
@@ -4016,7 +4016,7 @@ static int set_debug_func(struct sock *sk, struct hci_dev *hdev,
 	memcpy(rp.uuid, debug_uuid, 16);
 	rp.flags = cpu_to_le32(val ? BIT(0) : 0);
 
-	hci_sock_set_flag(sk, HCI_MGMT_EXP_FEATURE_EVENTS);
+	hci_sock_set_flag_all(HCI_MGMT_EXP_FEATURE_EVENTS);
 
 	err = mgmt_cmd_complete(sk, MGMT_INDEX_NONE,
 				MGMT_OP_SET_EXP_FEATURE, 0,
@@ -4082,7 +4082,7 @@ static int set_rpa_resolution_func(struct sock *sk, struct hci_dev *hdev,
 	memcpy(rp.uuid, rpa_resolution_uuid, 16);
 	rp.flags = cpu_to_le32(flags);
 
-	hci_sock_set_flag(sk, HCI_MGMT_EXP_FEATURE_EVENTS);
+	hci_sock_set_flag_all(HCI_MGMT_EXP_FEATURE_EVENTS);
 
 	err = mgmt_cmd_complete(sk, hdev->id,
 				MGMT_OP_SET_EXP_FEATURE, 0,
@@ -4150,7 +4150,7 @@ static int set_quality_report_func(struct sock *sk, struct hci_dev *hdev,
 
 	memcpy(rp.uuid, quality_report_uuid, 16);
 	rp.flags = cpu_to_le32(val ? BIT(0) : 0);
-	hci_sock_set_flag(sk, HCI_MGMT_EXP_FEATURE_EVENTS);
+	hci_sock_set_flag_all(HCI_MGMT_EXP_FEATURE_EVENTS);
 	err = mgmt_cmd_complete(sk, hdev->id,
 				MGMT_OP_SET_EXP_FEATURE, 0,
 				&rp, sizeof(rp));
@@ -4223,7 +4223,7 @@ static int set_offload_codec_func(struct sock *sk, struct hci_dev *hdev,
 
 	memcpy(rp.uuid, offload_codecs_uuid, 16);
 	rp.flags = cpu_to_le32(val ? BIT(0) : 0);
-	hci_sock_set_flag(sk, HCI_MGMT_EXP_FEATURE_EVENTS);
+	hci_sock_set_flag_all(HCI_MGMT_EXP_FEATURE_EVENTS);
 	err = mgmt_cmd_complete(sk, hdev->id,
 				MGMT_OP_SET_EXP_FEATURE, 0,
 				&rp, sizeof(rp));
@@ -7460,7 +7460,7 @@ send_rsp:
 	if (err < 0 || status)
 		goto done;
 
-	hci_sock_set_flag(cmd->sk, HCI_MGMT_OOB_DATA_EVENTS);
+	hci_sock_set_flag_all(HCI_MGMT_OOB_DATA_EVENTS);
 
 	err = mgmt_limited_event(MGMT_EV_LOCAL_OOB_DATA_UPDATED, hdev,
 				 mgmt_rp, sizeof(*mgmt_rp) + eir_len,
@@ -7636,7 +7636,7 @@ static int read_local_oob_ext_data(struct sock *sk, struct hci_dev *hdev,
 
 	hci_dev_unlock(hdev);
 
-	hci_sock_set_flag(sk, HCI_MGMT_OOB_DATA_EVENTS);
+	hci_sock_set_flag_all(HCI_MGMT_OOB_DATA_EVENTS);
 
 	status = MGMT_STATUS_SUCCESS;
 
