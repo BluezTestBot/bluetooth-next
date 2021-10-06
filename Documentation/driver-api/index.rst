@@ -94,6 +94,7 @@ available subsections can be seen below.
    ptp
    phy/index
    pwm
+   pwrseq
    pldmfw/index
    rfkill
    serial/index
