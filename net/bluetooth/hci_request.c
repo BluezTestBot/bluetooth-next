@@ -1092,17 +1092,24 @@ static void suspend_req_complete(struct hci_dev *hdev, u8 status, u16 opcode)
 {
 	bt_dev_dbg(hdev, "Request complete opcode=0x%x, status=0x%x", opcode,
 		   status);
-	if (test_bit(SUSPEND_SCAN_ENABLE, hdev->suspend_tasks) ||
-	    test_bit(SUSPEND_SCAN_DISABLE, hdev->suspend_tasks)) {
-		clear_bit(SUSPEND_SCAN_ENABLE, hdev->suspend_tasks);
-		clear_bit(SUSPEND_SCAN_DISABLE, hdev->suspend_tasks);
+
+	if (status) {
 		wake_up(&hdev->suspend_wait_q);
+		return;
 	}
 
-	if (test_bit(SUSPEND_SET_ADV_FILTER, hdev->suspend_tasks)) {
-		clear_bit(SUSPEND_SET_ADV_FILTER, hdev->suspend_tasks);
+	/* Clear all tasks that could be initiated using suspend_req_complete as
+	 * callback.
+	 */
+	clear_bit(SUSPEND_PAUSE_DISCOVERY, hdev->suspend_tasks);
+	clear_bit(SUSPEND_PAUSE_ADVERTISING, hdev->suspend_tasks);
+	clear_bit(SUSPEND_SCAN_ENABLE, hdev->suspend_tasks);
+	clear_bit(SUSPEND_SCAN_DISABLE, hdev->suspend_tasks);
+	clear_bit(SUSPEND_SET_ADV_FILTER, hdev->suspend_tasks);
+
+	/* Wake up only if there are no tasks left */
+	if (!hdev->suspend_tasks)
 		wake_up(&hdev->suspend_wait_q);
-	}
 }
 
 static void hci_req_prepare_adv_monitor_suspend(struct hci_request *req,
