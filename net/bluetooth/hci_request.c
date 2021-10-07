@@ -1108,7 +1108,7 @@ static void suspend_req_complete(struct hci_dev *hdev, u8 status, u16 opcode)
 	clear_bit(SUSPEND_SET_ADV_FILTER, hdev->suspend_tasks);
 
 	/* Wake up only if there are no tasks left */
-	if (!hdev->suspend_tasks)
+	if (!bitmap_empty(hdev->suspend_tasks, __SUSPEND_NUM_TASKS))
 		wake_up(&hdev->suspend_wait_q);
 }
 
