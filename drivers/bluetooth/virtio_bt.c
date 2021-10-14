@@ -343,7 +343,7 @@ static int virtbt_probe(struct virtio_device *vdev)
 	}
 
 	if (virtio_has_feature(vdev, VIRTIO_BT_F_AOSP_EXT))
-		hci_set_aosp_capable(hdev);
+		hci_set_aosp_capable(hdev, true);
 
 	if (hci_register_dev(hdev) < 0) {
 		hci_free_dev(hdev);

@@ -264,7 +264,7 @@ static int vhci_setup(struct hci_dev *hdev)
 	struct vhci_data *vhci = hci_get_drvdata(hdev);
 
 	hci_set_msft_opcode(hdev, vhci->msft_opcode);
-	hci_set_aosp_capable(hdev);
+	hci_set_aosp_capable(hdev, vhci->aosp_capable);
 
 	return 0;
 }

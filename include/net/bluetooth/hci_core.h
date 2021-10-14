@@ -1279,10 +1279,10 @@ static inline void hci_set_msft_opcode(struct hci_dev *hdev, __u16 opcode)
 #endif
 }
 
-static inline void hci_set_aosp_capable(struct hci_dev *hdev)
+static inline void hci_set_aosp_capable(struct hci_dev *hdev, bool enable)
 {
 #if IS_ENABLED(CONFIG_BT_AOSPEXT)
-	hdev->aosp_capable = true;
+	hdev->aosp_capable = enable;
 #endif
 }
 
