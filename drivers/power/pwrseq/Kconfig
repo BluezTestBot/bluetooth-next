@@ -1,0 +1,60 @@
+# SPDX-License-Identifier: GPL-2.0-only
+menuconfig PWRSEQ
+	bool "Power Sequencer drivers"
+	help
+	  Provides support for special power sequencing drivers. Power
+	  sequencer is an entity providing abstraced power on/power off/reset
+	  operations for the connected devices. Possible usages include MMC
+	  SDIO devices, some complex WiFi/BT chips, controlled USB hubs, etc.
+
+	  Say Y here to enable support for such devices.
+
+if PWRSEQ
+
+config PWRSEQ_EMMC
+	tristate "HW reset support for eMMC"
+	default y
+	depends on OF
+	help
+	  This selects Hardware reset support aka pwrseq-emmc for eMMC
+	  devices. By default this option is set to y.
+
+	  This driver can also be built as a module. If so, the module
+	  will be called pwrseq_emmc.
+
+config PWRSEQ_QCA
+	tristate "Power Sequencer for Qualcomm WiFi + BT SoCs"
+	depends on OF
+	help
+	  If you say yes to this option, support will be included for Qualcomm
+	  WCN399x,QCA639x,QCA67xx families of hybrid WiFi and Bluetooth SoCs.
+	  Note, this driver supports only power control for these SoC, you
+	  still have to enable individual Bluetooth and WiFi drivers. This
+	  driver is only necessary on ARM platforms with these chips. PCIe
+	  cards handle power sequencing on their own.
+
+	  Say M here if you want to include support for Qualcomm WiFi+BT SoCs
+	  as a module. This will build a module called "pwrseq_qca".
+
+config PWRSEQ_SD8787
+	tristate "HW reset support for SD8787 BT + Wifi module"
+	depends on OF
+	help
+	  This selects hardware reset support for the SD8787 BT + Wifi
+	  module. By default this option is set to n.
+
+	  This driver can also be built as a module. If so, the module
+	  will be called pwrseq_sd8787.
+
+config PWRSEQ_SIMPLE
+	tristate "Simple HW reset support"
+	default y
+	depends on OF
+	help
+	  This selects simple hardware reset support aka pwrseq-simple.
+	  By default this option is set to y.
+
+	  This driver can also be built as a module. If so, the module
+	  will be called pwrseq_simple.
+
+endif
