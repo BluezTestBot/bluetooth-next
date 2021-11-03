@@ -574,9 +574,6 @@ static int sco_sock_connect(struct socket *sock, struct sockaddr *addr, int alen
 	    addr->sa_family != AF_BLUETOOTH)
 		return -EINVAL;
 
-	if (sk->sk_state != BT_OPEN && sk->sk_state != BT_BOUND)
-		return -EBADFD;
-
 	if (sk->sk_type != SOCK_SEQPACKET)
 		return -EINVAL;
 
@@ -586,6 +583,13 @@ static int sco_sock_connect(struct socket *sock, struct sockaddr *addr, int alen
 	hci_dev_lock(hdev);
 
 	lock_sock(sk);
+
+	if (sk->sk_state != BT_OPEN && sk->sk_state != BT_BOUND) {
+		hci_dev_unlock(hdev);
+		hci_dev_put(hdev);
+		err = -EBADFD;
+		goto done;
+	}
 
 	/* Set destination address and psm */
 	bacpy(&sco_pi(sk)->dst, &sa->sco_bdaddr);
