@@ -5531,8 +5531,11 @@ static int confirm_name(struct sock *sk, struct hci_dev *hdev, void *data,
 		goto failed;
 	}
 
-	if (cp->name_known) {
+	if (cp->name_state == MGMT_CONFIRM_NAME_KNOWN) {
 		e->name_state = NAME_KNOWN;
+		list_del(&e->list);
+	} else if (cp->name_state == MGMT_CONFIRM_NAME_DONT_CARE) {
+		e->name_state = NAME_DONT_CARE;
 		list_del(&e->list);
 	} else {
 		e->name_state = NAME_NEEDED;
@@ -9615,7 +9618,8 @@ void mgmt_remote_name(struct hci_dev *hdev, bdaddr_t *bdaddr, u8 link_type,
 {
 	struct mgmt_ev_device_found *ev;
 	char buf[sizeof(*ev) + HCI_MAX_NAME_LENGTH + 2];
-	u16 eir_len;
+	u16 eir_len = 0;
+	u32 flags = 0;
 
 	ev = (struct mgmt_ev_device_found *) buf;
 
@@ -9625,10 +9629,14 @@ void mgmt_remote_name(struct hci_dev *hdev, bdaddr_t *bdaddr, u8 link_type,
 	ev->addr.type = link_to_bdaddr(link_type, addr_type);
 	ev->rssi = rssi;
 
-	eir_len = eir_append_data(ev->eir, 0, EIR_NAME_COMPLETE, name,
-				  name_len);
+	if (name)
+		eir_len = eir_append_data(ev->eir, 0, EIR_NAME_COMPLETE, name,
+					  name_len);
+	else
+		flags |= MGMT_DEV_FOUND_CONFIRM_NAME_FAILED;
 
 	ev->eir_len = cpu_to_le16(eir_len);
+	ev->flags = cpu_to_le32(flags);
 
 	mgmt_event(MGMT_EV_DEVICE_FOUND, hdev, ev, sizeof(*ev) + eir_len, NULL);
 }
