@@ -159,6 +159,9 @@ void hci_read_supported_codecs(struct hci_dev *hdev)
 		caps.id = std_codecs->codec[i];
 		caps.direction = 0x00;
 		hci_read_codec_capabilities(hdev, LOCAL_CODEC_ACL_MASK, &caps);
+
+		caps.direction = 0x01;
+		hci_read_codec_capabilities(hdev, LOCAL_CODEC_ACL_MASK, &caps);
 	}
 
 	skb_pull(skb, flex_array_size(std_codecs, codec, std_codecs->num)
@@ -178,6 +181,9 @@ void hci_read_supported_codecs(struct hci_dev *hdev)
 		caps.cid = vnd_codecs->codec[i].cid;
 		caps.vid = vnd_codecs->codec[i].vid;
 		caps.direction = 0x00;
+		hci_read_codec_capabilities(hdev, LOCAL_CODEC_ACL_MASK, &caps);
+
+		caps.direction = 0x01;
 		hci_read_codec_capabilities(hdev, LOCAL_CODEC_ACL_MASK, &caps);
 	}
 
@@ -224,6 +230,10 @@ void hci_read_supported_codecs_v2(struct hci_dev *hdev)
 
 	for (i = 0; i < std_codecs->num; i++) {
 		caps.id = std_codecs->codec[i].id;
+		caps.direction = 0x00;
+		hci_read_codec_capabilities(hdev, std_codecs->codec[i].transport,
+					    &caps);
+		caps.direction = 0x01;
 		hci_read_codec_capabilities(hdev, std_codecs->codec[i].transport,
 					    &caps);
 	}
@@ -243,10 +253,191 @@ void hci_read_supported_codecs_v2(struct hci_dev *hdev)
 		caps.id = 0xFF;
 		caps.cid = vnd_codecs->codec[i].cid;
 		caps.vid = vnd_codecs->codec[i].vid;
+		caps.direction = 0x00;
+		hci_read_codec_capabilities(hdev, vnd_codecs->codec[i].transport,
+					    &caps);
+		caps.direction = 0x01;
 		hci_read_codec_capabilities(hdev, vnd_codecs->codec[i].transport,
 					    &caps);
 	}
 
 error:
 	kfree_skb(skb);
+}
+
+int hci_get_supported_codecs(struct hci_dev *hdev, u8 type, char __user *optval,
+			     int __user *optlen, int len)
+{
+	int n = 0, buf_len = 0, err = 0;
+	struct hci_codec_caps *caps;
+	struct bt_codec codec;
+	u8 num_codecs = 0, i, __user *ptr;
+	struct codec_list *c;
+	u8 data_path;
+
+	if (!hci_dev_test_flag(hdev, HCI_OFFLOAD_CODECS_ENABLED)) {
+		err = -EOPNOTSUPP;
+		goto error;
+	}
+
+	if (!hdev->get_data_path_id) {
+		err = -EOPNOTSUPP;
+		goto error;
+	}
+
+	err = hdev->get_data_path_id(hdev, type, &data_path);
+	if (err < 0)
+		goto error;
+
+	/* find total buffer size required to copy codec + capabilities */
+	hci_dev_lock(hdev);
+	list_for_each_entry(c, &hdev->local_codecs, list) {
+		if (c->transport != type)
+			continue;
+		num_codecs++;
+		for (i = 0, caps = c->caps; i < c->num_caps; i++) {
+			buf_len += 1 + caps->len;
+			caps = (void *)&caps->data[caps->len];
+		}
+		buf_len += sizeof(struct bt_codec);
+	}
+	hci_dev_unlock(hdev);
+
+	buf_len += sizeof(struct bt_codecs);
+	if (buf_len > len) {
+		err = -ENOBUFS;
+		goto error;
+	}
+	ptr = optval;
+
+	if (put_user(num_codecs, ptr)) {
+		err = -EFAULT;
+		goto error;
+	}
+	ptr += sizeof(num_codecs);
+
+	/* Iterate over all the codecs on required transport */
+	hci_dev_lock(hdev);
+	list_for_each_entry(c, &hdev->local_codecs, list) {
+		if (c->transport != type)
+			continue;
+
+		codec.id = c->id;
+		codec.cid = c->cid;
+		codec.vid = c->vid;
+		codec.data_path = data_path;
+		codec.num_caps = c->num_caps;
+		if (copy_to_user(ptr, &codec, sizeof(codec))) {
+			err = -EFAULT;
+			break;
+		}
+		ptr += sizeof(codec);
+
+		/* find codec capabilities data length */
+		n = 0;
+		for (i = 0, caps = c->caps; i < c->num_caps; i++) {
+			n += 1 + caps->len;
+			caps = (void *)&caps->data[caps->len];
+		}
+
+		/* copy codec capabilities data */
+		if (n && copy_to_user(ptr, c->caps, n)) {
+			err = -EFAULT;
+			break;
+		}
+		ptr += n;
+	}
+	hci_dev_unlock(hdev);
+
+	if (!err && put_user(buf_len, optlen))
+		err = -EFAULT;
+
+error:
+	return err;
+}
+
+int hci_configure_msft_avdtp_open(struct hci_dev *hdev, struct l2cap_chan *chan,
+				 sockptr_t optval, int optlen, struct sock *sk)
+{
+	struct msft_cp_avdtp_open *cmd = NULL;
+	struct hci_media_service_caps *caps;
+	int err;
+
+	if (!optlen || optlen < sizeof(*caps)) {
+		err = -EINVAL;
+		goto fail;
+	}
+
+	cmd = kzalloc(sizeof(*cmd) + optlen, GFP_KERNEL);
+	if (!cmd) {
+		err = -ENOMEM;
+		goto fail;
+	}
+
+	cmd->sub_opcode = HCI_MSFT_AVDTP_OPEN;
+	cmd->handle = __cpu_to_le16(chan->conn->hcon->handle);
+	cmd->dcid = cpu_to_le16(chan->dcid);
+	cmd->omtu = cpu_to_le16(chan->omtu);
+	caps = (void *)(cmd + 1);
+
+	if (copy_from_sockptr(caps, optval, optlen)) {
+		err = -EFAULT;
+		goto fail;
+	}
+
+	if (caps->category != 0x07) {
+		err = -EINVAL;
+		goto fail;
+	}
+
+	hci_send_cmd(hdev, HCI_MSFT_AVDTP_CMD, sizeof(*cmd) + optlen, cmd);
+
+	set_bit(BT_SK_AVDTP_PEND, &bt_sk(sk)->flags);
+
+	err = bt_sock_wait_for_avdtp_hndl(sk, MSFT_AVDTP_TIMEOUT);
+
+fail:
+	kfree(cmd);
+	return err;
+}
+
+int hci_configure_msft_avdtp_start(struct hci_dev *hdev, struct sock *sk)
+{
+	struct msft_cp_avdtp_start cmd;
+
+	if (!bt_sk(sk)->avdtp_handle)
+		return -EBADFD;
+
+	cmd.sub_opcode = HCI_MSFT_AVDTP_START;
+	cmd.avdtp_handle = cpu_to_le16(bt_sk(sk)->avdtp_handle);
+
+	return hci_send_cmd(hdev, HCI_MSFT_AVDTP_CMD, sizeof(cmd), &cmd);
+}
+
+int hci_configure_msft_avdtp_suspend(struct hci_dev *hdev, struct sock *sk)
+{
+	struct msft_cp_avdtp_suspend cmd;
+
+	if (!bt_sk(sk)->avdtp_handle)
+		return -EBADFD;
+
+	cmd.sub_opcode = HCI_MSFT_AVDTP_SUSPEND;
+	cmd.avdtp_handle = cpu_to_le16(bt_sk(sk)->avdtp_handle);
+
+	return hci_send_cmd(hdev, HCI_MSFT_AVDTP_CMD, sizeof(cmd), &cmd);
+}
+
+int hci_configure_msft_avdtp_close(struct hci_dev *hdev, struct sock *sk)
+{
+	struct msft_cp_avdtp_close cmd;
+
+	if (!bt_sk(sk)->avdtp_handle)
+		return -EBADFD;
+
+	cmd.sub_opcode = HCI_MSFT_AVDTP_CLOSE;
+	cmd.avdtp_handle = cpu_to_le16(bt_sk(sk)->avdtp_handle);
+
+	bt_sk(sk)->avdtp_handle = 0;
+
+	return hci_send_cmd(hdev, HCI_MSFT_AVDTP_CMD, sizeof(cmd), &cmd);
 }

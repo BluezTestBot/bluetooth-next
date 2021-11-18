@@ -347,6 +347,7 @@ enum {
 #define HCI_POWER_OFF_TIMEOUT	msecs_to_jiffies(5000)	/* 5 seconds */
 #define HCI_LE_CONN_TIMEOUT	msecs_to_jiffies(20000)	/* 20 seconds */
 #define HCI_LE_AUTOCONN_TIMEOUT	msecs_to_jiffies(4000)	/* 4 seconds */
+#define MSFT_AVDTP_TIMEOUT      msecs_to_jiffies(500) /* 0.5 seconds */
 
 /* HCI data types */
 #define HCI_COMMAND_PKT		0x01
@@ -1394,7 +1395,6 @@ struct hci_std_codecs_v2 {
 } __packed;
 
 struct hci_vnd_codec_v2 {
-	__u8	id;
 	__le16	cid;
 	__le16	vid;
 	__u8	transport;
@@ -2009,6 +2009,47 @@ struct hci_cp_le_accept_cis {
 struct hci_cp_le_reject_cis {
 	__le16  handle;
 	__u8    reason;
+} __packed;
+
+#define HCI_MSFT_AVDTP_CMD			0xfc1e
+
+#define HCI_MSFT_AVDTP_OPEN			0x08
+struct hci_media_service_caps {
+	__u8	category;
+	__u8	len;
+	__u8	data[0];
+} __packed;
+
+struct msft_cp_avdtp_open {
+	__u8	sub_opcode;
+	__le16	handle;
+	__le16	dcid;
+	__le16	omtu;
+} __packed;
+
+struct msft_rp_avdtp_open {
+	__u8	status;
+	__u8	sub_opcode;
+	__le16	avdtp_handle;
+	__u8	audio_intf_param_cnt;
+} __packed;
+
+#define HCI_MSFT_AVDTP_START			0x09
+struct msft_cp_avdtp_start {
+	u8	sub_opcode;
+	__le16	avdtp_handle;
+} __packed;
+
+#define HCI_MSFT_AVDTP_SUSPEND			0x0A
+struct msft_cp_avdtp_suspend {
+	u8	sub_opcode;
+	__le16	avdtp_handle;
+} __packed;
+
+#define HCI_MSFT_AVDTP_CLOSE			0x0B
+struct msft_cp_avdtp_close {
+	u8	sub_opcode;
+	__le16	avdtp_handle;
 } __packed;
 
 /* ---- HCI Events ---- */
@@ -2667,6 +2708,7 @@ static inline struct hci_sco_hdr *hci_sco_hdr(const struct sk_buff *skb)
 #define hci_iso_data_flags(h)		((h) >> 14)
 
 /* codec transport types */
+#define HCI_TRANSPORT_ACL	0x00
 #define HCI_TRANSPORT_SCO_ESCO	0x01
 
 /* le24 support */
