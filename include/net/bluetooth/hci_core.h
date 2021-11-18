@@ -755,6 +755,7 @@ struct hci_conn_params {
 
 	struct hci_conn *conn;
 	bool explicit_connect;
+	u8  privacy_mode;
 	u32 current_flags;
 };
 
