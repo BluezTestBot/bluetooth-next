@@ -127,6 +127,12 @@ struct msft_rp_avdtp_open {
 	__u8    audio_intf_param_cnt;
 } __packed;
 
+#define MSFT_OP_AVDTP_START			0x09
+struct msft_cp_avdtp_start {
+	u8	sub_opcode;
+	__le16	avdtp_handle;
+} __packed;
+
 static int __msft_add_monitor_pattern(struct hci_dev *hdev,
 				      struct adv_monitor *monitor);
 static int __msft_remove_monitor(struct hci_dev *hdev,
@@ -884,6 +890,19 @@ fail:
 	return err;
 }
 
+static int msft_avdtp_start(struct hci_dev *hdev, struct sock *sk)
+{
+	struct msft_cp_avdtp_start cmd;
+
+	if (!bt_sk(sk)->avdtp_handle)
+		return -EBADFD;
+
+	cmd.sub_opcode = MSFT_OP_AVDTP_START;
+	cmd.avdtp_handle = cpu_to_le16(bt_sk(sk)->avdtp_handle);
+
+	return hci_send_cmd(hdev, MSFT_OP_AVDTP, sizeof(cmd), &cmd);
+}
+
 int msft_avdtp_cmd(struct hci_dev *hdev, struct l2cap_chan *chan,
 		   sockptr_t optval, int optlen,
 		   struct sock *sk)
@@ -916,6 +935,10 @@ int msft_avdtp_cmd(struct hci_dev *hdev, struct l2cap_chan *chan,
 			break;
 		}
 		err = msft_avdtp_open(hdev, chan, cmd, sk);
+		break;
+
+	case MSFT_OP_AVDTP_START:
+		err = msft_avdtp_start(hdev, sk);
 		break;
 
 	default:
@@ -973,6 +996,9 @@ void msft_cc_avdtp(struct hci_dev *hdev, struct sk_buff *skb)
 	switch (skb->data[1]) {
 	case MSFT_OP_AVDTP_OPEN:
 		msft_cc_avdtp_open(hdev, skb);
+		break;
+
+	case MSFT_OP_AVDTP_START:
 		break;
 
 	default:
