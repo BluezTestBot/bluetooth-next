@@ -6,6 +6,7 @@
 #include <net/bluetooth/bluetooth.h>
 #include <net/bluetooth/hci_core.h>
 #include <net/bluetooth/mgmt.h>
+#include <net/bluetooth/l2cap.h>
 
 #include "hci_request.h"
 #include "mgmt_util.h"
@@ -97,6 +98,28 @@ struct msft_data {
 	__u8 suspending;
 	__u8 filter_enabled;
 };
+
+#define MSFT_OP_AVDTP			0xfc1e
+struct msft_cp_avdtp {
+	__u8	sub_opcode;
+	__u8	len;
+	__u8	data[0];
+};
+
+#define MSFT_OP_AVDTP_OPEN			0x08
+struct hci_media_service_caps {
+	__u8	category;
+	__u8	len;
+	__u8	data[0];
+} __packed;
+
+struct msft_cp_avdtp_open {
+	__u8	sub_opcode;
+	__le16	handle;
+	__le16	dcid;
+	__le16	omtu;
+	__u8	caps[0];
+} __packed;
 
 static int __msft_add_monitor_pattern(struct hci_dev *hdev,
 				      struct adv_monitor *monitor);
@@ -811,4 +834,85 @@ int msft_set_filter_enable(struct hci_dev *hdev, bool enable)
 bool msft_curve_validity(struct hci_dev *hdev)
 {
 	return hdev->msft_curve_validity;
+}
+
+static int msft_avdtp_open(struct hci_dev *hdev,
+			   struct l2cap_chan *chan,
+			   struct msft_cp_avdtp *cmd)
+{
+	struct msft_cp_avdtp_open *open_cmd;
+	struct hci_media_service_caps *caps;
+	int err = 0;
+
+	caps = (void *)cmd->data;
+
+	if (!caps || caps->category != 0x07) {
+		err = -EINVAL;
+		goto fail;
+	}
+
+	open_cmd = kzalloc(sizeof(*open_cmd) + caps->len, GFP_KERNEL);
+	if (!open_cmd) {
+		err = -ENOMEM;
+		goto fail;
+	}
+
+	open_cmd->sub_opcode = MSFT_OP_AVDTP_OPEN;
+	open_cmd->handle = cpu_to_le16(chan->conn->hcon->handle);
+	open_cmd->dcid = cpu_to_le16(chan->dcid);
+	open_cmd->omtu = cpu_to_le16(chan->omtu);
+
+	/* copy codec capabilities */
+	memcpy(open_cmd->caps, caps, sizeof(*caps) + caps->len);
+
+	hci_send_cmd(hdev, MSFT_OP_AVDTP, sizeof(*open_cmd) + cmd->len,
+		     open_cmd);
+
+	/* wait until we get avdtp handle or timeout */
+fail:
+	kfree(open_cmd);
+	return err;
+}
+
+int msft_avdtp_cmd(struct hci_dev *hdev, struct l2cap_chan *chan,
+		   sockptr_t optval, int optlen)
+{
+	int err = 0;
+	struct msft_cp_avdtp *cmd;
+	u8 buffer[255];
+
+	if (!optlen) {
+		err = -EINVAL;
+		goto fail;
+	}
+
+	if (optlen > sizeof(buffer)) {
+		err = -ENOBUFS;
+		goto fail;
+	}
+
+	if (copy_from_sockptr(buffer, optval, optlen)) {
+		err = -EFAULT;
+		goto fail;
+	}
+
+	cmd = (void *)buffer;
+
+	switch (cmd->sub_opcode) {
+	case MSFT_OP_AVDTP_OPEN:
+		if (cmd->len > sizeof(buffer) - sizeof(*cmd)) {
+			err = -EINVAL;
+			break;
+		}
+		err = msft_avdtp_open(hdev, chan, cmd);
+		break;
+
+	default:
+		err = -EINVAL;
+		bt_dev_err(hdev, "Invalid MSFT avdtp sub opcode = 0x%2.2x",
+			   cmd->sub_opcode);
+		break;
+	}
+fail:
+	return err;
 }
