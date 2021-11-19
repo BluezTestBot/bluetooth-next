@@ -1037,6 +1037,9 @@ static int btmtksdio_runtime_suspend(struct device *dev)
 	if (!bdev)
 		return 0;
 
+	if (!test_bit(HCI_RUNNING, &bdev->hdev->flags))
+		return 0;
+
 	sdio_claim_host(bdev->func);
 
 	sdio_writel(bdev->func, C_FW_OWN_REQ_SET, MTK_REG_CHLPCR, &err);
@@ -1062,6 +1065,9 @@ static int btmtksdio_runtime_resume(struct device *dev)
 
 	bdev = sdio_get_drvdata(func);
 	if (!bdev)
+		return 0;
+
+	if (!test_bit(HCI_RUNNING, &bdev->hdev->flags))
 		return 0;
 
 	sdio_claim_host(bdev->func);
