@@ -3887,10 +3887,16 @@ static const u8 rpa_resolution_uuid[16] = {
 	0xea, 0x11, 0x73, 0xc2, 0x48, 0xa1, 0xc0, 0x15,
 };
 
+/* 0cc2131f-96f0-4cd1-b313-b97e7cbc8335 */
+static const u8 msft_a2dp_offload_codecs_uuid[16] = {
+	0x35, 0x83, 0xbc, 0x7c, 0x7e, 0xb9, 0x13, 0xb3,
+	0xd1, 0x4c, 0xf0, 0x96, 0x1f, 0x13, 0xc2, 0x0c,
+};
+
 static int read_exp_features_info(struct sock *sk, struct hci_dev *hdev,
 				  void *data, u16 data_len)
 {
-	char buf[102];   /* Enough space for 5 features: 2 + 20 * 5 */
+	char buf[122];   /* Enough space for 6 features: 2 + 20 * 6 */
 	struct mgmt_rp_read_exp_features_info *rp = (void *)buf;
 	u16 idx = 0;
 	u32 flags;
@@ -3953,6 +3959,17 @@ static int read_exp_features_info(struct sock *sk, struct hci_dev *hdev,
 			flags = 0;
 
 		memcpy(rp->features[idx].uuid, offload_codecs_uuid, 16);
+		rp->features[idx].flags = cpu_to_le32(flags);
+		idx++;
+	}
+
+	if (hdev && hdev->get_data_path_id) {
+		if (hci_dev_test_flag(hdev, HCI_MSFT_A2DP_OFFLOAD_CODECS_ENABLED))
+			flags = BIT(0);
+		else
+			flags = 0;
+
+		memcpy(rp->features[idx].uuid, msft_a2dp_offload_codecs_uuid, 16);
 		rp->features[idx].flags = cpu_to_le32(flags);
 		idx++;
 	}
@@ -4256,6 +4273,20 @@ static int exp_offload_codec_feature_changed(bool enabled, struct hci_dev *hdev,
 				  HCI_MGMT_EXP_FEATURE_EVENTS, skip);
 }
 
+static int exp_msft_a2dp_offload_codec_feature_changed(bool enabled,
+						       struct sock *skip)
+{
+	struct mgmt_ev_exp_feature_changed ev;
+
+	memset(&ev, 0, sizeof(ev));
+	memcpy(ev.uuid, msft_a2dp_offload_codecs_uuid, 16);
+	ev.flags = cpu_to_le32(enabled ? BIT(0) : 0);
+
+	return mgmt_limited_event(MGMT_EV_EXP_FEATURE_CHANGED, NULL,
+				  &ev, sizeof(ev),
+				  HCI_MGMT_EXP_FEATURE_EVENTS, skip);
+}
+
 static int set_offload_codec_func(struct sock *sk, struct hci_dev *hdev,
 				  struct mgmt_cp_set_exp_feature *cp,
 				  u16 data_len)
@@ -4314,6 +4345,66 @@ static int set_offload_codec_func(struct sock *sk, struct hci_dev *hdev,
 	return err;
 }
 
+static int set_msft_a2dp_offload_codec_func(struct sock *sk, struct hci_dev *hdev,
+					    struct mgmt_cp_set_exp_feature *cp,
+					    u16 data_len)
+{
+	bool val, changed;
+	int err;
+	struct mgmt_rp_set_exp_feature rp;
+
+	/* Command requires to use a valid controller index */
+	if (!hdev)
+		return mgmt_cmd_status(sk, MGMT_INDEX_NONE,
+				       MGMT_OP_SET_EXP_FEATURE,
+				       MGMT_STATUS_INVALID_INDEX);
+
+	/* Parameters are limited to a single octet */
+	if (data_len != MGMT_SET_EXP_FEATURE_SIZE + 1)
+		return mgmt_cmd_status(sk, hdev->id,
+				       MGMT_OP_SET_EXP_FEATURE,
+				       MGMT_STATUS_INVALID_PARAMS);
+
+	/* Only boolean on/off is supported */
+	if (cp->param[0] != 0x00 && cp->param[0] != 0x01)
+		return mgmt_cmd_status(sk, hdev->id,
+				       MGMT_OP_SET_EXP_FEATURE,
+				       MGMT_STATUS_INVALID_PARAMS);
+
+	val = !!cp->param[0];
+	changed = (val != hci_dev_test_flag(hdev,
+					    HCI_MSFT_A2DP_OFFLOAD_CODECS_ENABLED));
+
+	if (!hdev->get_data_path_id) {
+		return mgmt_cmd_status(sk, hdev->id,
+				       MGMT_OP_SET_EXP_FEATURE,
+				       MGMT_STATUS_NOT_SUPPORTED);
+	}
+
+	if (changed) {
+		if (val)
+			hci_dev_set_flag(hdev,
+					 HCI_MSFT_A2DP_OFFLOAD_CODECS_ENABLED);
+		else
+			hci_dev_clear_flag(hdev,
+					   HCI_MSFT_A2DP_OFFLOAD_CODECS_ENABLED);
+	}
+
+	bt_dev_info(hdev, "msft offload codecs enable %d changed %d",
+		    val, changed);
+
+	memcpy(rp.uuid, msft_a2dp_offload_codecs_uuid, 16);
+	rp.flags = cpu_to_le32(val ? BIT(0) : 0);
+	hci_sock_set_flag(sk, HCI_MGMT_EXP_FEATURE_EVENTS);
+	err = mgmt_cmd_complete(sk, hdev->id,
+				MGMT_OP_SET_EXP_FEATURE, 0,
+				&rp, sizeof(rp));
+
+	if (changed)
+		exp_msft_a2dp_offload_codec_feature_changed(val, sk);
+
+	return err;
+}
 static const struct mgmt_exp_feature {
 	const u8 *uuid;
 	int (*set_func)(struct sock *sk, struct hci_dev *hdev,
@@ -4326,6 +4417,7 @@ static const struct mgmt_exp_feature {
 	EXP_FEAT(rpa_resolution_uuid, set_rpa_resolution_func),
 	EXP_FEAT(quality_report_uuid, set_quality_report_func),
 	EXP_FEAT(offload_codecs_uuid, set_offload_codec_func),
+	EXP_FEAT(msft_a2dp_offload_codecs_uuid, set_msft_a2dp_offload_codec_func),
 
 	/* end with a null feature */
 	EXP_FEAT(NULL, NULL)
