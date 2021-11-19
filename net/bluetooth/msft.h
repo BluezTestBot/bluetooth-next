@@ -10,6 +10,8 @@
 #define MSFT_FEATURE_MASK_CURVE_VALIDITY		BIT(4)
 #define MSFT_FEATURE_MASK_CONCURRENT_ADV_MONITOR	BIT(5)
 
+#define MSFT_OP_AVDTP		0xfc1e
+
 #if IS_ENABLED(CONFIG_BT_MSFTEXT)
 
 bool msft_monitor_supported(struct hci_dev *hdev);
@@ -80,3 +82,4 @@ static inline bool msft_curve_validity(struct hci_dev *hdev)
 
 int msft_avdtp_cmd(struct hci_dev *hdev, struct l2cap_chan *chan,
 		   sockptr_t optval, int optlen);
+void msft_cc_avdtp(struct hci_dev *hdev, struct sk_buff *skb);

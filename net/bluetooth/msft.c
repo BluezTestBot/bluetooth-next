@@ -99,7 +99,6 @@ struct msft_data {
 	__u8 filter_enabled;
 };
 
-#define MSFT_OP_AVDTP			0xfc1e
 struct msft_cp_avdtp {
 	__u8	sub_opcode;
 	__u8	len;
@@ -119,6 +118,13 @@ struct msft_cp_avdtp_open {
 	__le16	dcid;
 	__le16	omtu;
 	__u8	caps[0];
+} __packed;
+
+struct msft_rp_avdtp_open {
+	__u8    status;
+	__u8    sub_opcode;
+	__le16  avdtp_handle;
+	__u8    audio_intf_param_cnt;
 } __packed;
 
 static int __msft_add_monitor_pattern(struct hci_dev *hdev,
@@ -915,4 +921,53 @@ int msft_avdtp_cmd(struct hci_dev *hdev, struct l2cap_chan *chan,
 	}
 fail:
 	return err;
+}
+
+static void msft_cc_avdtp_open(struct hci_dev *hdev, struct sk_buff *skb)
+{
+	struct msft_rp_avdtp_open *rp;
+	struct msft_cp_avdtp_open *sent;
+	struct hci_conn *hconn;
+
+	if (skb->len < sizeof(*rp))
+		return;
+
+	rp = (void *)skb->data;
+
+	sent = hci_sent_cmd_data(hdev, MSFT_OP_AVDTP);
+
+	hconn = hci_conn_hash_lookup_handle(hdev, le16_to_cpu(sent->handle));
+
+	if (!hconn)
+		return;
+
+	/* wake up the task waiting on avdtp handle */
+}
+
+void msft_cc_avdtp(struct hci_dev *hdev, struct sk_buff *skb)
+{
+	void *sent;
+	__u8 status;
+
+	if (skb->len < 2)
+		return;
+
+	status = skb->data[0];
+
+	bt_dev_dbg(hdev, "status 0x%2.2x", status);
+
+	sent = hci_sent_cmd_data(hdev, MSFT_OP_AVDTP);
+	if (!sent)
+		return;
+
+	switch (skb->data[1]) {
+	case MSFT_OP_AVDTP_OPEN:
+		msft_cc_avdtp_open(hdev, skb);
+		break;
+
+	default:
+		bt_dev_err(hdev, "Invalid MSFT sub opcode 0x%2.2x",
+			   skb->data[1]);
+		break;
+	}
 }
