@@ -81,5 +81,5 @@ static inline bool msft_curve_validity(struct hci_dev *hdev)
 #endif
 
 int msft_avdtp_cmd(struct hci_dev *hdev, struct l2cap_chan *chan,
-		   sockptr_t optval, int optlen);
+		   sockptr_t optval, int optlen, struct sock *sk);
 void msft_cc_avdtp(struct hci_dev *hdev, struct sk_buff *skb);

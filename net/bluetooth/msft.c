@@ -844,7 +844,8 @@ bool msft_curve_validity(struct hci_dev *hdev)
 
 static int msft_avdtp_open(struct hci_dev *hdev,
 			   struct l2cap_chan *chan,
-			   struct msft_cp_avdtp *cmd)
+			   struct msft_cp_avdtp *cmd,
+			   struct sock *sk)
 {
 	struct msft_cp_avdtp_open *open_cmd;
 	struct hci_media_service_caps *caps;
@@ -874,14 +875,18 @@ static int msft_avdtp_open(struct hci_dev *hdev,
 	hci_send_cmd(hdev, MSFT_OP_AVDTP, sizeof(*open_cmd) + cmd->len,
 		     open_cmd);
 
+	set_bit(BT_SK_AVDTP_PEND, &bt_sk(sk)->flags);
 	/* wait until we get avdtp handle or timeout */
+	err = bt_sock_wait_for_avdtp_hndl(sk, MSFT_AVDTP_TIMEOUT);
+
 fail:
 	kfree(open_cmd);
 	return err;
 }
 
 int msft_avdtp_cmd(struct hci_dev *hdev, struct l2cap_chan *chan,
-		   sockptr_t optval, int optlen)
+		   sockptr_t optval, int optlen,
+		   struct sock *sk)
 {
 	int err = 0;
 	struct msft_cp_avdtp *cmd;
@@ -910,7 +915,7 @@ int msft_avdtp_cmd(struct hci_dev *hdev, struct l2cap_chan *chan,
 			err = -EINVAL;
 			break;
 		}
-		err = msft_avdtp_open(hdev, chan, cmd);
+		err = msft_avdtp_open(hdev, chan, cmd, sk);
 		break;
 
 	default:
@@ -928,6 +933,7 @@ static void msft_cc_avdtp_open(struct hci_dev *hdev, struct sk_buff *skb)
 	struct msft_rp_avdtp_open *rp;
 	struct msft_cp_avdtp_open *sent;
 	struct hci_conn *hconn;
+	struct l2cap_conn *conn;
 
 	if (skb->len < sizeof(*rp))
 		return;
@@ -941,7 +947,11 @@ static void msft_cc_avdtp_open(struct hci_dev *hdev, struct sk_buff *skb)
 	if (!hconn)
 		return;
 
+	conn = hconn->l2cap_data;
+
 	/* wake up the task waiting on avdtp handle */
+	l2cap_avdtp_wakeup(conn, le16_to_cpu(sent->dcid), rp->status,
+			   rp->status ? 0 : __le16_to_cpu(rp->avdtp_handle));
 }
 
 void msft_cc_avdtp(struct hci_dev *hdev, struct sk_buff *skb)
