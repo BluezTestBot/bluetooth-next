@@ -36,6 +36,9 @@
 #include <net/bluetooth/l2cap.h>
 
 #include "smp.h"
+#include "hci_codec.h"
+#include "hci_request.h"
+#include "msft.h"
 
 static struct bt_sock_list l2cap_sk_list = {
 	.lock = __RW_LOCK_UNLOCKED(l2cap_sk_list.lock)
@@ -568,6 +571,7 @@ static int l2cap_sock_getsockopt(struct socket *sock, int level, int optname,
 	struct bt_power pwr;
 	u32 phys;
 	int len, mode, err = 0;
+	struct hci_dev *hdev;
 
 	BT_DBG("sk %p", sk);
 
@@ -702,6 +706,25 @@ static int l2cap_sock_getsockopt(struct socket *sock, int level, int optname,
 
 		if (put_user(mode, (u8 __user *) optval))
 			err = -EFAULT;
+		break;
+
+	case BT_CODEC:
+		hdev = hci_get_route(BDADDR_ANY, &chan->src, BDADDR_BREDR);
+		if (!hdev) {
+			err = -EBADFD;
+			break;
+		}
+
+		if (!hci_dev_test_flag(hdev,
+				       HCI_MSFT_A2DP_OFFLOAD_CODECS_ENABLED)) {
+			hci_dev_put(hdev);
+			err = -EOPNOTSUPP;
+			break;
+		}
+
+		err = hci_get_supported_codecs(hdev, HCI_TRANSPORT_ACL, optval,
+					       optlen, len);
+		hci_dev_put(hdev);
 		break;
 
 	default:
@@ -895,6 +918,7 @@ static int l2cap_sock_setsockopt(struct socket *sock, int level, int optname,
 	struct l2cap_conn *conn;
 	int len, err = 0;
 	u32 opt;
+	struct hci_dev *hdev;
 
 	BT_DBG("sk %p", sk);
 
@@ -1121,6 +1145,30 @@ static int l2cap_sock_setsockopt(struct socket *sock, int level, int optname,
 
 		BT_DBG("mode 0x%2.2x", chan->mode);
 
+		break;
+
+	case BT_MSFT:
+		if (sk->sk_state != BT_CONNECTED) {
+			err = -ENOTCONN;
+			break;
+		}
+
+		hdev = hci_get_route(BDADDR_ANY, &chan->src, BDADDR_BREDR);
+		if (!hdev) {
+			err = -EBADFD;
+			break;
+		}
+
+		if (!hci_dev_test_flag(hdev,
+				       HCI_MSFT_A2DP_OFFLOAD_CODECS_ENABLED) ||
+		    !hdev->get_data_path_id) {
+			err = -EOPNOTSUPP;
+			hci_dev_put(hdev);
+			break;
+		}
+
+		err = msft_avdtp_cmd(hdev, chan, optval, optlen, sk);
+		hci_dev_put(hdev);
 		break;
 
 	default:
@@ -1710,6 +1758,19 @@ static int l2cap_sock_filter(struct l2cap_chan *chan, struct sk_buff *skb)
 	return 0;
 }
 
+static void l2cap_sock_avdtp_wakeup(struct l2cap_chan *chan, u8 status,
+				    u16 handle)
+{
+	struct sock *sk = chan->data;
+
+	if (test_bit(BT_SK_AVDTP_PEND, &bt_sk(sk)->flags)) {
+		bt_sk(sk)->avdtp_handle = handle;
+		sk->sk_err = -bt_to_errno(status);
+		clear_bit(BT_SK_AVDTP_PEND, &bt_sk(sk)->flags);
+		sk->sk_state_change(sk);
+	}
+}
+
 static const struct l2cap_ops l2cap_chan_ops = {
 	.name			= "L2CAP Socket Interface",
 	.new_connection		= l2cap_sock_new_connection_cb,
@@ -1726,6 +1787,7 @@ static const struct l2cap_ops l2cap_chan_ops = {
 	.get_peer_pid		= l2cap_sock_get_peer_pid_cb,
 	.alloc_skb		= l2cap_sock_alloc_skb_cb,
 	.filter			= l2cap_sock_filter,
+	.avdtp_wakeup		= l2cap_sock_avdtp_wakeup,
 };
 
 static void l2cap_sock_destruct(struct sock *sk)

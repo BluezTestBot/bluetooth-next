@@ -332,6 +332,7 @@ enum {
 	HCI_FORCE_NO_MITM,
 	HCI_QUALITY_REPORT,
 	HCI_OFFLOAD_CODECS_ENABLED,
+	HCI_MSFT_A2DP_OFFLOAD_CODECS_ENABLED,
 
 	__HCI_NUM_FLAGS,
 };
@@ -347,6 +348,7 @@ enum {
 #define HCI_POWER_OFF_TIMEOUT	msecs_to_jiffies(5000)	/* 5 seconds */
 #define HCI_LE_CONN_TIMEOUT	msecs_to_jiffies(20000)	/* 20 seconds */
 #define HCI_LE_AUTOCONN_TIMEOUT	msecs_to_jiffies(4000)	/* 4 seconds */
+#define MSFT_AVDTP_TIMEOUT      msecs_to_jiffies(500) /* 0.5 seconds */
 
 /* HCI data types */
 #define HCI_COMMAND_PKT		0x01
@@ -1394,7 +1396,6 @@ struct hci_std_codecs_v2 {
 } __packed;
 
 struct hci_vnd_codec_v2 {
-	__u8	id;
 	__le16	cid;
 	__le16	vid;
 	__u8	transport;
@@ -2667,6 +2668,7 @@ static inline struct hci_sco_hdr *hci_sco_hdr(const struct sk_buff *skb)
 #define hci_iso_data_flags(h)		((h) >> 14)
 
 /* codec transport types */
+#define HCI_TRANSPORT_ACL	0x00
 #define HCI_TRANSPORT_SCO_ESCO	0x01
 
 /* le24 support */

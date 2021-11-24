@@ -6,6 +6,7 @@
 #include <net/bluetooth/bluetooth.h>
 #include <net/bluetooth/hci_core.h>
 #include <net/bluetooth/mgmt.h>
+#include <net/bluetooth/l2cap.h>
 
 #include "hci_request.h"
 #include "mgmt_util.h"
@@ -97,6 +98,52 @@ struct msft_data {
 	__u8 suspending;
 	__u8 filter_enabled;
 };
+
+struct msft_cp_avdtp {
+	__u8	sub_opcode;
+	__u8	len;
+	__u8	data[0];
+};
+
+#define MSFT_OP_AVDTP_OPEN			0x08
+struct hci_media_service_caps {
+	__u8	category;
+	__u8	len;
+	__u8	data[0];
+} __packed;
+
+struct msft_cp_avdtp_open {
+	__u8	sub_opcode;
+	__le16	handle;
+	__le16	dcid;
+	__le16	omtu;
+	__u8	caps[0];
+} __packed;
+
+struct msft_rp_avdtp_open {
+	__u8    status;
+	__u8    sub_opcode;
+	__le16  avdtp_handle;
+	__u8    audio_intf_param_cnt;
+} __packed;
+
+#define MSFT_OP_AVDTP_START			0x09
+struct msft_cp_avdtp_start {
+	u8	sub_opcode;
+	__le16	avdtp_handle;
+} __packed;
+
+#define MSFT_OP_AVDTP_SUSPEND			0x0A
+struct msft_cp_avdtp_suspend {
+	u8	sub_opcode;
+	__le16	avdtp_handle;
+} __packed;
+
+#define MSFT_OP_AVDTP_CLOSE			0x0B
+struct msft_cp_avdtp_close {
+	u8	sub_opcode;
+	__le16	avdtp_handle;
+} __packed;
 
 static int __msft_add_monitor_pattern(struct hci_dev *hdev,
 				      struct adv_monitor *monitor);
@@ -811,4 +858,202 @@ int msft_set_filter_enable(struct hci_dev *hdev, bool enable)
 bool msft_curve_validity(struct hci_dev *hdev)
 {
 	return hdev->msft_curve_validity;
+}
+
+static int msft_avdtp_open(struct hci_dev *hdev,
+			   struct l2cap_chan *chan,
+			   struct msft_cp_avdtp *cmd,
+			   struct sock *sk)
+{
+	struct msft_cp_avdtp_open *open_cmd;
+	struct hci_media_service_caps *caps;
+	int err = 0;
+
+	caps = (void *)cmd->data;
+
+	if (!caps || caps->category != 0x07) {
+		err = -EINVAL;
+		goto fail;
+	}
+
+	open_cmd = kzalloc(sizeof(*open_cmd) + caps->len, GFP_KERNEL);
+	if (!open_cmd) {
+		err = -ENOMEM;
+		goto fail;
+	}
+
+	open_cmd->sub_opcode = MSFT_OP_AVDTP_OPEN;
+	open_cmd->handle = cpu_to_le16(chan->conn->hcon->handle);
+	open_cmd->dcid = cpu_to_le16(chan->dcid);
+	open_cmd->omtu = cpu_to_le16(chan->omtu);
+
+	/* copy codec capabilities */
+	memcpy(open_cmd->caps, caps, sizeof(*caps) + caps->len);
+
+	hci_send_cmd(hdev, MSFT_OP_AVDTP, sizeof(*open_cmd) + cmd->len,
+		     open_cmd);
+
+	set_bit(BT_SK_AVDTP_PEND, &bt_sk(sk)->flags);
+	/* wait until we get avdtp handle or timeout */
+	err = bt_sock_wait_for_avdtp_hndl(sk, MSFT_AVDTP_TIMEOUT);
+
+fail:
+	kfree(open_cmd);
+	return err;
+}
+
+static int msft_avdtp_start(struct hci_dev *hdev, struct sock *sk)
+{
+	struct msft_cp_avdtp_start cmd;
+
+	if (!bt_sk(sk)->avdtp_handle)
+		return -EBADFD;
+
+	cmd.sub_opcode = MSFT_OP_AVDTP_START;
+	cmd.avdtp_handle = cpu_to_le16(bt_sk(sk)->avdtp_handle);
+
+	return hci_send_cmd(hdev, MSFT_OP_AVDTP, sizeof(cmd), &cmd);
+}
+
+static int msft_avdtp_suspend(struct hci_dev *hdev, struct sock *sk)
+{
+	struct msft_cp_avdtp_suspend cmd;
+
+	if (!bt_sk(sk)->avdtp_handle)
+		return -EBADFD;
+
+	cmd.sub_opcode = MSFT_OP_AVDTP_SUSPEND;
+	cmd.avdtp_handle = cpu_to_le16(bt_sk(sk)->avdtp_handle);
+
+	return hci_send_cmd(hdev, MSFT_OP_AVDTP, sizeof(cmd), &cmd);
+}
+
+static int msft_avdtp_close(struct hci_dev *hdev, struct sock *sk)
+{
+	struct msft_cp_avdtp_close cmd;
+
+	if (!bt_sk(sk)->avdtp_handle)
+		return -EBADFD;
+
+	cmd.sub_opcode = MSFT_OP_AVDTP_CLOSE;
+	cmd.avdtp_handle = cpu_to_le16(bt_sk(sk)->avdtp_handle);
+
+	bt_sk(sk)->avdtp_handle = 0;
+
+	return hci_send_cmd(hdev, MSFT_OP_AVDTP, sizeof(cmd), &cmd);
+}
+
+int msft_avdtp_cmd(struct hci_dev *hdev, struct l2cap_chan *chan,
+		   sockptr_t optval, int optlen,
+		   struct sock *sk)
+{
+	int err = 0;
+	struct msft_cp_avdtp *cmd;
+	u8 buffer[255];
+
+	if (!optlen) {
+		err = -EINVAL;
+		goto fail;
+	}
+
+	if (optlen > sizeof(buffer)) {
+		err = -ENOBUFS;
+		goto fail;
+	}
+
+	if (copy_from_sockptr(buffer, optval, optlen)) {
+		err = -EFAULT;
+		goto fail;
+	}
+
+	cmd = (void *)buffer;
+
+	switch (cmd->sub_opcode) {
+	case MSFT_OP_AVDTP_OPEN:
+		if (cmd->len > sizeof(buffer) - sizeof(*cmd)) {
+			err = -EINVAL;
+			break;
+		}
+		err = msft_avdtp_open(hdev, chan, cmd, sk);
+		break;
+
+	case MSFT_OP_AVDTP_START:
+		err = msft_avdtp_start(hdev, sk);
+		break;
+
+	case MSFT_OP_AVDTP_SUSPEND:
+		err = msft_avdtp_suspend(hdev, sk);
+		break;
+
+	case MSFT_OP_AVDTP_CLOSE:
+		err = msft_avdtp_close(hdev, sk);
+		break;
+
+	default:
+		err = -EINVAL;
+		bt_dev_err(hdev, "Invalid MSFT avdtp sub opcode = 0x%2.2x",
+			   cmd->sub_opcode);
+		break;
+	}
+fail:
+	return err;
+}
+
+static void msft_cc_avdtp_open(struct hci_dev *hdev, struct sk_buff *skb)
+{
+	struct msft_rp_avdtp_open *rp;
+	struct msft_cp_avdtp_open *sent;
+	struct hci_conn *hconn;
+	struct l2cap_conn *conn;
+
+	if (skb->len < sizeof(*rp))
+		return;
+
+	rp = (void *)skb->data;
+
+	sent = hci_sent_cmd_data(hdev, MSFT_OP_AVDTP);
+
+	hconn = hci_conn_hash_lookup_handle(hdev, le16_to_cpu(sent->handle));
+
+	if (!hconn)
+		return;
+
+	conn = hconn->l2cap_data;
+
+	/* wake up the task waiting on avdtp handle */
+	l2cap_avdtp_wakeup(conn, le16_to_cpu(sent->dcid), rp->status,
+			   rp->status ? 0 : __le16_to_cpu(rp->avdtp_handle));
+}
+
+void msft_cc_avdtp(struct hci_dev *hdev, struct sk_buff *skb)
+{
+	void *sent;
+	__u8 status;
+
+	if (skb->len < 2)
+		return;
+
+	status = skb->data[0];
+
+	bt_dev_dbg(hdev, "status 0x%2.2x", status);
+
+	sent = hci_sent_cmd_data(hdev, MSFT_OP_AVDTP);
+	if (!sent)
+		return;
+
+	switch (skb->data[1]) {
+	case MSFT_OP_AVDTP_OPEN:
+		msft_cc_avdtp_open(hdev, skb);
+		break;
+
+	case MSFT_OP_AVDTP_START:
+	case MSFT_OP_AVDTP_SUSPEND:
+	case MSFT_OP_AVDTP_CLOSE:
+		break;
+
+	default:
+		bt_dev_err(hdev, "Invalid MSFT sub opcode 0x%2.2x",
+			   skb->data[1]);
+		break;
+	}
 }
