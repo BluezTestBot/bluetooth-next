@@ -363,6 +363,15 @@ static const struct dmi_system_id disable_broken_read_transmit_power[] = {
 			DMI_MATCH(DMI_PRODUCT_NAME, "MacBookPro16,2"),
 		},
 	},
+	{
+		/* Match for Apple MacBook Pro 16,4 which needs
+		 * Read LE Min/Max Tx Power to be disabled.
+		 */
+		 .matches = {
+			DMI_MATCH(DMI_BOARD_VENDOR, "Apple Inc."),
+			DMI_MATCH(DMI_PRODUCT_NAME, "MacBookPro16,4"),
+		},
+	},
 	{ }
 };
 
