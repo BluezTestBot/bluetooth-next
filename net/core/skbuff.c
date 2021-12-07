@@ -2045,6 +2045,7 @@ void *skb_pull_data(struct sk_buff *skb, size_t len)
 
 	return data;
 }
+EXPORT_SYMBOL(skb_pull_data);
 
 /**
  *	skb_trim - remove end from a buffer
