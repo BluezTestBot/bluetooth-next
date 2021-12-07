@@ -381,6 +381,7 @@ static const struct dmi_system_id disable_broken_read_transmit_power[] = {
 static int btbcm_read_info(struct hci_dev *hdev)
 {
 	struct sk_buff *skb;
+	const struct dmi_system_id *dmi_id;
 
 	/* Read Verbose Config Version Info */
 	skb = btbcm_read_verbose_config(hdev);
