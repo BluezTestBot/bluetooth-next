@@ -300,7 +300,8 @@ int btintel_version_info(struct hci_dev *hdev, struct intel_version *ver)
 		variant = "Firmware";
 		break;
 	default:
-		bt_dev_err(hdev, "Unsupported firmware variant(%02x)", ver->fw_variant);
+		bt_dev_err(hdev, "Unsupported firmware variant(%02x)",
+							ver->fw_variant);
 		return -EINVAL;
 	}
 
