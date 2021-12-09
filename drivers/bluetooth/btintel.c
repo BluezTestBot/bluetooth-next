@@ -1174,7 +1174,8 @@ static int btintel_download_fw_tlv(struct hci_dev *hdev,
 			return -EINVAL;
 
 		/* Check if the CSS Header version is ECDSA(0x00020000) */
-		css_header_ver = get_unaligned_le32(fw->data + ECDSA_OFFSET + CSS_HEADER_OFFSET);
+		css_header_ver = get_unaligned_le32(
+				fw->data + ECDSA_OFFSET + CSS_HEADER_OFFSET);
 		if (css_header_ver != 0x00020000) {
 			bt_dev_err(hdev, "Invalid CSS Header version");
 			return -EINVAL;
@@ -1186,7 +1187,7 @@ static int btintel_download_fw_tlv(struct hci_dev *hdev,
 				return err;
 
 			err = btintel_download_firmware_payload(hdev, fw,
-								RSA_HEADER_LEN + ECDSA_HEADER_LEN);
+					RSA_HEADER_LEN + ECDSA_HEADER_LEN);
 			if (err)
 				return err;
 		} else if (sbe_type == 0x01) {
@@ -1195,7 +1196,7 @@ static int btintel_download_fw_tlv(struct hci_dev *hdev,
 				return err;
 
 			err = btintel_download_firmware_payload(hdev, fw,
-								RSA_HEADER_LEN + ECDSA_HEADER_LEN);
+					RSA_HEADER_LEN + ECDSA_HEADER_LEN);
 			if (err)
 				return err;
 		}
