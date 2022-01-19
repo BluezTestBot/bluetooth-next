@@ -2428,10 +2428,14 @@ static int btintel_setup_combined(struct hci_dev *hdev)
 
 			/* Apply the device specific HCI quirks
 			 *
-			 * WBS for SdP - SdP and Stp have a same hw_varaint but
-			 * different fw_variant
+			 * WBS for SdP - The version information is the same for
+			 * both StP2 and SdP, so it cannot be used to
+			 * distinguish between StP2 and SdP. Instead, it uses
+			 * the flag set by the transport driver(btusb) for
+			 * the Legacy ROM SKU and sets the quirk for WBS.
 			 */
-			if (ver.hw_variant == 0x08 && ver.fw_variant == 0x22)
+			if (btintel_test_flag(hdev,
+					      INTEL_ROM_LEGACY_WBS_SUPPORTED))
 				set_bit(HCI_QUIRK_WIDEBAND_SPEECH_SUPPORTED,
 					&hdev->quirks);
 
