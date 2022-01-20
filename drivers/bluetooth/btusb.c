@@ -3742,6 +3742,18 @@ static int btusb_probe(struct usb_interface *intf,
 
 		if (id->driver_info & BTUSB_INTEL_BROKEN_SHUTDOWN_LED)
 			btintel_set_flag(hdev, INTEL_BROKEN_SHUTDOWN_LED);
+
+		/* Intel's Legacy ROM products don't support WBS except
+		 * the SdP(8087:0aa7). But the StP2(8087:0a2a) and SdP have the
+		 * same version information, and btintel can't distinguish
+		 * between StP2 and SdP for the WBS support.
+		 * It sets the flag here based on the USB PID to enable the WBS
+		 * support for legacy ROM products.
+		 * Note that this flag is only applicable to legacy ROM
+		 * products.
+		 */
+		if (id->idProduct == 0x0aa7)
+			btintel_set_flag(hdev, INTEL_ROM_LEGACY_WBS_SUPPORTED);
 	}
 
 	if (id->driver_info & BTUSB_MARVELL)
