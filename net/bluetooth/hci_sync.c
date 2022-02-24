@@ -1845,6 +1845,7 @@ static u8 hci_update_accept_list_sync(struct hci_dev *hdev)
 	u8 num_entries = 0;
 	bool pend_conn, pend_report;
 	int err;
+	u8 filter_policy;
 
 	/* Pause advertising if resolving list can be used as controllers are
 	 * cannot accept resolving list modifications while advertising.
@@ -1930,6 +1931,8 @@ static u8 hci_update_accept_list_sync(struct hci_dev *hdev)
 		err = -EINVAL;
 
 done:
+	filter_policy = err ? 0x00 : 0x01;
+
 	/* Enable address resolution when LL Privacy is enabled. */
 	err = hci_le_set_addr_resolution_enable_sync(hdev, 0x01);
 	if (err)
@@ -1940,7 +1943,7 @@ done:
 		hci_resume_advertising_sync(hdev);
 
 	/* Select filter policy to use accept list */
-	return err ? 0x00 : 0x01;
+	return filter_policy;
 }
 
 /* Returns true if an le connection is in the scanning state */
