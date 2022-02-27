@@ -733,6 +733,7 @@ struct hci_conn {
 
 	struct hci_conn	*link;
 	struct bt_codec codec;
+	bool		esco_setup;
 
 	void (*connect_cfm_cb)	(struct hci_conn *conn, u8 status);
 	void (*security_cfm_cb)	(struct hci_conn *conn, u8 status);

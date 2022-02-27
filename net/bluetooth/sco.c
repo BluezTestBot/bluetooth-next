@@ -70,6 +70,7 @@ struct sco_pinfo {
 	__u16		setting;
 	__u8		cmsg_mask;
 	struct bt_codec codec;
+	bool		esco_setup;
 	struct sco_conn	*conn;
 };
 
@@ -239,6 +240,7 @@ static int sco_connect(struct hci_dev *hdev, struct sock *sk)
 {
 	struct sco_conn *conn;
 	struct hci_conn *hcon;
+	struct bt_codec *codec;
 	int err, type;
 
 	BT_DBG("%pMR -> %pMR", &sco_pi(sk)->src, &sco_pi(sk)->dst);
@@ -252,8 +254,9 @@ static int sco_connect(struct hci_dev *hdev, struct sock *sk)
 	    (!lmp_transp_capable(hdev) || !lmp_esco_capable(hdev)))
 		return -EOPNOTSUPP;
 
+	codec = sco_pi(sk)->esco_setup ? &sco_pi(sk)->codec : NULL;
 	hcon = hci_connect_sco(hdev, type, &sco_pi(sk)->dst,
-			       sco_pi(sk)->setting, &sco_pi(sk)->codec);
+			       sco_pi(sk)->setting, codec);
 	if (IS_ERR(hcon))
 		return PTR_ERR(hcon);
 
@@ -496,10 +499,7 @@ static struct sock *sco_sock_alloc(struct net *net, struct socket *sock,
 	sk->sk_state    = BT_OPEN;
 
 	sco_pi(sk)->setting = BT_VOICE_CVSD_16BIT;
-	sco_pi(sk)->codec.id = BT_CODEC_CVSD;
-	sco_pi(sk)->codec.cid = 0xffff;
-	sco_pi(sk)->codec.vid = 0xffff;
-	sco_pi(sk)->codec.data_path = 0x00;
+	sco_pi(sk)->esco_setup = false;
 
 	bt_sock_link(&sco_sk_list, sk);
 	return sk;
@@ -879,16 +879,7 @@ static int sco_sock_setsockopt(struct socket *sock, int level, int optname,
 		}
 
 		sco_pi(sk)->setting = voice.setting;
-		hdev = hci_get_route(&sco_pi(sk)->dst, &sco_pi(sk)->src,
-				     BDADDR_BREDR);
-		if (!hdev) {
-			err = -EBADFD;
-			break;
-		}
-		if (enhanced_sco_capable(hdev) &&
-		    voice.setting == BT_VOICE_TRANSPARENT)
-			sco_pi(sk)->codec.id = BT_CODEC_TRANSPARENT;
-		hci_dev_put(hdev);
+		sco_pi(sk)->esco_setup = false;
 		break;
 
 	case BT_PKT_STATUS:
@@ -951,6 +942,7 @@ static int sco_sock_setsockopt(struct socket *sock, int level, int optname,
 		}
 
 		sco_pi(sk)->codec = codecs->codecs[0];
+		sco_pi(sk)->esco_setup = true;
 		hci_dev_put(hdev);
 		break;
 
