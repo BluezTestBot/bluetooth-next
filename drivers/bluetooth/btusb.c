@@ -63,6 +63,7 @@ static struct usb_driver btusb_driver;
 #define BTUSB_INTEL_BROKEN_SHUTDOWN_LED	BIT(24)
 #define BTUSB_INTEL_BROKEN_INITIAL_NCMD BIT(25)
 #define BTUSB_INTEL_NO_WBS_SUPPORT	BIT(26)
+#define BTUSB_BROKEN_ENHANCED_SETUP_SCO	BIT(27)
 
 static const struct usb_device_id btusb_table[] = {
 	/* Generic Bluetooth USB device */
@@ -3847,6 +3848,9 @@ static int btusb_probe(struct usb_interface *intf,
 		data->cmdreq_type = USB_TYPE_VENDOR;
 		set_bit(HCI_QUIRK_RESET_ON_CLOSE, &hdev->quirks);
 	}
+
+	if (id->driver_info & BTUSB_BROKEN_ENHANCED_SETUP_SCO)
+		set_bit(HCI_QUIRK_BROKEN_ENHANCED_SETUP_SCO, &hdev->quirks);
 
 	if (id->driver_info & BTUSB_CSR) {
 		struct usb_device *udev = data->udev;
