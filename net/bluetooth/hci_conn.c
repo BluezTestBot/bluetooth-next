@@ -481,7 +481,7 @@ static bool hci_setup_sync_conn(struct hci_conn *conn, __u16 handle)
 
 bool hci_setup_sync(struct hci_conn *conn, __u16 handle)
 {
-	if (enhanced_sco_capable(conn->hdev))
+	if (enhanced_sco_capable(conn->hdev) && conn->esco_setup)
 		return hci_enhanced_setup_sync_conn(conn, handle);
 
 	return hci_setup_sync_conn(conn, handle);
@@ -1191,7 +1191,13 @@ struct hci_conn *hci_connect_sco(struct hci_dev *hdev, int type, bdaddr_t *dst,
 	hci_conn_hold(sco);
 
 	sco->setting = setting;
-	sco->codec = *codec;
+	if (codec) {
+		sco->codec = *codec;
+		sco->esco_setup = true;
+	} else {
+		memset(&sco->codec, 0, sizeof(sco->codec));
+		sco->esco_setup = false;
+	}
 
 	if (acl->state == BT_CONNECTED &&
 	    (sco->state == BT_OPEN || sco->state == BT_CLOSED)) {
