@@ -118,6 +118,43 @@ enum suspended_state {
 	BT_SUSPEND_CONFIGURE_WAKE,
 };
 
+#define DEVCOREDUMP_TIMEOUT	msecs_to_jiffies(100000)	/* 100 sec */
+
+typedef int  (*dmp_hdr_t)(struct hci_dev *hdev, char *buf, size_t size);
+typedef void (*notify_change_t)(struct hci_dev *hdev, int state);
+
+/* struct hci_devcoredump - Devcoredump state
+ *
+ * @supported: Indicates if FW dump collection is supported by driver
+ * @state: Current state of dump collection
+ * @alloc_size: Total size of the dump
+ * @head: Start of the dump
+ * @tail: Pointer to current end of dump
+ * @end: head + alloc_size for easy comparisons
+ *
+ * @dmp_hdr: Create a dump header to identify controller/fw/driver info
+ * @notify_change: Notify driver when devcoredump state has changed
+ */
+struct hci_devcoredump {
+	bool		supported;
+
+	enum devcoredump_state {
+		HCI_DEVCOREDUMP_IDLE,
+		HCI_DEVCOREDUMP_ACTIVE,
+		HCI_DEVCOREDUMP_DONE,
+		HCI_DEVCOREDUMP_ABORT,
+		HCI_DEVCOREDUMP_TIMEOUT
+	} state;
+
+	u32		alloc_size;
+	char		*head;
+	char		*tail;
+	char		*end;
+
+	dmp_hdr_t	dmp_hdr;
+	notify_change_t	notify_change;
+};
+
 struct hci_conn_hash {
 	struct list_head list;
 	unsigned int     acl_num;
@@ -567,6 +604,11 @@ struct hci_dev {
 	const char		*hw_info;
 	const char		*fw_info;
 	struct dentry		*debugfs;
+
+	struct hci_devcoredump	dump;
+	struct sk_buff_head	dump_q;
+	struct work_struct	dump_rx;
+	struct delayed_work	dump_timeout;
 
 	struct device		dev;
 
@@ -1307,6 +1349,15 @@ static inline void hci_set_aosp_capable(struct hci_dev *hdev)
 	hdev->aosp_capable = true;
 #endif
 }
+
+int hci_devcoredump_register(struct hci_dev *hdev, dmp_hdr_t dmp_hdr,
+			     notify_change_t notify_change);
+int hci_devcoredump_init(struct hci_dev *hdev, u32 dmp_size);
+int hci_devcoredump_append(struct hci_dev *hdev, struct sk_buff *skb);
+int hci_devcoredump_append_pattern(struct hci_dev *hdev, u8 pattern, u32 len);
+int hci_devcoredump_complete(struct hci_dev *hdev);
+int hci_devcoredump_abort(struct hci_dev *hdev);
+void hci_devcoredump_reset(struct hci_dev *hdev);
 
 int hci_dev_open(__u16 dev);
 int hci_dev_close(__u16 dev);
