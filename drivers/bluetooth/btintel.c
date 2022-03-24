@@ -32,6 +32,11 @@ struct cmd_write_boot_params {
 	u8  fw_build_yy;
 } __packed;
 
+#define DRIVER_NAME_LEN		16
+static char driver_name[DRIVER_NAME_LEN];
+static u8 hw_variant;
+static u32 fw_build_num;
+
 int btintel_check_bdaddr(struct hci_dev *hdev)
 {
 	struct hci_rp_read_bd_addr *bda;
@@ -304,6 +309,9 @@ int btintel_version_info(struct hci_dev *hdev, struct intel_version *ver)
 		return -EINVAL;
 	}
 
+	hw_variant = ver->hw_variant;
+	fw_build_num = ver->fw_build_num;
+
 	bt_dev_info(hdev, "%s revision %u.%u build %u week %u %u",
 		    variant, ver->fw_revision >> 4, ver->fw_revision & 0x0f,
 		    ver->fw_build_num, ver->fw_build_ww,
@@ -496,6 +504,9 @@ static int btintel_version_info_tlv(struct hci_dev *hdev,
 		bt_dev_err(hdev, "Unsupported image type(%02x)", version->img_type);
 		return -EINVAL;
 	}
+
+	hw_variant = INTEL_HW_VARIANT(version->cnvi_bt);
+	fw_build_num = version->build_num;
 
 	bt_dev_info(hdev, "%s timestamp %u.%u buildtype %u build %u", variant,
 		    2000 + (version->timestamp >> 8), version->timestamp & 0xff,
@@ -1390,6 +1401,55 @@ int btintel_set_quality_report(struct hci_dev *hdev, bool enable)
 	return err;
 }
 EXPORT_SYMBOL_GPL(btintel_set_quality_report);
+
+static int btintel_dmp_hdr(struct hci_dev *hdev, char *buf, size_t size)
+{
+	char *ptr = buf;
+	size_t rem = size;
+	size_t read = 0;
+
+	read = snprintf(ptr, rem, "Controller Name: 0x%X\n", hw_variant);
+	rem -= read;
+	ptr += read;
+
+	read = snprintf(ptr, rem, "Firmware Version: 0x%X\n", fw_build_num);
+	rem -= read;
+	ptr += read;
+
+	read = snprintf(ptr, rem, "Driver: %s\n", driver_name);
+	rem -= read;
+	ptr += read;
+
+	read = snprintf(ptr, rem, "Vendor: Intel\n");
+	rem -= read;
+	ptr += read;
+
+	return size - rem;
+}
+
+int btintel_register_devcoredump_support(struct hci_dev *hdev,
+					 const char *driver)
+{
+	struct intel_debug_features features;
+	int err;
+
+	err = btintel_read_debug_features(hdev, &features);
+	if (err) {
+		bt_dev_info(hdev, "Error reading debug features");
+		return err;
+	}
+
+	if (!(features.page1[0] & 0x3f)) {
+		bt_dev_info(hdev, "Telemetry exception format not supported");
+		return -EOPNOTSUPP;
+	}
+
+	strncpy(driver_name, driver, DRIVER_NAME_LEN);
+	hci_devcoredump_register(hdev, btintel_dmp_hdr, NULL);
+
+	return err;
+}
+EXPORT_SYMBOL_GPL(btintel_register_devcoredump_support);
 
 static const struct firmware *btintel_legacy_rom_get_fw(struct hci_dev *hdev,
 					       struct intel_version *ver)
