@@ -3828,6 +3828,48 @@ static int hci_init_sync(struct hci_dev *hdev)
 	return 0;
 }
 
+#define HCI_BROKEN(_quirk, _desc) \
+{ \
+	.quirk = _quirk, \
+	.desc = _desc, \
+}
+
+struct hci_broken {
+	unsigned long quirk;
+	const char *desc;
+} hci_broken_table[] = {
+	HCI_BROKEN(HCI_QUIRK_BROKEN_LOCAL_COMMANDS,
+		   "HCI Read Local Supported Commands not supported"),
+	HCI_BROKEN(HCI_QUIRK_BROKEN_STORED_LINK_KEY,
+		   "HCI Delete Stored Link Key command is advertised, "
+		   "but not supported."),
+	HCI_BROKEN(HCI_QUIRK_BROKEN_ERR_DATA_REPORTING,
+		   "HCI Read Default Erroneous Data Reporting command is "
+		   "advertised, but not supported."),
+	HCI_BROKEN(HCI_QUIRK_BROKEN_READ_TRANSMIT_POWER,
+		   "HCI Read Transmit Power Level command is advertised, "
+		   "but not supported."),
+	HCI_BROKEN(HCI_QUIRK_BROKEN_FILTER_CLEAR_ALL,
+		   "HCI Set Event Filter command not supported."),
+	HCI_BROKEN(HCI_QUIRK_BROKEN_ENHANCED_SETUP_SYNC_CONN,
+		   "HCI Enhanced Setup Synchronous Connection command is "
+		   "advertised, but not supported.")
+};
+
+static void hci_dev_print_broken(struct hci_dev *hdev)
+{
+	int i;
+
+	bt_dev_dbg(hdev, "");
+
+	for (i = 0; i < ARRAY_SIZE(hci_broken_table); i++) {
+		struct hci_broken *broken = &hci_broken_table[i];
+
+		if (test_bit(broken->quirk, &hdev->quirks))
+			bt_dev_warn(hdev, "%s", broken->desc);
+	}
+}
+
 int hci_dev_open_sync(struct hci_dev *hdev)
 {
 	int ret = 0;
@@ -4034,6 +4076,8 @@ setup_failed:
 	}
 
 done:
+	hci_dev_print_broken(hdev);
+
 	return ret;
 }
 
