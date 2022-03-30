@@ -3825,6 +3825,67 @@ static int hci_init_sync(struct hci_dev *hdev)
 	return 0;
 }
 
+#define HCI_QUIRK_BROKEN(_quirk, _desc) \
+{ \
+	.quirk = _quirk, \
+	.desc = _desc, \
+}
+
+static const struct hci_quirk_broken {
+	unsigned long quirk;
+	const char *desc;
+} hci_broken_table[] = {
+	HCI_QUIRK_BROKEN(HCI_QUIRK_BROKEN_LOCAL_COMMANDS,
+			 "HCI Read Local Supported Commands not supported"),
+	HCI_QUIRK_BROKEN(HCI_QUIRK_BROKEN_STORED_LINK_KEY,
+			 "HCI Delete Stored Link Key command is advertised, "
+			 "but not supported."),
+	HCI_QUIRK_BROKEN(HCI_QUIRK_BROKEN_ERR_DATA_REPORTING,
+			 "HCI Read Default Erroneous Data Reporting command is "
+			 "advertised, but not supported."),
+	HCI_QUIRK_BROKEN(HCI_QUIRK_BROKEN_READ_TRANSMIT_POWER,
+			 "HCI Read Transmit Power Level command is advertised, "
+			 "but not supported."),
+	HCI_QUIRK_BROKEN(HCI_QUIRK_BROKEN_FILTER_CLEAR_ALL,
+			 "HCI Set Event Filter command not supported."),
+	HCI_QUIRK_BROKEN(HCI_QUIRK_BROKEN_ENHANCED_SETUP_SYNC_CONN,
+			 "HCI Enhanced Setup Synchronous Connection command is "
+			 "advertised, but not supported.")
+};
+
+static void hci_dev_print_broken_quirks(struct hci_dev *hdev)
+{
+	int i;
+
+	bt_dev_dbg(hdev, "");
+
+	for (i = 0; i < ARRAY_SIZE(hci_broken_table); i++) {
+		const struct hci_quirk_broken *broken = &hci_broken_table[i];
+
+		if (test_bit(broken->quirk, &hdev->quirks))
+			bt_dev_warn(hdev, "%s", broken->desc);
+	}
+}
+
+static int hci_dev_setup_sync(struct hci_dev *hdev)
+{
+	bt_dev_dbg(hdev, "");
+
+	hci_sock_dev_event(hdev, HCI_DEV_SETUP);
+
+	if (hdev->setup) {
+		int ret;
+
+		ret = hdev->setup(hdev);
+		if (ret)
+			return ret;
+
+		hci_dev_print_broken_quirks(hdev);
+	}
+
+	return 0;
+}
+
 int hci_dev_open_sync(struct hci_dev *hdev)
 {
 	int ret = 0;
@@ -3887,10 +3948,7 @@ int hci_dev_open_sync(struct hci_dev *hdev)
 	    test_bit(HCI_QUIRK_NON_PERSISTENT_SETUP, &hdev->quirks)) {
 		bool invalid_bdaddr;
 
-		hci_sock_dev_event(hdev, HCI_DEV_SETUP);
-
-		if (hdev->setup)
-			ret = hdev->setup(hdev);
+		ret = hci_dev_setup_sync(hdev);
 
 		/* The transport driver can set the quirk to mark the
 		 * BD_ADDR invalid before creating the HCI device or in
