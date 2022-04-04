@@ -3222,8 +3222,11 @@ static void hci_conn_request_evt(struct hci_dev *hdev, void *data,
 		return;
 	}
 
+	hci_dev_lock(hdev);
+
 	if (hci_bdaddr_list_lookup(&hdev->reject_list, &ev->bdaddr,
 				   BDADDR_BREDR)) {
+		hci_dev_unlock(hdev);
 		hci_reject_conn(hdev, &ev->bdaddr);
 		return;
 	}
@@ -3236,13 +3239,12 @@ static void hci_conn_request_evt(struct hci_dev *hdev, void *data,
 	    !hci_dev_test_flag(hdev, HCI_CONNECTABLE) &&
 	    !hci_bdaddr_list_lookup_with_flags(&hdev->accept_list, &ev->bdaddr,
 					       BDADDR_BREDR)) {
+		hci_dev_unlock(hdev);
 		hci_reject_conn(hdev, &ev->bdaddr);
 		return;
 	}
 
 	/* Connection accepted */
-
-	hci_dev_lock(hdev);
 
 	ie = hci_inquiry_cache_lookup(hdev, &ev->bdaddr);
 	if (ie)
