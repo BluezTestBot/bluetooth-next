@@ -44,6 +44,9 @@ static int h4_open(struct hci_uart *hu)
 
 	BT_DBG("hu %p", hu);
 
+        if (!hci_uart_has_flow_control(hu))
+            return -EOPNOTSUPP;
+
 	h4 = kzalloc(sizeof(*h4), GFP_KERNEL);
 	if (!h4)
 		return -ENOMEM;

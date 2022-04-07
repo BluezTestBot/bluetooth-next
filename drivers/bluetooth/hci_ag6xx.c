@@ -36,6 +36,9 @@ static int ag6xx_open(struct hci_uart *hu)
 
 	BT_DBG("hu %p", hu);
 
+        if (!hci_uart_has_flow_control(hu))
+            return -EOPNOTSUPP;
+
 	ag6xx = kzalloc(sizeof(*ag6xx), GFP_KERNEL);
 	if (!ag6xx)
 		return -ENOMEM;

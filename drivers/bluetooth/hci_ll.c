@@ -114,6 +114,9 @@ static int ll_open(struct hci_uart *hu)
 
 	BT_DBG("hu %p", hu);
 
+        if (!hci_uart_has_flow_control(hu))
+            return -EOPNOTSUPP;
+
 	ll = kzalloc(sizeof(*ll), GFP_KERNEL);
 	if (!ll)
 		return -ENOMEM;
