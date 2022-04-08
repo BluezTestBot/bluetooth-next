@@ -9,6 +9,7 @@
 #include <linux/module.h>
 #include <linux/firmware.h>
 #include <linux/regmap.h>
+#include <linux/acpi.h>
 #include <asm/unaligned.h>
 
 #include <net/bluetooth/bluetooth.h>
@@ -31,6 +32,9 @@ struct cmd_write_boot_params {
 	u8  fw_build_ww;
 	u8  fw_build_yy;
 } __packed;
+
+#define BTINTEL_SAR_NAME	"BRDS"
+#define BTINTEL_SAR_PREFIX	"\\_SB_.PC00.XHCI.RHUB"
 
 int btintel_check_bdaddr(struct hci_dev *hdev)
 {
@@ -2250,6 +2254,228 @@ error:
 	return err;
 }
 
+static acpi_status btintel_sar_callback(acpi_handle handle, u32 lvl, void *data,
+					void **ret)
+{
+	acpi_status status;
+	int len;
+	struct btintel_sar *sar;
+	union acpi_object *p, *elements;
+	struct acpi_buffer string = {ACPI_ALLOCATE_BUFFER, NULL};
+	struct acpi_buffer buffer = {ACPI_ALLOCATE_BUFFER, NULL};
+
+	status = acpi_get_name(handle, ACPI_FULL_PATHNAME, &string);
+	if (ACPI_FAILURE(status)) {
+		BT_DBG("ACPI Failure: %s", acpi_format_exception(status));
+		return status;
+	}
+
+	if (strncmp(BTINTEL_SAR_PREFIX, string.pointer,
+		    strlen(BTINTEL_SAR_PREFIX))) {
+		kfree(string.pointer);
+		return AE_OK;
+	}
+
+	len = strlen(string.pointer);
+	if (strncmp((char *)string.pointer + len - 4, BTINTEL_SAR_NAME, 4)) {
+		kfree(string.pointer);
+		return AE_OK;
+	}
+	kfree(string.pointer);
+
+	status = acpi_evaluate_object(handle, NULL, NULL, &buffer);
+	if (ACPI_FAILURE(status)) {
+		BT_DBG("ACPI Failure: %s", acpi_format_exception(status));
+		return status;
+	}
+
+	p = buffer.pointer;
+	sar = data;
+
+	if (p->type != ACPI_TYPE_PACKAGE || p->package.count != 2) {
+		kfree(buffer.pointer);
+		BT_DBG("Invalid object type or package count");
+		return AE_ERROR;
+	}
+
+	elements = p->package.elements;
+
+	/* SAR table is located at element[1] */
+	p = &elements[1];
+
+	if (p->type != ACPI_TYPE_PACKAGE || p->package.count != 8) {
+		kfree(buffer.pointer);
+		return AE_ERROR;
+	}
+
+	sar->domain = (u8)p->package.elements[0].integer.value;
+	sar->type = (u8)p->package.elements[1].integer.value;
+	sar->br = (u32)p->package.elements[2].integer.value;
+	sar->edr2 = (u32)p->package.elements[3].integer.value;
+	sar->edr3 = (u32)p->package.elements[4].integer.value;
+	sar->le = (u32)p->package.elements[5].integer.value;
+	sar->le_2mhz = (u32)p->package.elements[6].integer.value;
+	sar->le_lr  = (u32)p->package.elements[7].integer.value;
+	kfree(buffer.pointer);
+	return AE_CTRL_TERMINATE;
+}
+
+static void btintel_send_sar_ddc(struct hci_dev *hdev, void *data, u8 len)
+{
+	struct sk_buff *skb;
+
+	skb = __hci_cmd_sync(hdev, 0xfc8b, len, data, HCI_CMD_TIMEOUT);
+	if (IS_ERR(skb)) {
+		bt_dev_warn(hdev, "Failed to send Intel Write SAR DDC (%ld)", PTR_ERR(skb));
+		return;
+	}
+	kfree_skb(skb);
+}
+
+static int btintel_set_legacy_sar(struct hci_dev *hdev, struct btintel_sar *sar)
+{
+	struct btintel_cp_ddc_write	*cmd;
+	u8	buffer[64];
+
+	if (!sar)
+		return -EINVAL;
+
+	cmd = (void *)buffer;
+
+	cmd->len = 3;
+	cmd->id = cpu_to_le16(0x0131);
+	cmd->data[0] = sar->br >> 3;
+	btintel_send_sar_ddc(hdev, cmd, 4);
+
+	cmd->len = 3;
+	cmd->id = cpu_to_le16(0x0132);
+	cmd->data[0] = sar->br >> 3;
+	btintel_send_sar_ddc(hdev, cmd, 4);
+
+	cmd->len = 5;
+	cmd->id = cpu_to_le16(0x0137);
+	cmd->data[0] = sar->br >> 3;
+	cmd->data[1] = sar->edr2 >> 3;
+	cmd->data[2] = sar->edr3 >> 3;
+	btintel_send_sar_ddc(hdev, cmd, 6);
+
+	cmd->len = 5;
+	cmd->id = cpu_to_le16(0x0138);
+	cmd->data[0] = sar->br >> 3;
+	cmd->data[1] = sar->edr2 >> 3;
+	cmd->data[2] = sar->edr3 >> 3;
+	btintel_send_sar_ddc(hdev, cmd, 6);
+
+	cmd->len = 5;
+	cmd->id = cpu_to_le16(0x013b);
+	cmd->data[0] = sar->br >> 3;
+	cmd->data[1] = sar->edr2 >> 3;
+	cmd->data[2] = sar->edr3 >> 3;
+	btintel_send_sar_ddc(hdev, cmd, 6);
+
+	cmd->len = 5;
+	cmd->id = cpu_to_le16(0x013c);
+	cmd->data[0] = sar->br >> 3;
+	cmd->data[1] = sar->edr2 >> 3;
+	cmd->data[2] = sar->edr3 >> 3;
+	btintel_send_sar_ddc(hdev, cmd, 6);
+
+	return 0;
+}
+
+static int btintel_set_mutual_sar(struct hci_dev *hdev, struct btintel_sar *sar)
+{
+	u8 buffer[64];
+	struct btintel_cp_ddc_write *cmd;
+	u8 enable[1] = {1};
+	struct sk_buff *skb;
+
+	if (!sar)
+		return -EINVAL;
+
+	cmd = (void *)buffer;
+
+	cmd->len = 3;
+	cmd->id = cpu_to_le16(0x019e);
+	if (!(sar->le_2mhz & BIT(7)))
+		cmd->data[0] = 0x01;
+	else
+		cmd->data[0] = 0x00;
+	btintel_send_sar_ddc(hdev, cmd, 4);
+
+	cmd->len = 3;
+	cmd->id = cpu_to_le16(0x019f);
+	cmd->data[0] = sar->le_lr;
+	btintel_send_sar_ddc(hdev, cmd, 4);
+
+	cmd->len = 3;
+	cmd->id = cpu_to_le16(0x01a0);
+	cmd->data[0] = sar->br;
+	btintel_send_sar_ddc(hdev, cmd, 4);
+
+	cmd->len = 3;
+	cmd->id = cpu_to_le16(0x01a1);
+	cmd->data[0] = sar->edr2;
+	btintel_send_sar_ddc(hdev, cmd, 4);
+
+	cmd->len = 3;
+	cmd->id = cpu_to_le16(0x01a2);
+	cmd->data[0] = sar->edr3;
+	btintel_send_sar_ddc(hdev, cmd, 4);
+
+	cmd->len = 3;
+	cmd->id = cpu_to_le16(0x01a3);
+	cmd->data[0] = sar->le;
+	btintel_send_sar_ddc(hdev, cmd, 4);
+
+	skb = __hci_cmd_sync(hdev, 0xfe25, 1, enable, HCI_CMD_TIMEOUT);
+	if (IS_ERR(skb)) {
+		bt_dev_warn(hdev, "Failed to send Intel SAR Enable (%ld)", PTR_ERR(skb));
+		return PTR_ERR(skb);
+	}
+	kfree_skb(skb);
+
+	return 0;
+}
+
+static int btintel_set_specific_absorption_rate(struct hci_dev *hdev,
+						struct intel_version_tlv *ver)
+{
+	acpi_status status;
+	struct btintel_sar sar;
+
+	switch (ver->cnvr_top & 0xfff) {
+	case 0x810: /* MsP */
+		break;
+	default:
+		return 0;
+	}
+
+	memset(&sar, 0, sizeof(sar));
+
+	status = acpi_walk_namespace(ACPI_TYPE_METHOD, ACPI_ROOT_OBJECT,
+				     ACPI_UINT32_MAX, NULL,
+				     btintel_sar_callback, &sar, NULL);
+
+	if (ACPI_FAILURE(status))
+		return -1;
+
+	if (sar.domain != 0x12)
+		return -1;
+
+	/* No need to configure controller if Bluetooth SAR is disabled in BIOS
+	 */
+	if (!sar.type)
+		return 0;
+
+	if (sar.type == 1) {
+		bt_dev_info(hdev, "Applying both legacy and mutual Bluetooth SAR");
+		btintel_set_legacy_sar(hdev, &sar);
+		btintel_set_mutual_sar(hdev, &sar);
+	}
+	return 0;
+}
+
 static int btintel_bootloader_setup_tlv(struct hci_dev *hdev,
 					struct intel_version_tlv *ver)
 {
@@ -2293,6 +2519,9 @@ static int btintel_bootloader_setup_tlv(struct hci_dev *hdev,
 
 	/* Read supported use cases and set callbacks to fetch datapath id */
 	btintel_configure_offload(hdev);
+
+	/* Set Specific Absorption Rate */
+	btintel_set_specific_absorption_rate(hdev, ver);
 
 	hci_dev_clear_flag(hdev, HCI_QUALITY_REPORT);
 

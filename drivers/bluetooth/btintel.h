@@ -137,6 +137,24 @@ struct intel_offload_use_cases {
 	__u8	preset[8];
 } __packed;
 
+/* structure to store the data read from ACPI table */
+struct btintel_sar {
+	u8	domain;
+	u8	type;
+	u32	br;
+	u32	edr2;
+	u32	edr3;
+	u32	le;
+	u32	le_2mhz;
+	u32	le_lr;
+};
+
+struct btintel_cp_ddc_write {
+	u8	len;
+	__le16	id;
+	u8	data[0];
+} __packed;
+
 #define INTEL_HW_PLATFORM(cnvx_bt)	((u8)(((cnvx_bt) & 0x0000ff00) >> 8))
 #define INTEL_HW_VARIANT(cnvx_bt)	((u8)(((cnvx_bt) & 0x003f0000) >> 16))
 #define INTEL_CNVX_TOP_TYPE(cnvx_top)	((cnvx_top) & 0x00000fff)
