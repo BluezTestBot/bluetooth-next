@@ -3340,6 +3340,8 @@ static int btusb_setup_qca(struct hci_dev *hdev)
 	 */
 	set_bit(HCI_QUIRK_BROKEN_ENHANCED_SETUP_SYNC_CONN, &hdev->quirks);
 
+	set_bit(HCI_QUIRK_BROKEN_ERR_DATA_REPORTING, &hdev->quirks);
+
 	return 0;
 }
 
