@@ -3068,7 +3068,7 @@ static void hci_conn_complete_evt(struct hci_dev *hdev, void *data,
 	struct hci_ev_conn_complete *ev = data;
 	struct hci_conn *conn;
 
-	if (__le16_to_cpu(ev->handle) > HCI_CONN_HANDLE_MAX) {
+	if (!status && __le16_to_cpu(ev->handle) > HCI_CONN_HANDLE_MAX) {
 		bt_dev_err(hdev, "Ignoring HCI_Connection_Complete for invalid handle");
 		return;
 	}
@@ -4690,7 +4690,7 @@ static void hci_sync_conn_complete_evt(struct hci_dev *hdev, void *data,
 		return;
 	}
 
-	if (__le16_to_cpu(ev->handle) > HCI_CONN_HANDLE_MAX) {
+	if (!status && __le16_to_cpu(ev->handle) > HCI_CONN_HANDLE_MAX) {
 		bt_dev_err(hdev, "Ignoring HCI_Sync_Conn_Complete for invalid handle");
 		return;
 	}
@@ -5527,7 +5527,7 @@ static void le_conn_complete_evt(struct hci_dev *hdev, u8 status,
 	struct smp_irk *irk;
 	u8 addr_type;
 
-	if (handle > HCI_CONN_HANDLE_MAX) {
+	if (!status && handle > HCI_CONN_HANDLE_MAX) {
 		bt_dev_err(hdev, "Ignoring HCI_LE_Connection_Complete for invalid handle");
 		return;
 	}
