@@ -516,7 +516,7 @@ static netdev_tx_t bt_xmit(struct sk_buff *skb, struct net_device *netdev)
 	err = setup_header(skb, netdev, &addr, &addr_type);
 	if (err < 0) {
 		kfree_skb(skb);
-		return NET_XMIT_DROP;
+		goto output_error_ret;
 	}
 
 	if (err) {
@@ -537,6 +537,7 @@ static netdev_tx_t bt_xmit(struct sk_buff *skb, struct net_device *netdev)
 
 	dev_kfree_skb(skb);
 
+output_error_ret:
 	if (err)
 		BT_DBG("ERROR: xmit failed (%d)", err);
 
