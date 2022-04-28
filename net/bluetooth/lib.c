@@ -122,6 +122,14 @@ int bt_to_errno(__u16 code)
 	case 0x1b:
 		return ECONNREFUSED;
 
+	case 0x1c:
+		printk(KERN_ERR "Bluetooth: errno(0x%02x), SCO Interval Rejected", code);
+		return ENOSYS;
+
+	case 0x1d:
+		printk(KERN_ERR "Bluetooth: errno(0x%02x), SCO Air Mode Rejected", code);
+		return ENOSYS;
+
 	case 0x19:
 	case 0x1e:
 	case 0x23:
@@ -129,7 +137,28 @@ int bt_to_errno(__u16 code)
 	case 0x25:
 		return EPROTO;
 
+	case 0x1f:
+		printk(KERN_ERR "Bluetooth: errno(0x%02x), Unspecified Error", code);
+		return ENOSYS;
+
+	case 0x21:
+		printk(KERN_ERR "Bluetooth: errno(0x%02x), Role Change Not Allowed", code);
+		return ENOSYS;
+
+	case 0x22:
+		printk(KERN_ERR "Bluetooth: errno(0x%02x), LMP Response Timeout", code);
+		return ENOSYS;
+
+	case 0x26:
+		printk(KERN_ERR "Bluetooth: errno(0x%02x), Unit Key Used", code);
+		return ENOSYS;
+
+	case 0x28:
+		printk(KERN_ERR "Bluetooth: errno(0x%02x), Instant Passed", code);
+		return ENOSYS;
+
 	default:
+		printk(KERN_ERR "Bluetooth: errno(0x%02x), Error code unknown", code);
 		return ENOSYS;
 	}
 }
