@@ -23,8 +23,8 @@ struct sidtab_str_cache {
 	struct rcu_head rcu_member;
 	struct list_head lru_member;
 	struct sidtab_entry *parent;
-	u32 len;
-	char str[];
+	DECLARE_FLEX_ARRAY_ELEMENTS_COUNT(u32, len);
+	DECLARE_FLEX_ARRAY_ELEMENTS(char, str);
 };
 
 #define index_to_sid(index) ((index) + SECINITSID_NUM + 1)
@@ -570,8 +570,7 @@ void sidtab_sid2str_put(struct sidtab *s, struct sidtab_entry *entry,
 		goto out_unlock;
 	}
 
-	cache = kmalloc(struct_size(cache, str, str_len), GFP_ATOMIC);
-	if (!cache)
+	if (mem_to_flex_dup(&cache, str, str_len, GFP_ATOMIC))
 		goto out_unlock;
 
 	if (s->cache_free_slots == 0) {
@@ -584,8 +583,6 @@ void sidtab_sid2str_put(struct sidtab *s, struct sidtab_entry *entry,
 		s->cache_free_slots--;
 	}
 	cache->parent = entry;
-	cache->len = str_len;
-	memcpy(cache->str, str, str_len);
 	list_add(&cache->lru_member, &s->cache_lru_list);
 
 	rcu_assign_pointer(entry->cache, cache);
