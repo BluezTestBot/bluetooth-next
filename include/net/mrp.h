@@ -91,8 +91,8 @@ struct mrp_attr {
 	struct rb_node			node;
 	enum mrp_applicant_state	state;
 	u8				type;
-	u8				len;
-	unsigned char			value[];
+	DECLARE_FLEX_ARRAY_ELEMENTS_COUNT(u8, len);
+	DECLARE_FLEX_ARRAY_ELEMENTS(unsigned char, value);
 };
 
 enum mrp_applications {
