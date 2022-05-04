@@ -6,8 +6,8 @@
 #include <asm/page.h>
 
 struct buffer {
-	size_t size;
-	char data[];
+	DECLARE_FLEX_ARRAY_ELEMENTS_COUNT(size_t, size);
+	DECLARE_FLEX_ARRAY_ELEMENTS(char, data);
 };
 
 static ssize_t atags_read(struct file *file, char __user *buf,
@@ -38,7 +38,7 @@ static int __init init_atags_procfs(void)
 	 */
 	struct proc_dir_entry *tags_entry;
 	struct tag *tag = (struct tag *)atags_copy;
-	struct buffer *b;
+	struct buffer *b = NULL;
 	size_t size;
 
 	if (tag->hdr.tag != ATAG_CORE) {
@@ -54,12 +54,8 @@ static int __init init_atags_procfs(void)
 
 	WARN_ON(tag->hdr.tag != ATAG_NONE);
 
-	b = kmalloc(sizeof(*b) + size, GFP_KERNEL);
-	if (!b)
+	if (mem_to_flex_dup(&b, atags_copy, size, GFP_KERNEL))
 		goto nomem;
-
-	b->size = size;
-	memcpy(b->data, atags_copy, size);
 
 	tags_entry = proc_create_data("atags", 0400, NULL, &atags_proc_ops, b);
 	if (!tags_entry)
