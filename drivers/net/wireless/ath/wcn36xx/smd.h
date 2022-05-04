@@ -46,8 +46,8 @@ struct wcn36xx_fw_msg_status_rsp {
 
 struct wcn36xx_hal_ind_msg {
 	struct list_head list;
-	size_t msg_len;
-	u8 msg[];
+	DECLARE_FLEX_ARRAY_ELEMENTS_COUNT(size_t, msg_len);
+	DECLARE_FLEX_ARRAY_ELEMENTS(u8, msg);
 };
 
 struct wcn36xx;
