@@ -28,8 +28,8 @@ struct modsig {
 	 * This is what will go to the measurement list if the template requires
 	 * storing the signature.
 	 */
-	int raw_pkcs7_len;
-	u8 raw_pkcs7[];
+	DECLARE_FLEX_ARRAY_ELEMENTS_COUNT(int, raw_pkcs7_len);
+	DECLARE_FLEX_ARRAY_ELEMENTS(u8, raw_pkcs7);
 };
 
 /*
@@ -42,7 +42,7 @@ int ima_read_modsig(enum ima_hooks func, const void *buf, loff_t buf_len,
 {
 	const size_t marker_len = strlen(MODULE_SIG_STRING);
 	const struct module_signature *sig;
-	struct modsig *hdr;
+	struct modsig *hdr = NULL;
 	size_t sig_len;
 	const void *p;
 	int rc;
@@ -65,8 +65,7 @@ int ima_read_modsig(enum ima_hooks func, const void *buf, loff_t buf_len,
 	buf_len -= sig_len + sizeof(*sig);
 
 	/* Allocate sig_len additional bytes to hold the raw PKCS#7 data. */
-	hdr = kzalloc(sizeof(*hdr) + sig_len, GFP_KERNEL);
-	if (!hdr)
+	if (mem_to_flex_dup(&hdr, buf + buf_len, sig_len, GFP_KERNEL))
 		return -ENOMEM;
 
 	hdr->pkcs7_msg = pkcs7_parse_message(buf + buf_len, sig_len);
@@ -75,9 +74,6 @@ int ima_read_modsig(enum ima_hooks func, const void *buf, loff_t buf_len,
 		kfree(hdr);
 		return rc;
 	}
-
-	memcpy(hdr->raw_pkcs7, buf + buf_len, sig_len);
-	hdr->raw_pkcs7_len = sig_len;
 
 	/* We don't know the hash algorithm yet. */
 	hdr->hash_algo = HASH_ALGO__LAST;
