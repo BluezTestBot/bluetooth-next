@@ -32,8 +32,8 @@ struct brcmf_fweh_queue_item {
 	u8 ifidx;
 	u8 ifaddr[ETH_ALEN];
 	struct brcmf_event_msg_be emsg;
-	u32 datalen;
-	u8 data[];
+	DECLARE_FLEX_ARRAY_ELEMENTS_COUNT(u32, datalen);
+	DECLARE_FLEX_ARRAY_ELEMENTS(u8, data);
 };
 
 /*
@@ -395,7 +395,7 @@ void brcmf_fweh_process_event(struct brcmf_pub *drvr,
 {
 	enum brcmf_fweh_event_code code;
 	struct brcmf_fweh_info *fweh = &drvr->fweh;
-	struct brcmf_fweh_queue_item *event;
+	struct brcmf_fweh_queue_item *event = NULL;
 	void *data;
 	u32 datalen;
 
@@ -414,8 +414,7 @@ void brcmf_fweh_process_event(struct brcmf_pub *drvr,
 	    datalen + sizeof(*event_packet) > packet_len)
 		return;
 
-	event = kzalloc(sizeof(*event) + datalen, gfp);
-	if (!event)
+	if (mem_to_flex_dup(&event, data, datalen, gfp))
 		return;
 
 	event->code = code;
@@ -423,8 +422,6 @@ void brcmf_fweh_process_event(struct brcmf_pub *drvr,
 
 	/* use memcpy to get aligned event message */
 	memcpy(&event->emsg, &event_packet->msg, sizeof(event->emsg));
-	memcpy(event->data, data, datalen);
-	event->datalen = datalen;
 	memcpy(event->ifaddr, event_packet->eth.h_dest, ETH_ALEN);
 
 	brcmf_fweh_queue_event(fweh, event);
