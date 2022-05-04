@@ -18,8 +18,11 @@
 /* Opaque calibration results */
 struct iwl_calib_result {
 	struct list_head list;
-	size_t cmd_len;
-	struct iwl_calib_cmd cmd;
+	DECLARE_FLEX_ARRAY_ELEMENTS_COUNT(size_t, cmd_len);
+	union {
+		struct iwl_calib_cmd cmd;
+		DECLARE_FLEX_ARRAY_ELEMENTS(u8, data);
+	};
 	/* data follows */
 };
 
@@ -59,14 +62,10 @@ int iwl_send_calib_results(struct iwl_priv *priv)
 int iwl_calib_set(struct iwl_priv *priv,
 		  const struct iwl_calib_cmd *cmd, int len)
 {
-	struct iwl_calib_result *res, *tmp;
+	struct iwl_calib_result *res = NULL, *tmp;
 
-	res = kmalloc(sizeof(*res) + len - sizeof(struct iwl_calib_hdr),
-		      GFP_ATOMIC);
-	if (!res)
+	if (len < sizeof(*cmd) || mem_to_flex_dup(&res, cmd, len, GFP_ATOMIC))
 		return -ENOMEM;
-	memcpy(&res->hdr, cmd, len);
-	res->cmd_len = len;
 
 	list_for_each_entry(tmp, &priv->calib_results, list) {
 		if (tmp->cmd.hdr.op_code == res->cmd.hdr.op_code) {
