@@ -683,7 +683,7 @@ static int set_rcvarray_entry(struct hfi1_filedata *fd,
 {
 	int ret;
 	struct hfi1_ctxtdata *uctxt = fd->uctxt;
-	struct tid_rb_node *node;
+	struct tid_rb_node *node = NULL;
 	struct hfi1_devdata *dd = uctxt->dd;
 	dma_addr_t phys;
 	struct page **pages = tbuf->pages + pageidx;
@@ -692,8 +692,7 @@ static int set_rcvarray_entry(struct hfi1_filedata *fd,
 	 * Allocate the node first so we can handle a potential
 	 * failure before we've programmed anything.
 	 */
-	node = kzalloc(struct_size(node, pages, npages), GFP_KERNEL);
-	if (!node)
+	if (mem_to_flex_dup(&node, pages, npages, GFP_KERNEL))
 		return -ENOMEM;
 
 	phys = dma_map_single(&dd->pcidev->dev, __va(page_to_phys(pages[0])),
@@ -707,12 +706,10 @@ static int set_rcvarray_entry(struct hfi1_filedata *fd,
 
 	node->fdata = fd;
 	node->phys = page_to_phys(pages[0]);
-	node->npages = npages;
 	node->rcventry = rcventry;
 	node->dma_addr = phys;
 	node->grp = grp;
 	node->freed = false;
-	memcpy(node->pages, pages, flex_array_size(node, pages, npages));
 
 	if (fd->use_mn) {
 		ret = mmu_interval_notifier_insert(
