@@ -2435,18 +2435,13 @@ int hci_req_configure_datapath(struct hci_dev *hdev, struct bt_codec *codec)
 	if (err < 0)
 		goto error;
 
-	cmd = kzalloc(sizeof(*cmd) + vnd_len, GFP_KERNEL);
-	if (!cmd) {
-		err = -ENOMEM;
+	err = mem_to_flex_dup(&cmd, vnd_data, vnd_len, GFP_KERNEL);
+	if (err < 0)
 		goto error;
-	}
 
 	err = hdev->get_data_path_id(hdev, &cmd->data_path_id);
 	if (err < 0)
 		goto error;
-
-	cmd->vnd_len = vnd_len;
-	memcpy(cmd->vnd_data, vnd_data, vnd_len);
 
 	cmd->direction = 0x00;
 	hci_req_add(&req, HCI_CONFIGURE_DATA_PATH, sizeof(*cmd) + vnd_len, cmd);

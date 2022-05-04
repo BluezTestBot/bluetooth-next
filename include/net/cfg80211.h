@@ -2600,9 +2600,9 @@ struct cfg80211_inform_bss {
 struct cfg80211_bss_ies {
 	u64 tsf;
 	struct rcu_head rcu_head;
-	int len;
+	DECLARE_FLEX_ARRAY_ELEMENTS_COUNT(int, len);
 	bool from_beacon;
-	u8 data[];
+	DECLARE_FLEX_ARRAY_ELEMENTS(u8, data);
 };
 
 /**

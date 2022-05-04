@@ -2569,11 +2569,6 @@ config OVERFLOW_KUNIT_TEST
 	  Builds unit tests for the check_*_overflow(), size_*(), allocation, and
 	  related functions.
 
-	  For more information on KUnit and unit tests in general please refer
-	  to the KUnit documentation in Documentation/dev-tools/kunit/.
-
-	  If unsure, say N.
-
 config STACKINIT_KUNIT_TEST
 	tristate "Test level of stack variable initialization" if !KUNIT_ALL_TESTS
 	depends on KUNIT
@@ -2584,6 +2579,13 @@ config STACKINIT_KUNIT_TEST
 	  CONFIG_INIT_STACK_ALL_PATTERN, CONFIG_INIT_STACK_ALL_ZERO,
 	  CONFIG_GCC_PLUGIN_STRUCTLEAK, CONFIG_GCC_PLUGIN_STRUCTLEAK_BYREF,
 	  or CONFIG_GCC_PLUGIN_STRUCTLEAK_BYREF_ALL.
+
+config FLEX_ARRAY_KUNIT_TEST
+	tristate "Test flex_*() family of helper functions at runtime" if !KUNIT_ALL_TESTS
+	depends on KUNIT
+	default KUNIT_ALL_TESTS
+	help
+	  Builds unit tests for flexible array copy helper functions.
 
 config TEST_UDELAY
 	tristate "udelay test driver"

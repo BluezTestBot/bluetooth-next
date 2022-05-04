@@ -244,15 +244,12 @@ EXPORT_SYMBOL_GPL(unix_peer_get);
 static struct unix_address *unix_create_addr(struct sockaddr_un *sunaddr,
 					     int addr_len)
 {
-	struct unix_address *addr;
+	struct unix_address *addr = NULL;
 
-	addr = kmalloc(sizeof(*addr) + addr_len, GFP_KERNEL);
-	if (!addr)
+	if (mem_to_flex_dup(&addr, sunaddr, addr_len, GFP_KERNEL))
 		return NULL;
 
 	refcount_set(&addr->refcnt, 1);
-	addr->len = addr_len;
-	memcpy(addr->name, sunaddr, addr_len);
 
 	return addr;
 }

@@ -40,8 +40,8 @@ struct packet_router {
 
 struct apr_rx_buf {
 	struct list_head node;
-	int len;
-	uint8_t buf[];
+	DECLARE_FLEX_ARRAY_ELEMENTS_COUNT(int, len);
+	DECLARE_FLEX_ARRAY_ELEMENTS(uint8_t, buf);
 };
 
 /**
@@ -162,7 +162,7 @@ static int apr_callback(struct rpmsg_device *rpdev, void *buf,
 				  int len, void *priv, u32 addr)
 {
 	struct packet_router *apr = dev_get_drvdata(&rpdev->dev);
-	struct apr_rx_buf *abuf;
+	struct apr_rx_buf *abuf = NULL;
 	unsigned long flags;
 
 	if (len <= APR_HDR_SIZE) {
@@ -171,12 +171,8 @@ static int apr_callback(struct rpmsg_device *rpdev, void *buf,
 		return -EINVAL;
 	}
 
-	abuf = kzalloc(sizeof(*abuf) + len, GFP_ATOMIC);
-	if (!abuf)
+	if (mem_to_flex_dup(&abuf, buf, len, GFP_ATOMIC))
 		return -ENOMEM;
-
-	abuf->len = len;
-	memcpy(abuf->buf, buf, len);
 
 	spin_lock_irqsave(&apr->rx_lock, flags);
 	list_add_tail(&abuf->node, &apr->rx_list);

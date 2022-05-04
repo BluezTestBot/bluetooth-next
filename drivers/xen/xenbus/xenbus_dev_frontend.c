@@ -81,8 +81,8 @@ struct xenbus_transaction_holder {
 struct read_buffer {
 	struct list_head list;
 	unsigned int cons;
-	unsigned int len;
-	char msg[];
+	DECLARE_FLEX_ARRAY_ELEMENTS_COUNT(unsigned int, len);
+	DECLARE_FLEX_ARRAY_ELEMENTS(char, msg);
 };
 
 struct xenbus_file_priv {
@@ -188,21 +188,17 @@ out:
  */
 static int queue_reply(struct list_head *queue, const void *data, size_t len)
 {
-	struct read_buffer *rb;
+	struct read_buffer *rb = NULL;
 
 	if (len == 0)
 		return 0;
 	if (len > XENSTORE_PAYLOAD_MAX)
 		return -EINVAL;
 
-	rb = kmalloc(sizeof(*rb) + len, GFP_KERNEL);
-	if (rb == NULL)
+	if (mem_to_flex_dup(&rb, data, len, GFP_KERNEL))
 		return -ENOMEM;
 
 	rb->cons = 0;
-	rb->len = len;
-
-	memcpy(rb->msg, data, len);
 
 	list_add_tail(&rb->list, queue);
 	return 0;

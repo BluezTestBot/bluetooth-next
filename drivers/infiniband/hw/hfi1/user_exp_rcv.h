@@ -32,8 +32,8 @@ struct tid_rb_node {
 	u32 rcventry;
 	dma_addr_t dma_addr;
 	bool freed;
-	unsigned int npages;
-	struct page *pages[];
+	DECLARE_FLEX_ARRAY_ELEMENTS_COUNT(unsigned int, npages);
+	DECLARE_FLEX_ARRAY_ELEMENTS(struct page *, pages);
 };
 
 static inline int num_user_pages(unsigned long addr,

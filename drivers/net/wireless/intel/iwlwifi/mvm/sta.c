@@ -4109,7 +4109,7 @@ int iwl_mvm_add_pasn_sta(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
 	int ret;
 	u16 queue;
 	struct iwl_mvm_vif *mvmvif = iwl_mvm_vif_from_mac80211(vif);
-	struct ieee80211_key_conf *keyconf;
+	struct ieee80211_key_conf *keyconf = NULL;
 
 	ret = iwl_mvm_allocate_int_sta(mvm, sta, 0,
 				       NL80211_IFTYPE_UNSPECIFIED,
@@ -4123,15 +4123,11 @@ int iwl_mvm_add_pasn_sta(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
 	if (ret)
 		goto out;
 
-	keyconf = kzalloc(sizeof(*keyconf) + key_len, GFP_KERNEL);
-	if (!keyconf) {
+	if (mem_to_flex_dup(&keyconf, key, key_len, GFP_KERNEL)) {
 		ret = -ENOBUFS;
 		goto out;
 	}
-
 	keyconf->cipher = cipher;
-	memcpy(keyconf->key, key, key_len);
-	keyconf->keylen = key_len;
 
 	ret = iwl_mvm_send_sta_key(mvm, sta->sta_id, keyconf, false,
 				   0, NULL, 0, 0, true);

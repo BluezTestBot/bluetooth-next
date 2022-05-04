@@ -31,9 +31,9 @@ struct xfrm_id {
 struct xfrm_sec_ctx {
 	__u8	ctx_doi;
 	__u8	ctx_alg;
-	__u16	ctx_len;
+	__DECLARE_FLEX_ARRAY_ELEMENTS_COUNT(__u16, ctx_len);
 	__u32	ctx_sid;
-	char	ctx_str[0];
+	__DECLARE_FLEX_ARRAY_ELEMENTS(char, ctx_str);
 };
 
 /* Security Context Domains of Interpretation */

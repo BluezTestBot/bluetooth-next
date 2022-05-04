@@ -125,8 +125,8 @@ struct p54_cal_database {
 	size_t entries;
 	size_t entry_size;
 	size_t offset;
-	size_t len;
-	u8 data[];
+	DECLARE_FLEX_ARRAY_ELEMENTS_COUNT(size_t, len);
+	DECLARE_FLEX_ARRAY_ELEMENTS(u8, data);
 };
 
 #define EEPROM_READBACK_LEN 0x3fc

@@ -73,16 +73,13 @@ static int afs_xattr_get_acl(const struct xattr_handler *handler,
 static bool afs_make_acl(struct afs_operation *op,
 			 const void *buffer, size_t size)
 {
-	struct afs_acl *acl;
+	struct afs_acl *acl = NULL;
 
-	acl = kmalloc(sizeof(*acl) + size, GFP_KERNEL);
-	if (!acl) {
+	if (mem_to_flex_dup(&acl, buffer, size, GFP_KERNEL)) {
 		afs_op_nomem(op);
 		return false;
 	}
 
-	acl->size = size;
-	memcpy(acl->data, buffer, size);
 	op->acl = acl;
 	return true;
 }

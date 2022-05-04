@@ -168,7 +168,7 @@ static struct garp_attr *garp_attr_create(struct garp_applicant *app,
 					  const void *data, u8 len, u8 type)
 {
 	struct rb_node *parent = NULL, **p = &app->gid.rb_node;
-	struct garp_attr *attr;
+	struct garp_attr *attr = NULL;
 	int d;
 
 	while (*p) {
@@ -184,13 +184,10 @@ static struct garp_attr *garp_attr_create(struct garp_applicant *app,
 			return attr;
 		}
 	}
-	attr = kmalloc(sizeof(*attr) + len, GFP_ATOMIC);
-	if (!attr)
-		return attr;
+	if (mem_to_flex_dup(&attr, data, len, GFP_ATOMIC))
+		return NULL;
 	attr->state = GARP_APPLICANT_VO;
 	attr->type  = type;
-	attr->dlen  = len;
-	memcpy(attr->data, data, len);
 
 	rb_link_node(&attr->node, parent, p);
 	rb_insert_color(&attr->node, &app->gid);

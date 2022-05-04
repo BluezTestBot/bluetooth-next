@@ -3284,7 +3284,7 @@ int wcn36xx_smd_rsp_process(struct rpmsg_device *rpdev,
 	const struct wcn36xx_hal_msg_header *msg_header = buf;
 	struct ieee80211_hw *hw = priv;
 	struct wcn36xx *wcn = hw->priv;
-	struct wcn36xx_hal_ind_msg *msg_ind;
+	struct wcn36xx_hal_ind_msg *msg_ind = NULL;
 	wcn36xx_dbg_dump(WCN36XX_DBG_SMD_DUMP, "SMD <<< ", buf, len);
 
 	switch (msg_header->msg_type) {
@@ -3347,15 +3347,11 @@ int wcn36xx_smd_rsp_process(struct rpmsg_device *rpdev,
 	case WCN36XX_HAL_DELETE_STA_CONTEXT_IND:
 	case WCN36XX_HAL_PRINT_REG_INFO_IND:
 	case WCN36XX_HAL_SCAN_OFFLOAD_IND:
-		msg_ind = kmalloc(struct_size(msg_ind, msg, len), GFP_ATOMIC);
-		if (!msg_ind) {
+		if (mem_to_flex_dup(&msg_ind, buf, len, GFP_ATOMIC)) {
 			wcn36xx_err("Run out of memory while handling SMD_EVENT (%d)\n",
 				    msg_header->msg_type);
 			return -ENOMEM;
 		}
-
-		msg_ind->msg_len = len;
-		memcpy(msg_ind->msg, buf, len);
 
 		spin_lock(&wcn->hal_ind_lock);
 		list_add_tail(&msg_ind->list, &wcn->hal_ind_queue);

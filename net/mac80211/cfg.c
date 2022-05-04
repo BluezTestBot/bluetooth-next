@@ -866,19 +866,15 @@ ieee80211_set_probe_resp(struct ieee80211_sub_if_data *sdata,
 			 const struct ieee80211_csa_settings *csa,
 			 const struct ieee80211_color_change_settings *cca)
 {
-	struct probe_resp *new, *old;
+	struct probe_resp *new = NULL, *old;
 
 	if (!resp || !resp_len)
 		return 1;
 
 	old = sdata_dereference(sdata->u.ap.probe_resp, sdata);
 
-	new = kzalloc(sizeof(struct probe_resp) + resp_len, GFP_KERNEL);
-	if (!new)
+	if (mem_to_flex_dup(&new, resp, resp_len, GFP_KERNEL))
 		return -ENOMEM;
-
-	new->len = resp_len;
-	memcpy(new->data, resp, resp_len);
 
 	if (csa)
 		memcpy(new->cntdwn_counter_offsets, csa->counter_offsets_presp,
@@ -897,7 +893,7 @@ ieee80211_set_probe_resp(struct ieee80211_sub_if_data *sdata,
 static int ieee80211_set_fils_discovery(struct ieee80211_sub_if_data *sdata,
 					struct cfg80211_fils_discovery *params)
 {
-	struct fils_discovery_data *new, *old = NULL;
+	struct fils_discovery_data *new = NULL, *old = NULL;
 	struct ieee80211_fils_discovery *fd;
 
 	if (!params->tmpl || !params->tmpl_len)
@@ -908,11 +904,8 @@ static int ieee80211_set_fils_discovery(struct ieee80211_sub_if_data *sdata,
 	fd->max_interval = params->max_interval;
 
 	old = sdata_dereference(sdata->u.ap.fils_discovery, sdata);
-	new = kzalloc(sizeof(*new) + params->tmpl_len, GFP_KERNEL);
-	if (!new)
+	if (mem_to_flex_dup(&new, params->tmpl, params->tmpl_len, GFP_KERNEL))
 		return -ENOMEM;
-	new->len = params->tmpl_len;
-	memcpy(new->data, params->tmpl, params->tmpl_len);
 	rcu_assign_pointer(sdata->u.ap.fils_discovery, new);
 
 	if (old)
@@ -925,17 +918,14 @@ static int
 ieee80211_set_unsol_bcast_probe_resp(struct ieee80211_sub_if_data *sdata,
 				     struct cfg80211_unsol_bcast_probe_resp *params)
 {
-	struct unsol_bcast_probe_resp_data *new, *old = NULL;
+	struct unsol_bcast_probe_resp_data *new = NULL, *old = NULL;
 
 	if (!params->tmpl || !params->tmpl_len)
 		return -EINVAL;
 
 	old = sdata_dereference(sdata->u.ap.unsol_bcast_probe_resp, sdata);
-	new = kzalloc(sizeof(*new) + params->tmpl_len, GFP_KERNEL);
-	if (!new)
+	if (mem_to_flex_dup(&new, params->tmpl, params->tmpl_len, GFP_KERNEL))
 		return -ENOMEM;
-	new->len = params->tmpl_len;
-	memcpy(new->data, params->tmpl, params->tmpl_len);
 	rcu_assign_pointer(sdata->u.ap.unsol_bcast_probe_resp, new);
 
 	if (old)

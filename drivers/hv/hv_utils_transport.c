@@ -217,20 +217,17 @@ static void hvt_cn_callback(struct cn_msg *msg, struct netlink_skb_parms *nsp)
 int hvutil_transport_send(struct hvutil_transport *hvt, void *msg, int len,
 			  void (*on_read_cb)(void))
 {
-	struct cn_msg *cn_msg;
+	struct cn_msg *cn_msg = NULL;
 	int ret = 0;
 
 	if (hvt->mode == HVUTIL_TRANSPORT_INIT ||
 	    hvt->mode == HVUTIL_TRANSPORT_DESTROY) {
 		return -EINVAL;
 	} else if (hvt->mode == HVUTIL_TRANSPORT_NETLINK) {
-		cn_msg = kzalloc(sizeof(*cn_msg) + len, GFP_ATOMIC);
-		if (!cn_msg)
+		if (mem_to_flex_dup(&cn_msg, msg, len, GFP_ATOMIC))
 			return -ENOMEM;
 		cn_msg->id.idx = hvt->cn_id.idx;
 		cn_msg->id.val = hvt->cn_id.val;
-		cn_msg->len = len;
-		memcpy(cn_msg->data, msg, len);
 		ret = cn_netlink_send(cn_msg, 0, 0, GFP_ATOMIC);
 		kfree(cn_msg);
 		/*

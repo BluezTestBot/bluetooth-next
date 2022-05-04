@@ -25,8 +25,18 @@ extern struct hlist_head unix_socket_table[2 * UNIX_HASH_SIZE];
 
 struct unix_address {
 	refcount_t	refcnt;
-	int		len;
-	struct sockaddr_un name[];
+	DECLARE_FLEX_ARRAY_ELEMENTS_COUNT(int, len);
+	union {
+		DECLARE_FLEX_ARRAY(struct sockaddr_un, name);
+		/*
+		 * While a struct is used to access the flexible
+		 * array, it may only be partially populated, and
+		 * "len" above is actually tracking bytes, not a
+		 * count of struct sockaddr_un elements, so also
+		 * include a byte-size flexible array.
+		 */
+		DECLARE_FLEX_ARRAY_ELEMENTS(u8, bytes);
+	};
 };
 
 struct unix_skb_parms {

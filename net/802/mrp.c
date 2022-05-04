@@ -257,7 +257,7 @@ static struct mrp_attr *mrp_attr_create(struct mrp_applicant *app,
 					const void *value, u8 len, u8 type)
 {
 	struct rb_node *parent = NULL, **p = &app->mad.rb_node;
-	struct mrp_attr *attr;
+	struct mrp_attr *attr = NULL;
 	int d;
 
 	while (*p) {
@@ -273,13 +273,10 @@ static struct mrp_attr *mrp_attr_create(struct mrp_applicant *app,
 			return attr;
 		}
 	}
-	attr = kmalloc(sizeof(*attr) + len, GFP_ATOMIC);
-	if (!attr)
-		return attr;
+	if (mem_to_flex_dup(&attr, value, len, GFP_ATOMIC))
+		return NULL;
 	attr->state = MRP_APPLICANT_VO;
 	attr->type  = type;
-	attr->len   = len;
-	memcpy(attr->value, value, len);
 
 	rb_link_node(&attr->node, parent, p);
 	rb_insert_color(&attr->node, &app->mad);

@@ -30,7 +30,7 @@ typedef u32 ihandle;
 
 struct property {
 	char	*name;
-	int	length;
+	DECLARE_FLEX_ARRAY_ELEMENTS_COUNT(int, length);
 	void	*value;
 	struct property *next;
 #if defined(CONFIG_OF_DYNAMIC) || defined(CONFIG_SPARC)
@@ -42,6 +42,7 @@ struct property {
 #if defined(CONFIG_OF_KOBJ)
 	struct bin_attribute attr;
 #endif
+	DECLARE_FLEX_ARRAY_ELEMENTS(u8, contents);
 };
 
 #if defined(CONFIG_SPARC)

@@ -702,7 +702,7 @@ static int p54_convert_output_limits(struct ieee80211_hw *dev,
 static struct p54_cal_database *p54_convert_db(struct pda_custom_wrapper *src,
 					       size_t total_len)
 {
-	struct p54_cal_database *dst;
+	struct p54_cal_database *dst = NULL;
 	size_t payload_len, entries, entry_size, offset;
 
 	payload_len = le16_to_cpu(src->len);
@@ -713,16 +713,12 @@ static struct p54_cal_database *p54_convert_db(struct pda_custom_wrapper *src,
 	     (payload_len + sizeof(*src) != total_len))
 		return NULL;
 
-	dst = kmalloc(sizeof(*dst) + payload_len, GFP_KERNEL);
-	if (!dst)
+	if (mem_to_flex_dup(&dst, src->data, payload_len, GFP_KERNEL))
 		return NULL;
 
 	dst->entries = entries;
 	dst->entry_size = entry_size;
 	dst->offset = offset;
-	dst->len = payload_len;
-
-	memcpy(dst->data, src->data, payload_len);
 	return dst;
 }
 

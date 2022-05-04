@@ -947,11 +947,14 @@ static int hba_ioctl_callback(struct esas2r_adapter *a,
 					break;
 				}
 
-				memcpy(trc + 1,
-				       a->fw_coredump_buff + offset,
-				       len);
+				if (__mem_to_flex(hi, data.trace.contents,
+						  data_length,
+						  a->fw_coredump_buff + offset,
+						  len)) {
+					hi->status = ATTO_STS_INV_FUNC;
+					break;
+				}
 
-				hi->data_length = len;
 			} else if (trc->trace_func == ATTO_TRC_TF_RESET) {
 				memset(a->fw_coredump_buff, 0,
 				       ESAS2R_FWCOREDUMP_SZ);

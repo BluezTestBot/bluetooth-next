@@ -73,9 +73,9 @@ struct cn_msg {
 	__u32 seq;
 	__u32 ack;
 
-	__u16 len;		/* Length of the following data */
+	__DECLARE_FLEX_ARRAY_ELEMENTS_COUNT(__u16, len);
 	__u16 flags;
-	__u8 data[0];
+	__DECLARE_FLEX_ARRAY_ELEMENTS(__u8, data);
 };
 
 #endif /* _UAPI__CONNECTOR_H */

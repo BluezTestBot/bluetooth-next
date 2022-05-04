@@ -80,8 +80,8 @@ struct garp_attr {
 	struct rb_node			node;
 	enum garp_applicant_state	state;
 	u8				type;
-	u8				dlen;
-	unsigned char			data[];
+	DECLARE_FLEX_ARRAY_ELEMENTS_COUNT(u8, dlen);
+	DECLARE_FLEX_ARRAY_ELEMENTS(unsigned char, data);
 };
 
 enum garp_applications {
