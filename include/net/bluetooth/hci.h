@@ -1321,8 +1321,8 @@ struct hci_rp_read_local_oob_ext_data {
 struct hci_op_configure_data_path {
 	__u8	direction;
 	__u8	data_path_id;
-	__u8	vnd_len;
-	__u8	vnd_data[];
+	DECLARE_FLEX_ARRAY_ELEMENTS_COUNT(__u8, vnd_len);
+	DECLARE_FLEX_ARRAY_ELEMENTS(__u8, vnd_data);
 } __packed;
 
 #define HCI_OP_READ_LOCAL_VERSION	0x1001
