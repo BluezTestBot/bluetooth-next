@@ -199,13 +199,10 @@ struct flow_action_cookie *flow_action_cookie_create(void *data,
 						     unsigned int len,
 						     gfp_t gfp)
 {
-	struct flow_action_cookie *cookie;
+	struct flow_action_cookie *cookie = NULL;
 
-	cookie = kmalloc(sizeof(*cookie) + len, gfp);
-	if (!cookie)
+	if (mem_to_flex_dup(&cookie, data, len, gfp))
 		return NULL;
-	cookie->cookie_len = len;
-	memcpy(cookie->cookie, data, len);
 	return cookie;
 }
 EXPORT_SYMBOL(flow_action_cookie_create);

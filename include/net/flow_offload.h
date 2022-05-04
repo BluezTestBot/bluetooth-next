@@ -190,8 +190,8 @@ enum flow_action_hw_stats {
 typedef void (*action_destr)(void *priv);
 
 struct flow_action_cookie {
-	u32 cookie_len;
-	u8 cookie[];
+	DECLARE_FLEX_ARRAY_ELEMENTS_COUNT(u32, cookie_len);
+	DECLARE_FLEX_ARRAY_ELEMENTS(u8, cookie);
 };
 
 struct flow_action_cookie *flow_action_cookie_create(void *data,
