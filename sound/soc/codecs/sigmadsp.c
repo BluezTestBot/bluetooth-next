@@ -42,8 +42,8 @@ struct sigmadsp_data {
 	struct list_head head;
 	uint32_t samplerates;
 	unsigned int addr;
-	unsigned int length;
-	uint8_t data[];
+	DECLARE_FLEX_ARRAY_ELEMENTS_COUNT(unsigned int, length);
+	DECLARE_FLEX_ARRAY_ELEMENTS(uint8_t, data);
 };
 
 struct sigma_fw_chunk {
@@ -263,7 +263,7 @@ static int sigma_fw_load_data(struct sigmadsp *sigmadsp,
 	const struct sigma_fw_chunk *chunk, unsigned int length)
 {
 	const struct sigma_fw_chunk_data *data_chunk;
-	struct sigmadsp_data *data;
+	struct sigmadsp_data *data = NULL;
 
 	if (length <= sizeof(*data_chunk))
 		return -EINVAL;
@@ -272,14 +272,11 @@ static int sigma_fw_load_data(struct sigmadsp *sigmadsp,
 
 	length -= sizeof(*data_chunk);
 
-	data = kzalloc(sizeof(*data) + length, GFP_KERNEL);
-	if (!data)
+	if (mem_to_flex_dup(&data, data_chunk->data, length, GFP_KERNEL))
 		return -ENOMEM;
 
 	data->addr = le16_to_cpu(data_chunk->addr);
-	data->length = length;
 	data->samplerates = le32_to_cpu(chunk->samplerates);
-	memcpy(data->data, data_chunk->data, length);
 	list_add_tail(&data->head, &sigmadsp->data_list);
 
 	return 0;
