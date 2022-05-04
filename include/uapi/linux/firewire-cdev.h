@@ -264,8 +264,8 @@ struct fw_cdev_event_iso_interrupt {
 	__u64 closure;
 	__u32 type;
 	__u32 cycle;
-	__u32 header_length;
-	__u32 header[0];
+	__DECLARE_FLEX_ARRAY_ELEMENTS_COUNT(__u32, header_length);
+	__DECLARE_FLEX_ARRAY_ELEMENTS(__u32, header);
 };
 
 /**

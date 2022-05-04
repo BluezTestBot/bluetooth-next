@@ -913,17 +913,14 @@ static void iso_callback(struct fw_iso_context *context, u32 cycle,
 			 size_t header_length, void *header, void *data)
 {
 	struct client *client = data;
-	struct iso_interrupt_event *e;
+	struct iso_interrupt_event *e = NULL;
 
-	e = kmalloc(sizeof(*e) + header_length, GFP_ATOMIC);
-	if (e == NULL)
+	if (__mem_to_flex_dup(&e, .interrupt, header, header_length, GFP_ATOMIC))
 		return;
 
 	e->interrupt.type      = FW_CDEV_EVENT_ISO_INTERRUPT;
 	e->interrupt.closure   = client->iso_closure;
 	e->interrupt.cycle     = cycle;
-	e->interrupt.header_length = header_length;
-	memcpy(e->interrupt.header, header, header_length);
 	queue_event(client, &e->event, &e->interrupt,
 		    sizeof(e->interrupt) + header_length, NULL, 0);
 }
