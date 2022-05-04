@@ -44,4 +44,18 @@
 		struct { } __empty_ ## NAME; \
 		TYPE NAME[]; \
 	}
+
+/* For use with flexible array structure helpers, in <linux/flex_array.h> */
+#define __DECLARE_FLEX_ARRAY_ELEMENTS_COUNT(TYPE, NAME)			\
+	union {								\
+		TYPE __flex_array_elements_count;			\
+		TYPE NAME;						\
+	}
+
+#define __DECLARE_FLEX_ARRAY_ELEMENTS(TYPE, NAME)			\
+	union {								\
+		__DECLARE_FLEX_ARRAY(TYPE, __flex_array_elements);	\
+		__DECLARE_FLEX_ARRAY(TYPE, NAME);			\
+	}
+
 #endif
