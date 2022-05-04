@@ -263,21 +263,21 @@ struct beacon_data {
 
 struct probe_resp {
 	struct rcu_head rcu_head;
-	int len;
+	DECLARE_FLEX_ARRAY_ELEMENTS_COUNT(int, len);
 	u16 cntdwn_counter_offsets[IEEE80211_MAX_CNTDWN_COUNTERS_NUM];
-	u8 data[];
+	DECLARE_FLEX_ARRAY_ELEMENTS(u8, data);
 };
 
 struct fils_discovery_data {
 	struct rcu_head rcu_head;
-	int len;
-	u8 data[];
+	DECLARE_FLEX_ARRAY_ELEMENTS_COUNT(int, len);
+	DECLARE_FLEX_ARRAY_ELEMENTS(u8, data);
 };
 
 struct unsol_bcast_probe_resp_data {
 	struct rcu_head rcu_head;
-	int len;
-	u8 data[];
+	DECLARE_FLEX_ARRAY_ELEMENTS_COUNT(int, len);
+	DECLARE_FLEX_ARRAY_ELEMENTS(u8, data);
 };
 
 struct ps_data {
