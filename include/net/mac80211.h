@@ -1890,8 +1890,8 @@ struct ieee80211_key_conf {
 	u8 hw_key_idx;
 	s8 keyidx;
 	u16 flags;
-	u8 keylen;
-	u8 key[];
+	DECLARE_FLEX_ARRAY_ELEMENTS_COUNT(u8, keylen);
+	DECLARE_FLEX_ARRAY_ELEMENTS(u8, key);
 };
 
 #define IEEE80211_MAX_PN_LEN	16
