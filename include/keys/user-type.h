@@ -26,8 +26,8 @@
  */
 struct user_key_payload {
 	struct rcu_head	rcu;		/* RCU destructor */
-	unsigned short	datalen;	/* length of this data */
-	char		data[] __aligned(__alignof__(u64)); /* actual data */
+	DECLARE_FLEX_ARRAY_ELEMENTS_COUNT(unsigned short, datalen);
+	DECLARE_FLEX_ARRAY_ELEMENTS(char, data) __aligned(__alignof__(u64));
 };
 
 extern struct key_type key_type_user;
