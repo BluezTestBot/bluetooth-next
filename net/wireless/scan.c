@@ -1932,7 +1932,7 @@ cfg80211_inform_single_bss_data(struct wiphy *wiphy,
 				gfp_t gfp)
 {
 	struct cfg80211_registered_device *rdev = wiphy_to_rdev(wiphy);
-	struct cfg80211_bss_ies *ies;
+	struct cfg80211_bss_ies *ies = NULL;
 	struct ieee80211_channel *channel;
 	struct cfg80211_internal_bss tmp = {}, *res;
 	int bss_type;
@@ -1978,13 +1978,10 @@ cfg80211_inform_single_bss_data(struct wiphy *wiphy,
 	 * override the IEs pointer should we have received an earlier
 	 * indication of Probe Response data.
 	 */
-	ies = kzalloc(sizeof(*ies) + ielen, gfp);
-	if (!ies)
+	if (mem_to_flex_dup(&ies, ie, ielen, gfp))
 		return NULL;
-	ies->len = ielen;
 	ies->tsf = tsf;
 	ies->from_beacon = false;
-	memcpy(ies->data, ie, ielen);
 
 	switch (ftype) {
 	case CFG80211_BSS_FTYPE_BEACON:
@@ -2277,7 +2274,7 @@ cfg80211_update_notlisted_nontrans(struct wiphy *wiphy,
 	size_t ielen = len - offsetof(struct ieee80211_mgmt,
 				      u.probe_resp.variable);
 	size_t new_ie_len;
-	struct cfg80211_bss_ies *new_ies;
+	struct cfg80211_bss_ies *new_ies = NULL;
 	const struct cfg80211_bss_ies *old;
 	u8 cpy_len;
 
@@ -2314,8 +2311,7 @@ cfg80211_update_notlisted_nontrans(struct wiphy *wiphy,
 	if (!new_ie)
 		return;
 
-	new_ies = kzalloc(sizeof(*new_ies) + new_ie_len, GFP_ATOMIC);
-	if (!new_ies)
+	if (mem_to_flex_dup(&new_ies, new_ie, new_ie_len, GFP_ATOMIC))
 		goto out_free;
 
 	pos = new_ie;
@@ -2333,10 +2329,8 @@ cfg80211_update_notlisted_nontrans(struct wiphy *wiphy,
 	memcpy(pos, mbssid + cpy_len, ((ie + ielen) - (mbssid + cpy_len)));
 
 	/* update ie */
-	new_ies->len = new_ie_len;
 	new_ies->tsf = le64_to_cpu(mgmt->u.probe_resp.timestamp);
 	new_ies->from_beacon = ieee80211_is_beacon(mgmt->frame_control);
-	memcpy(new_ies->data, new_ie, new_ie_len);
 	if (ieee80211_is_probe_resp(mgmt->frame_control)) {
 		old = rcu_access_pointer(nontrans_bss->proberesp_ies);
 		rcu_assign_pointer(nontrans_bss->proberesp_ies, new_ies);
@@ -2363,7 +2357,7 @@ cfg80211_inform_single_bss_frame_data(struct wiphy *wiphy,
 				      gfp_t gfp)
 {
 	struct cfg80211_internal_bss tmp = {}, *res;
-	struct cfg80211_bss_ies *ies;
+	struct cfg80211_bss_ies *ies = NULL;
 	struct ieee80211_channel *channel;
 	bool signal_valid;
 	struct ieee80211_ext *ext = NULL;
@@ -2442,14 +2436,11 @@ cfg80211_inform_single_bss_frame_data(struct wiphy *wiphy,
 		capability = le16_to_cpu(mgmt->u.probe_resp.capab_info);
 	}
 
-	ies = kzalloc(sizeof(*ies) + ielen, gfp);
-	if (!ies)
+	if (mem_to_flex_dup(&ies, variable, ielen, gfp))
 		return NULL;
-	ies->len = ielen;
 	ies->tsf = le64_to_cpu(mgmt->u.probe_resp.timestamp);
 	ies->from_beacon = ieee80211_is_beacon(mgmt->frame_control) ||
 			   ieee80211_is_s1g_beacon(mgmt->frame_control);
-	memcpy(ies->data, variable, ielen);
 
 	if (ieee80211_is_probe_resp(mgmt->frame_control))
 		rcu_assign_pointer(tmp.pub.proberesp_ies, ies);
