@@ -102,7 +102,7 @@ CLK_OF_DECLARE(xtfpga_clk, "cdns,xtfpga-clock", xtfpga_clk_setup);
 #define MAC_LEN 6
 static void __init update_local_mac(struct device_node *node)
 {
-	struct property *newmac;
+	struct property *newmac = NULL;
 	const u8* macaddr;
 	int prop_len;
 
@@ -110,19 +110,16 @@ static void __init update_local_mac(struct device_node *node)
 	if (macaddr == NULL || prop_len != MAC_LEN)
 		return;
 
-	newmac = kzalloc(sizeof(*newmac) + MAC_LEN, GFP_KERNEL);
-	if (newmac == NULL)
+	if (mem_to_flex_dup(&newmac, macaddr, MAC_LEN, GFP_KERNEL))
 		return;
 
-	newmac->value = newmac + 1;
-	newmac->length = MAC_LEN;
+	newmac->value = newmac->contents;
 	newmac->name = kstrdup("local-mac-address", GFP_KERNEL);
 	if (newmac->name == NULL) {
 		kfree(newmac);
 		return;
 	}
 
-	memcpy(newmac->value, macaddr, MAC_LEN);
 	((u8*)newmac->value)[5] = (*(u32*)DIP_SWITCHES_VADDR) & 0x3f;
 	of_update_property(node, newmac);
 }
