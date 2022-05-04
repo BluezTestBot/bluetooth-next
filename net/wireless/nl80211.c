@@ -12095,21 +12095,14 @@ static int nl80211_set_cqm_rssi(struct genl_info *info,
 
 	wdev_lock(wdev);
 	if (n_thresholds) {
-		struct cfg80211_cqm_config *cqm_config;
+		struct cfg80211_cqm_config *cqm_config = NULL;
 
-		cqm_config = kzalloc(struct_size(cqm_config, rssi_thresholds,
-						 n_thresholds),
-				     GFP_KERNEL);
-		if (!cqm_config) {
-			err = -ENOMEM;
+		err = mem_to_flex_dup(&cqm_config, thresholds, n_thresholds,
+				      GFP_KERNEL);
+		if (err)
 			goto unlock;
-		}
 
 		cqm_config->rssi_hyst = hysteresis;
-		cqm_config->n_rssi_thresholds = n_thresholds;
-		memcpy(cqm_config->rssi_thresholds, thresholds,
-		       flex_array_size(cqm_config, rssi_thresholds,
-				       n_thresholds));
 
 		wdev->cqm_config = cqm_config;
 	}
