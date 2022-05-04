@@ -1125,8 +1125,8 @@ extern bool afs_fs_get_capabilities(struct afs_net *, struct afs_server *,
 extern void afs_fs_inline_bulk_status(struct afs_operation *);
 
 struct afs_acl {
-	u32	size;
-	u8	data[];
+	DECLARE_FLEX_ARRAY_ELEMENTS_COUNT(u32, size);
+	DECLARE_FLEX_ARRAY_ELEMENTS(u8, data);
 };
 
 extern void afs_fs_fetch_acl(struct afs_operation *);
