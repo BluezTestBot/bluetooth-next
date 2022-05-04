@@ -92,6 +92,13 @@ properties:
        pcm-sync-mode: slave, master
        pcm-clock-mode: slave, master
 
+  brcm,uses-autobaud-mode:
+    type: boolean
+    description: >
+      The controller should be started in autobaud mode by asserting
+      BT_UART_CTS_N (i.e. host RTS) during startup. Only HCI commands supported
+      in autobaud mode should be used until patch FW has been loaded.
+
   interrupts:
     items:
       - description: Handle to the line HOST_WAKE used to wake
