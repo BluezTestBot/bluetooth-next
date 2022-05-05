@@ -780,6 +780,8 @@ static void __exit bt_exit(void)
 {
 	mgmt_exit();
 
+	iso_exit();
+
 	sco_exit();
 
 	l2cap_exit();

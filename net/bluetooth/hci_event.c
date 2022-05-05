@@ -3827,8 +3827,8 @@ static u8 hci_cc_le_set_cig_params(struct hci_dev *hdev, void *data,
 
 		conn->handle = __le16_to_cpu(rp->handle[i++]);
 
-		BT_DBG("%p handle 0x%4.4x link %p state %u", conn, conn->handle,
-		       conn->link, conn->link->state);
+		bt_dev_dbg(hdev, "%p handle 0x%4.4x link %p state %u", conn,
+			   conn->handle, conn->link, conn->link->state);
 
 		/* Create CIS if LE is already connected */
 		if (conn->link->state == BT_CONNECTED)
