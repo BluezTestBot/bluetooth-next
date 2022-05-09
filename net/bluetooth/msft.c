@@ -387,7 +387,6 @@ static int msft_remove_monitor_sync(struct hci_dev *hdev,
 		return PTR_ERR(skb);
 
 	status = skb->data[0];
-	skb_pull(skb, 1);
 
 	msft_le_cancel_monitor_advertisement_cb(hdev, status, hdev->msft_opcode,
 						skb);
@@ -506,7 +505,6 @@ static int msft_add_monitor_sync(struct hci_dev *hdev,
 		return PTR_ERR(skb);
 
 	status = skb->data[0];
-	skb_pull(skb, 1);
 
 	msft_le_monitor_advertisement_cb(hdev, status, hdev->msft_opcode, skb);
 
