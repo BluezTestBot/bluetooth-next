@@ -946,7 +946,7 @@ static void create_le_conn_complete(struct hci_dev *hdev, void *data, int err)
 	if (!conn)
 		goto done;
 
-	hci_le_conn_failed(conn, err);
+	hci_le_conn_failed(conn, bt_status(err));
 
 done:
 	hci_dev_unlock(hdev);
