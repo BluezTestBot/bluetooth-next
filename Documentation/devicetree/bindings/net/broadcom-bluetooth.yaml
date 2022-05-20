@@ -92,6 +92,15 @@ properties:
        pcm-sync-mode: slave, master
        pcm-clock-mode: slave, master
 
+  brcm,uses-autobaud-mode:
+    type: boolean
+    description: >
+      Setting this property will make the host (driver) assert the controller
+      chip's BT_UART_CTS_N prior to asserting BT_REG_ON. This will make the
+      controller start up in autobaud mode. The controller will then detect the
+      baud rate of the first incoming (HCI Reset) command from the host and
+      subsequently use that baud rate.
+
   interrupts:
     items:
       - description: Handle to the line HOST_WAKE used to wake
