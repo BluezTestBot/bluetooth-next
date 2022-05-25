@@ -645,6 +645,11 @@ struct hci_dev {
 	void (*cmd_timeout)(struct hci_dev *hdev);
 	bool (*wakeup)(struct hci_dev *hdev);
 	int (*set_quality_report)(struct hci_dev *hdev, bool enable);
+	struct ext_vendor_prefix *(*vendor_get_ext_prefix)(
+							struct hci_dev *hdev);
+	void (*vendor_evt)(struct hci_dev *hdev, struct sk_buff *skb);
+	int (*hci_recv_quality_report)(struct hci_dev *hdev, void *data,
+				       u32 data_len, u8 quality_spec);
 	int (*get_data_path_id)(struct hci_dev *hdev, __u8 *data_path);
 	int (*get_codec_config_data)(struct hci_dev *hdev, __u8 type,
 				     struct bt_codec *codec, __u8 *vnd_len,

@@ -4260,6 +4260,20 @@ static void hci_num_comp_blocks_evt(struct hci_dev *hdev, void *data,
 	queue_work(hdev->workqueue, &hdev->tx_work);
 }
 
+static struct ext_vendor_prefix *vendor_get_ext_prefix(struct hci_dev *hdev)
+{
+	if (hdev->vendor_get_ext_prefix)
+		return hdev->vendor_get_ext_prefix(hdev);
+
+	return NULL;
+}
+
+static void vendor_evt(struct hci_dev *hdev, struct sk_buff *skb)
+{
+	if (hdev->vendor_evt)
+		hdev->vendor_evt(hdev, skb);
+}
+
 /* Every distinct vendor specification must have a well-defined vendor
  * event prefix to determine if a vendor event meets the specification.
  * Some vendor prefixes are fixed values while some other vendor prefixes
@@ -4275,6 +4289,11 @@ struct ext_vendor_event_prefix {
 } evt_prefixes[] = {
 	{ aosp_get_ext_prefix, aosp_vendor_evt },
 	{ msft_get_ext_prefix, msft_vendor_evt },
+
+	/* Any vendor driver that handles particular vendor events should set
+	 * up hdev->vendor_get_prefix and hdev->vendor_evt callbacks in driver.
+	 */
+	{ vendor_get_ext_prefix, vendor_evt },
 
 	/* end with a null entry */
 	{},
