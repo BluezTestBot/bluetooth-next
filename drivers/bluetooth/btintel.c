@@ -2404,6 +2404,10 @@ static int btintel_setup_combined(struct hci_dev *hdev)
 	/* Set up the quality report callback for Intel devices */
 	hdev->set_quality_report = btintel_set_quality_report;
 
+	/* Set up the vendor event callbacks for Intel devices */
+	hdev->vendor_get_ext_prefix = btintel_get_ext_prefix;
+	hdev->vendor_evt = btintel_vendor_evt;
+
 	/* For Legacy device, check the HW platform value and size */
 	if (skb->len == sizeof(ver) && skb->data[1] == 0x37) {
 		bt_dev_dbg(hdev, "Read the legacy Intel version information");
@@ -2649,6 +2653,52 @@ void btintel_secure_send_result(struct hci_dev *hdev,
 		btintel_wake_up_flag(hdev, INTEL_DOWNLOADING);
 }
 EXPORT_SYMBOL_GPL(btintel_secure_send_result);
+
+/* INTEL_PREFIX below is defined in little endian. */
+static unsigned char INTEL_PREFIX[] = { 0x87, 0x80 };
+
+/* Define any Intel sub-opcodes here. */
+#define TELEMETRY_CODE		0x03
+static unsigned char INTEL_SUBCODES[] = { TELEMETRY_CODE };
+
+static struct ext_vendor_prefix intel_ext_prefix = {
+	.prefix         = INTEL_PREFIX,
+	.prefix_len     = sizeof(INTEL_PREFIX),
+	.subcodes       = INTEL_SUBCODES,
+	.subcodes_len   = sizeof(INTEL_SUBCODES),
+};
+
+struct ext_vendor_prefix *btintel_get_ext_prefix(struct hci_dev *hdev)
+{
+	return &intel_ext_prefix;
+}
+EXPORT_SYMBOL_GPL(btintel_get_ext_prefix);
+
+/* An Intel vendor event with prefix has the following structure. */
+struct intel_prefix_evt_data {
+	__le16 prefix; /* INTEL_PREFIX */
+	__u8 subcode;
+	__u8 data[];   /* a number of struct intel_tlv subevents */
+} __packed;
+
+void btintel_vendor_evt(struct hci_dev *hdev, struct sk_buff *skb)
+{
+	struct intel_prefix_evt_data *ev;
+
+	if (skb->len < sizeof(struct intel_prefix_evt_data))
+		return;
+
+	if (memcmp(skb->data, INTEL_PREFIX, sizeof(INTEL_PREFIX)))
+		return;
+
+	/* Only interested in the telemetry event for now. */
+	ev = (struct intel_prefix_evt_data *)skb->data;
+	if (ev->subcode == TELEMETRY_CODE) {
+		hdev->hci_recv_quality_report(hdev, skb->data, skb->len,
+					      QUALITY_SPEC_INTEL_TELEMETRY);
+	}
+}
+EXPORT_SYMBOL_GPL(btintel_vendor_evt);
 
 MODULE_AUTHOR("Marcel Holtmann <marcel@holtmann.org>");
 MODULE_DESCRIPTION("Bluetooth support for Intel devices ver " VERSION);
