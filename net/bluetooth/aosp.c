@@ -199,3 +199,53 @@ int aosp_set_quality_report(struct hci_dev *hdev, bool enable)
 	else
 		return disable_quality_report(hdev);
 }
+
+/* The following LEN = 1-byte Sub-event code + 48-byte Sub-event Parameters */
+#define BLUETOOTH_QUALITY_REPORT_LEN 49
+
+bool aosp_check_quality_report_len(struct sk_buff *skb)
+{
+	/* skb->len is allowed to be larger than BLUETOOTH_QUALITY_REPORT_LEN
+	 * to accommodate an additional Vendor Specific Parameter (vsp) field.
+	 */
+	if (skb->len < BLUETOOTH_QUALITY_REPORT_LEN) {
+		BT_ERR("AOSP evt data len %d too short (%u expected)",
+		       skb->len, BLUETOOTH_QUALITY_REPORT_LEN);
+		return false;
+	}
+
+	return true;
+}
+
+/* AOSP HCI Requirements use 0x54 and up as sub-event codes without
+ * actually defining a vendor prefix. Refer to
+ * https://source.android.com/devices/bluetooth/hci_requirements
+ * Hence, the other vendor event prefixes should not use the same
+ * space to avoid collision.
+ * Since the AOSP does not define a prefix, its prefix is NULL
+ * and prefix_len is 0.
+ * While there are a number of subcodes in AOSP, only interested in
+ * Bluetooth Quality Report (0x58) for now.
+ */
+#define AOSP_EV_QUALITY_REPORT		0x58
+
+static unsigned char AOSP_SUBCODES[] = { AOSP_EV_QUALITY_REPORT };
+
+static struct ext_vendor_prefix aosp_ext_prefix = {
+	.prefix		= NULL,
+	.prefix_len	= 0,
+	.subcodes	= AOSP_SUBCODES,
+	.subcodes_len	= sizeof(AOSP_SUBCODES),
+};
+
+struct ext_vendor_prefix *aosp_get_ext_prefix(struct hci_dev *hdev)
+{
+	return &aosp_ext_prefix;
+}
+
+void aosp_vendor_evt(struct hci_dev *hdev, struct sk_buff *skb)
+{
+	if (aosp_has_quality_report(hdev) && aosp_check_quality_report_len(skb))
+		mgmt_quality_report(hdev, skb->data, skb->len,
+				    QUALITY_SPEC_AOSP_BQR);
+}
