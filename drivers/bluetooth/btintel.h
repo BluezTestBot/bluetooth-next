@@ -211,6 +211,8 @@ void btintel_bootup(struct hci_dev *hdev, const void *ptr, unsigned int len);
 void btintel_secure_send_result(struct hci_dev *hdev,
 				const void *ptr, unsigned int len);
 int btintel_set_quality_report(struct hci_dev *hdev, bool enable);
+struct ext_vendor_prefix *btintel_get_ext_prefix(struct hci_dev *hdev);
+void btintel_vendor_evt(struct hci_dev *hdev, struct sk_buff *skb);
 #else
 
 static inline int btintel_check_bdaddr(struct hci_dev *hdev)
@@ -306,4 +308,15 @@ static inline int btintel_set_quality_report(struct hci_dev *hdev, bool enable)
 {
 	return -ENODEV;
 }
+
+static inline struct ext_vendor_prefix *btintel_get_ext_prefix(
+							struct hci_dev *hdev)
+{
+	return NULL;
+}
+
+static inline void btintel_vendor_evt(struct hci_dev *hdev, struct sk_buff *skb)
+{
+}
+
 #endif
