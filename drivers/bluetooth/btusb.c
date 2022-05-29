@@ -3889,7 +3889,13 @@ static int btusb_probe(struct usb_interface *intf,
 		/* Fake CSR devices with broken commands */
 		if (le16_to_cpu(udev->descriptor.idVendor)  == 0x0a12 &&
 		    le16_to_cpu(udev->descriptor.idProduct) == 0x0001)
+		{
 			hdev->setup = btusb_setup_csr;
+			/* This device hangs when configuration command with
+                         * index 0 (unconfigure) is sent, avoid this at least
+                         * if it is unbound */
+			udev->skip_unconfigure = 1;
+		}
 	}
 
 	if (id->driver_info & BTUSB_SNIFFER) {

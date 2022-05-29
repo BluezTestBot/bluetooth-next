@@ -1189,6 +1189,41 @@ static struct device_attribute dev_attr_interface_authorized =
 		__ATTR(authorized, S_IRUGO | S_IWUSR,
 		interface_authorized_show, interface_authorized_store);
 
+static ssize_t skip_unconfigure_show(struct device *dev,
+                                      struct device_attribute *attr, char *buf)
+{
+	struct usb_interface *intf = to_usb_interface(dev);
+	struct usb_device *udev = interface_to_usbdev(intf);
+	int val;
+
+	if (usb_lock_device_interruptible(udev) < 0)
+		return -EINTR;
+	val = udev->skip_unconfigure;
+	usb_unlock_device(udev);
+
+	return sprintf(buf, "%d\n", val);
+}
+
+static ssize_t skip_unconfigure_store(struct device *dev,
+                                      struct device_attribute *attr,
+                                      const char *buf, size_t count)
+{
+	struct usb_interface *intf = to_usb_interface(dev);
+	struct usb_device *udev = interface_to_usbdev(intf);
+	int val;
+
+	if (sscanf(buf, "%d", &val) != 1 || val < 0 || val > 1)
+		return -EINVAL;
+
+	if (usb_lock_device_interruptible(udev) < 0)
+		return -EINTR;
+	udev->skip_unconfigure = val;
+	usb_unlock_device(udev);
+
+	return count;
+}
+static DEVICE_ATTR_RW(skip_unconfigure);
+
 static struct attribute *intf_attrs[] = {
 	&dev_attr_bInterfaceNumber.attr,
 	&dev_attr_bAlternateSetting.attr,
@@ -1199,6 +1234,7 @@ static struct attribute *intf_attrs[] = {
 	&dev_attr_modalias.attr,
 	&dev_attr_supports_autosuspend.attr,
 	&dev_attr_interface_authorized.attr,
+	&dev_attr_skip_unconfigure.attr,
 	NULL,
 };
 static const struct attribute_group intf_attr_grp = {

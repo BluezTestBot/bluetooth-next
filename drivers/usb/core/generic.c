@@ -256,7 +256,7 @@ void usb_generic_driver_disconnect(struct usb_device *udev)
 
 	/* if this is only an unbind, not a physical disconnect, then
 	 * unconfigure the device */
-	if (udev->actconfig)
+	if (!udev->skip_unconfigure && udev->actconfig)
 		usb_set_configuration(udev, -1);
 }
 
