@@ -1217,7 +1217,11 @@ static struct platform_driver intel_driver = {
 
 int __init intel_init(void)
 {
-	platform_driver_register(&intel_driver);
+	int ret;
+
+	ret = platform_driver_register(&intel_driver);
+	if (ret)
+		return ret;
 
 	return hci_uart_register_proto(&intel_proto);
 }
