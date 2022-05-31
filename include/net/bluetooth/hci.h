@@ -291,6 +291,7 @@ enum {
 	HCI_RAW,
 
 	HCI_RESET,
+	HCI_DRAIN_WQ,
 };
 
 /* HCI socket flags */
