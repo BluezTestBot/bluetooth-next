@@ -5272,7 +5272,7 @@ static int hci_le_ext_create_conn_sync(struct hci_dev *hdev,
 
 	return __hci_cmd_sync_status_sk(hdev, HCI_OP_LE_EXT_CREATE_CONN,
 					plen, data,
-					HCI_EV_LE_ENHANCED_CONN_COMPLETE,
+					0,
 					conn->conn_timeout, NULL);
 }
 
@@ -5366,9 +5366,7 @@ int hci_le_create_conn_sync(struct hci_dev *hdev, struct hci_conn *conn)
 	 */
 	err = __hci_cmd_sync_status_sk(hdev, HCI_OP_LE_CREATE_CONN,
 				       sizeof(cp), &cp,
-				       use_enhanced_conn_complete(hdev) ?
-				       HCI_EV_LE_ENHANCED_CONN_COMPLETE :
-				       HCI_EV_LE_CONN_COMPLETE,
+				       0,
 				       conn->conn_timeout, NULL);
 
 done:
