@@ -4476,9 +4476,16 @@ done:
 
 static void device_flags_changed(struct sock *sk, struct hci_dev *hdev,
 				 bdaddr_t *bdaddr, u8 bdaddr_type,
-				 u32 supported_flags, u32 current_flags)
+				 unsigned long *flags)
 {
 	struct mgmt_ev_device_flags_changed ev;
+	u32 supported_flags, current_flags = 0;
+
+	bitmap_to_arr32(&supported_flags, hdev->conn_flags,
+			__HCI_CONN_NUM_FLAGS);
+
+	if (flags)
+		bitmap_to_arr32(&current_flags, flags, __HCI_CONN_NUM_FLAGS);
 
 	bacpy(&ev.addr.bdaddr, bdaddr);
 	ev.addr.type = bdaddr_type;
@@ -4495,19 +4502,15 @@ static int set_device_flags(struct sock *sk, struct hci_dev *hdev, void *data,
 	struct bdaddr_list_with_flags *br_params;
 	struct hci_conn_params *params;
 	u8 status = MGMT_STATUS_INVALID_PARAMS;
-	u32 supported_flags;
 	u32 current_flags = __le32_to_cpu(cp->current_flags);
+	DECLARE_BITMAP(flags, __HCI_CONN_NUM_FLAGS) = { current_flags };
 
 	bt_dev_dbg(hdev, "Set device flags %pMR (type 0x%x) = 0x%x",
-		   &cp->addr.bdaddr, cp->addr.type,
-		   __le32_to_cpu(current_flags));
+		   &cp->addr.bdaddr, cp->addr.type, current_flags);
 
-	bitmap_to_arr32(&supported_flags, hdev->conn_flags,
-			__HCI_CONN_NUM_FLAGS);
-
-	if ((supported_flags | current_flags) != supported_flags) {
-		bt_dev_warn(hdev, "Bad flag given (0x%x) vs supported (0x%0x)",
-			    current_flags, supported_flags);
+	if (bitmap_subset(hdev->conn_flags, flags, __HCI_CONN_NUM_FLAGS)) {
+		bt_dev_warn(hdev, "Bad flag given (0x%lx) vs supported (0x%lx)",
+			    *hdev->conn_flags, *flags);
 		goto done;
 	}
 
@@ -4519,7 +4522,8 @@ static int set_device_flags(struct sock *sk, struct hci_dev *hdev, void *data,
 							      cp->addr.type);
 
 		if (br_params) {
-			bitmap_from_u64(br_params->flags, current_flags);
+			bitmap_copy(br_params->flags, flags,
+				    __HCI_CONN_NUM_FLAGS);
 			status = MGMT_STATUS_SUCCESS;
 		} else {
 			bt_dev_warn(hdev, "No such BR/EDR device %pMR (0x%x)",
@@ -4529,10 +4533,6 @@ static int set_device_flags(struct sock *sk, struct hci_dev *hdev, void *data,
 		params = hci_conn_params_lookup(hdev, &cp->addr.bdaddr,
 						le_addr_type(cp->addr.type));
 		if (params) {
-			DECLARE_BITMAP(flags, __HCI_CONN_NUM_FLAGS);
-
-			bitmap_from_u64(flags, current_flags);
-
 			/* Devices using RPAs can only be programmed in the
 			 * acceptlist LL Privacy has been enable otherwise they
 			 * cannot mark HCI_CONN_FLAG_REMOTE_WAKEUP.
@@ -4546,7 +4546,7 @@ static int set_device_flags(struct sock *sk, struct hci_dev *hdev, void *data,
 				goto unlock;
 			}
 
-			bitmap_from_u64(params->flags, current_flags);
+			bitmap_copy(params->flags, flags, __HCI_CONN_NUM_FLAGS);
 			status = MGMT_STATUS_SUCCESS;
 
 			/* Update passive scan if HCI_CONN_FLAG_DEVICE_PRIVACY
@@ -4568,7 +4568,7 @@ unlock:
 done:
 	if (status == MGMT_STATUS_SUCCESS)
 		device_flags_changed(sk, hdev, &cp->addr.bdaddr, cp->addr.type,
-				     supported_flags, current_flags);
+				     flags);
 
 	return mgmt_cmd_complete(sk, hdev->id, MGMT_OP_SET_DEVICE_FLAGS, status,
 				 &cp->addr, sizeof(cp->addr));
@@ -7079,10 +7079,8 @@ static int add_device(struct sock *sk, struct hci_dev *hdev,
 {
 	struct mgmt_cp_add_device *cp = data;
 	u8 auto_conn, addr_type;
-	struct hci_conn_params *params;
+	struct hci_conn_params *params = NULL;
 	int err;
-	u32 current_flags = 0;
-	u32 supported_flags;
 
 	bt_dev_dbg(hdev, "sock %p", sk);
 
@@ -7153,9 +7151,6 @@ static int add_device(struct sock *sk, struct hci_dev *hdev,
 	} else {
 		params = hci_conn_params_lookup(hdev, &cp->addr.bdaddr,
 						addr_type);
-		if (params)
-			bitmap_to_arr32(&current_flags, params->flags,
-					__HCI_CONN_NUM_FLAGS);
 	}
 
 	err = hci_cmd_sync_queue(hdev, add_device_sync, NULL, NULL);
@@ -7164,10 +7159,8 @@ static int add_device(struct sock *sk, struct hci_dev *hdev,
 
 added:
 	device_added(sk, hdev, &cp->addr.bdaddr, cp->addr.type, cp->action);
-	bitmap_to_arr32(&supported_flags, hdev->conn_flags,
-			__HCI_CONN_NUM_FLAGS);
 	device_flags_changed(NULL, hdev, &cp->addr.bdaddr, cp->addr.type,
-			     supported_flags, current_flags);
+			     params ? params->flags : NULL);
 
 	err = mgmt_cmd_complete(sk, hdev->id, MGMT_OP_ADD_DEVICE,
 				MGMT_STATUS_SUCCESS, &cp->addr,
