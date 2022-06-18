@@ -16296,6 +16296,16 @@ S:	Maintained
 F:	Documentation/devicetree/bindings/net/qcom,bam-dmux.yaml
 F:	drivers/net/wwan/qcom_bam_dmux.c
 
+QUALCOMM BLUETOOTH DRIVER
+M:	Balakrishna Godavarthi <quic_bgodavar@quicinc.com>
+M:	Rocky Liao <quic_rjliao@quicinc.com>
+L:	linux-bluetooth@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/net/qualcomm-bluetooth.yaml
+F:	drivers/bluetooth/btqca.c
+F:	drivers/bluetooth/btqca.h
+F:	drivers/bluetooth/hci_qca.c
+
 QUALCOMM CAMERA SUBSYSTEM DRIVER
 M:	Robert Foss <robert.foss@linaro.org>
 M:	Todor Tomov <todor.too@gmail.com>
