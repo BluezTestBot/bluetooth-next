@@ -118,6 +118,7 @@ MODULE_DEVICE_TABLE(sdio, btmtksdio_table);
 #define BTMTKSDIO_FUNC_ENABLED		3
 #define BTMTKSDIO_PATCH_ENABLED		4
 #define BTMTKSDIO_HW_RESET_ACTIVE	5
+#define BTMTKSDIO_INBAND_WAKEUP		6
 
 struct mtkbtsdio_hdr {
 	__le16	len;
@@ -1294,6 +1295,9 @@ static bool btmtksdio_sdio_wakeup(struct hci_dev *hdev)
 		.wakeup_delay = cpu_to_le16(0x20),
 	};
 
+	if (test_bit(BTMTKSDIO_INBAND_WAKEUP, &bdev->tx_state))
+		return may_wakeup;
+
 	if (may_wakeup && bdev->data->chipid == 0x7921) {
 		struct sk_buff *skb;
 
@@ -1383,6 +1387,10 @@ static int btmtksdio_probe(struct sdio_func *func,
 	 * So, put a pm_runtime_put_noidle here !
 	 */
 	pm_runtime_put_noidle(bdev->dev);
+
+	/* Mark if MMC host supports wake on bluetooth by SDIO */
+	if (device_can_wakeup(func->card->host->parent))
+		set_bit(BTMTKSDIO_INBAND_WAKEUP, &bdev->tx_state);
 
 	err = device_init_wakeup(bdev->dev, true);
 	if (err)
