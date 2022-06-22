@@ -483,9 +483,7 @@ static void l2cap_chan_destroy(struct kref *kref)
 
 	BT_DBG("chan %p", chan);
 
-	write_lock(&chan_list_lock);
 	list_del(&chan->global_l);
-	write_unlock(&chan_list_lock);
 
 	kfree(chan);
 }
@@ -501,7 +499,9 @@ void l2cap_chan_put(struct l2cap_chan *c)
 {
 	BT_DBG("chan %p orig refcnt %u", c, kref_read(&c->kref));
 
+	write_lock(&chan_list_lock);
 	kref_put(&c->kref, l2cap_chan_destroy);
+	write_unlock(&chan_list_lock);
 }
 EXPORT_SYMBOL_GPL(l2cap_chan_put);
 
