@@ -37,6 +37,7 @@
 #include "smp.h"
 #include "msft.h"
 #include "eir.h"
+#include "aosp.h"
 
 #define ZERO_KEY "\x00\x00\x00\x00\x00\x00\x00\x00" \
 		 "\x00\x00\x00\x00\x00\x00\x00\x00"
@@ -4260,6 +4261,76 @@ static void hci_num_comp_blocks_evt(struct hci_dev *hdev, void *data,
 	queue_work(hdev->workqueue, &hdev->tx_work);
 }
 
+static struct ext_vendor_prefix *vendor_get_ext_prefix(struct hci_dev *hdev)
+{
+	if (hdev->vendor_get_ext_prefix)
+		return hdev->vendor_get_ext_prefix(hdev);
+
+	return NULL;
+}
+
+static void vendor_evt(struct hci_dev *hdev, struct sk_buff *skb)
+{
+	if (hdev->vendor_evt)
+		hdev->vendor_evt(hdev, skb);
+}
+
+/* Every distinct vendor specification must have a well-defined vendor
+ * event prefix to determine if a vendor event meets the specification.
+ * Some vendor prefixes are fixed values while some other vendor prefixes
+ * are only available at run time.
+ */
+static struct ext_vendor_event_prefix {
+	/* Some vendor prefixes are variable length. For convenience,
+	 * the prefix in struct ext_vendor_prefix is in little endian.
+	 */
+	struct ext_vendor_prefix *
+		(*get_ext_vendor_prefix)(struct hci_dev *hdev);
+	void (*vendor_func)(struct hci_dev *hdev, struct sk_buff *skb);
+} evt_prefixes[] = {
+	{ aosp_get_ext_prefix, aosp_vendor_evt },
+	{ msft_get_ext_prefix, msft_vendor_evt },
+
+	/* Any vendor driver that handles particular vendor events should set
+	 * up hdev->vendor_get_prefix and hdev->vendor_evt callbacks in driver.
+	 */
+	{ vendor_get_ext_prefix, vendor_evt },
+
+	/* end with a null entry */
+	{},
+};
+
+static void hci_vendor_evt(struct hci_dev *hdev, void *data,
+			   struct sk_buff *skb)
+{
+	int i, j;
+	struct ext_vendor_prefix *vnd;
+	__u8 subcode;
+
+	for (i = 0; evt_prefixes[i].get_ext_vendor_prefix; i++) {
+		vnd = evt_prefixes[i].get_ext_vendor_prefix(hdev);
+		if (!vnd)
+			continue;
+
+		/* Compare the raw prefix data in little endian directly. */
+		if (memcmp(vnd->prefix, skb->data, vnd->prefix_len))
+			continue;
+
+		/* Make sure that there are more data after prefix. */
+		if (skb->len <= vnd->prefix_len)
+			continue;
+
+		/* The subcode is the single octet following the prefix. */
+		subcode = skb->data[vnd->prefix_len];
+		for (j = 0; j < vnd->subcodes_len; j++) {
+			if (vnd->subcodes[j] == subcode) {
+				evt_prefixes[i].vendor_func(hdev, skb);
+				break;
+			}
+		}
+	}
+}
+
 static void hci_mode_change_evt(struct hci_dev *hdev, void *data,
 				struct sk_buff *skb)
 {
@@ -6882,7 +6953,7 @@ static const struct hci_ev {
 	HCI_EV(HCI_EV_NUM_COMP_BLOCKS, hci_num_comp_blocks_evt,
 	       sizeof(struct hci_ev_num_comp_blocks)),
 	/* [0xff = HCI_EV_VENDOR] */
-	HCI_EV_VL(HCI_EV_VENDOR, msft_vendor_evt, 0, HCI_MAX_EVENT_SIZE),
+	HCI_EV_VL(HCI_EV_VENDOR, hci_vendor_evt, 0, HCI_MAX_EVENT_SIZE),
 };
 
 static void hci_event_func(struct hci_dev *hdev, u8 event, struct sk_buff *skb,

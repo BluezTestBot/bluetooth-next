@@ -342,6 +342,13 @@ struct amp_assoc {
 
 #define HCI_MAX_PAGES	3
 
+struct ext_vendor_prefix {
+	__u8 *prefix;
+	__u8 prefix_len;
+	__u8 *subcodes;
+	__u8 subcodes_len;
+};
+
 struct hci_dev {
 	struct list_head list;
 	struct mutex	lock;
@@ -649,6 +656,11 @@ struct hci_dev {
 	void (*cmd_timeout)(struct hci_dev *hdev);
 	bool (*wakeup)(struct hci_dev *hdev);
 	int (*set_quality_report)(struct hci_dev *hdev, bool enable);
+	struct ext_vendor_prefix *(*vendor_get_ext_prefix)(
+							struct hci_dev *hdev);
+	void (*vendor_evt)(struct hci_dev *hdev, struct sk_buff *skb);
+	int (*hci_recv_quality_report)(struct hci_dev *hdev, void *data,
+				       u32 data_len, u8 quality_spec);
 	int (*get_data_path_id)(struct hci_dev *hdev, __u8 *data_path);
 	int (*get_codec_config_data)(struct hci_dev *hdev, __u8 type,
 				     struct bt_codec *codec, __u8 *vnd_len,
@@ -809,7 +821,6 @@ extern struct mutex hci_cb_list_lock;
 		hci_dev_clear_flag(hdev, HCI_LE_ADV);		\
 		hci_dev_clear_flag(hdev, HCI_LL_RPA_RESOLUTION);\
 		hci_dev_clear_flag(hdev, HCI_PERIODIC_INQ);	\
-		hci_dev_clear_flag(hdev, HCI_QUALITY_REPORT);	\
 	} while (0)
 
 #define hci_dev_le_state_simultaneous(hdev) \
@@ -1892,6 +1903,8 @@ int mgmt_add_adv_patterns_monitor_complete(struct hci_dev *hdev, u8 status);
 int mgmt_remove_adv_monitor_complete(struct hci_dev *hdev, u8 status);
 void mgmt_adv_monitor_device_lost(struct hci_dev *hdev, u16 handle,
 				  bdaddr_t *bdaddr, u8 addr_type);
+int mgmt_quality_report(struct hci_dev *hdev, void *data, u32 data_len,
+			u8 quality_spec);
 
 u8 hci_le_conn_update(struct hci_conn *conn, u16 min, u16 max, u16 latency,
 		      u16 to_multiplier);
@@ -1909,5 +1922,8 @@ void hci_copy_identity_address(struct hci_dev *hdev, bdaddr_t *bdaddr,
 #define LOCAL_CODEC_SCO_MASK	BIT(1)
 
 #define TRANSPORT_TYPE_MAX	0x04
+
+#define QUALITY_SPEC_AOSP_BQR		0x0
+#define QUALITY_SPEC_INTEL_TELEMETRY	0x1
 
 #endif /* __HCI_CORE_H */

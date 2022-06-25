@@ -3872,6 +3872,31 @@ static const struct {
 			 "advertised, but not supported.")
 };
 
+static void suspend_resume_quality_report(struct hci_dev *hdev, bool enable)
+{
+	int err;
+
+	/* Suspend and resume quality report only when the feature has
+	 * already been enabled. The HCI_QUALITY_REPORT flag, as an indicator
+	 * whether to re-enable the feature after resume, is not changed by
+	 * suspend/resume.
+	 */
+	if (!hci_dev_test_flag(hdev, HCI_QUALITY_REPORT))
+		return;
+
+	if (hdev->set_quality_report)
+		err = hdev->set_quality_report(hdev, enable);
+	else
+		err = aosp_set_quality_report(hdev, enable);
+
+	if (err)
+		bt_dev_err(hdev, "%s quality report error %d",
+			   enable ? "resume" : "suspend", err);
+	else
+		bt_dev_info(hdev, "%s quality report",
+			    enable ? "resume" : "suspend");
+}
+
 int hci_dev_open_sync(struct hci_dev *hdev)
 {
 	int ret = 0;
@@ -4036,6 +4061,7 @@ setup_failed:
 	if (!hci_dev_test_flag(hdev, HCI_USER_CHANNEL)) {
 		msft_do_open(hdev);
 		aosp_do_open(hdev);
+		suspend_resume_quality_report(hdev, true);
 	}
 
 	clear_bit(HCI_INIT, &hdev->flags);
@@ -4118,6 +4144,14 @@ int hci_dev_close_sync(struct hci_dev *hdev)
 
 	hci_request_cancel_all(hdev);
 
+	/* Disable quality report and close aosp before shutdown()
+	 * is called. Otherwise, some chips may panic.
+	 */
+	if (!hci_dev_test_flag(hdev, HCI_USER_CHANNEL)) {
+		suspend_resume_quality_report(hdev, false);
+		aosp_do_close(hdev);
+	}
+
 	if (!hci_dev_test_flag(hdev, HCI_UNREGISTER) &&
 	    !hci_dev_test_flag(hdev, HCI_USER_CHANNEL) &&
 	    test_bit(HCI_UP, &hdev->flags)) {
@@ -4181,7 +4215,6 @@ int hci_dev_close_sync(struct hci_dev *hdev)
 	hci_sock_dev_event(hdev, HCI_DEV_DOWN);
 
 	if (!hci_dev_test_flag(hdev, HCI_USER_CHANNEL)) {
-		aosp_do_close(hdev);
 		msft_do_close(hdev);
 	}
 

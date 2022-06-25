@@ -116,6 +116,20 @@ bool msft_monitor_supported(struct hci_dev *hdev)
 	return !!(msft_get_features(hdev) & MSFT_FEATURE_MASK_LE_ADV_MONITOR);
 }
 
+/* Add the MSFT vendor event subcodes into MSFT_SUBCODES which
+ * msft_vendor_evt() is interested in handling.
+ */
+static unsigned char MSFT_SUBCODES[] = { MSFT_EV_LE_MONITOR_DEVICE };
+static struct ext_vendor_prefix msft_ext_prefix = { 0 };
+
+static void set_ext_prefix(struct msft_data *msft)
+{
+	msft_ext_prefix.prefix = msft->evt_prefix;
+	msft_ext_prefix.prefix_len = msft->evt_prefix_len;
+	msft_ext_prefix.subcodes = MSFT_SUBCODES;
+	msft_ext_prefix.subcodes_len = sizeof(MSFT_SUBCODES);
+}
+
 static bool read_supported_features(struct hci_dev *hdev,
 				    struct msft_data *msft)
 {
@@ -155,6 +169,8 @@ static bool read_supported_features(struct hci_dev *hdev,
 
 	if (msft->features & MSFT_FEATURE_MASK_CURVE_VALIDITY)
 		hdev->msft_curve_validity = true;
+
+	set_ext_prefix(msft);
 
 	kfree_skb(skb);
 	return true;
@@ -742,7 +758,17 @@ static void msft_monitor_device_evt(struct hci_dev *hdev, struct sk_buff *skb)
 				 handle_data->mgmt_handle);
 }
 
-void msft_vendor_evt(struct hci_dev *hdev, void *data, struct sk_buff *skb)
+struct ext_vendor_prefix *msft_get_ext_prefix(struct hci_dev *hdev)
+{
+	struct msft_data *msft = hdev->msft_data;
+
+	if (!msft)
+		return NULL;
+
+	return &msft_ext_prefix;
+}
+
+void msft_vendor_evt(struct hci_dev *hdev, struct sk_buff *skb)
 {
 	struct msft_data *msft = hdev->msft_data;
 	u8 *evt_prefix;

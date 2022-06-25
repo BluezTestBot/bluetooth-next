@@ -2652,6 +2652,7 @@ int hci_register_dev(struct hci_dev *hdev)
 
 	idr_init(&hdev->adv_monitors_idr);
 	msft_register(hdev);
+	hdev->hci_recv_quality_report = mgmt_quality_report;
 
 	return id;
 
