@@ -169,6 +169,7 @@ static void le_scan_cleanup(struct work_struct *work)
 	if (c == conn) {
 		hci_connect_le_scan_cleanup(conn);
 		hci_conn_cleanup(conn);
+		return;
 	}
 
 	hci_dev_unlock(hdev);
