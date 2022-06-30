@@ -435,6 +435,7 @@ config BT_HCIRSI
 config BT_VIRTIO
 	tristate "Virtio Bluetooth driver"
 	depends on VIRTIO
+	depends on BROKEN
 	help
 	  Virtio Bluetooth support driver.
 	  This driver supports Virtio Bluetooth devices.
