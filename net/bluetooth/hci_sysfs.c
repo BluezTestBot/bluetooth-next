@@ -91,9 +91,45 @@ static void bt_host_release(struct device *dev)
 	module_put(THIS_MODULE);
 }
 
+#ifdef CONFIG_DEV_COREDUMP
+static ssize_t enable_coredump_show(struct device *dev,
+				    struct device_attribute *attr,
+				    char *buf)
+{
+	struct hci_dev *hdev = to_hci_dev(dev);
+
+	return scnprintf(buf, 3, "%d\n", hdev->dump.enabled);
+}
+
+static ssize_t enable_coredump_store(struct device *dev,
+				     struct device_attribute *attr,
+				     const char *buf, size_t count)
+{
+	struct hci_dev *hdev = to_hci_dev(dev);
+
+	/* Consider any non-zero value as true */
+	if (simple_strtol(buf, NULL, 10))
+		hdev->dump.enabled = true;
+	else
+		hdev->dump.enabled = false;
+
+	return count;
+}
+DEVICE_ATTR_RW(enable_coredump);
+#endif
+
+static struct attribute *bt_host_attrs[] = {
+#ifdef CONFIG_DEV_COREDUMP
+	&dev_attr_enable_coredump.attr,
+#endif
+	NULL,
+};
+ATTRIBUTE_GROUPS(bt_host);
+
 static const struct device_type bt_host = {
 	.name    = "host",
 	.release = bt_host_release,
+	.groups = bt_host_groups,
 };
 
 void hci_init_sysfs(struct hci_dev *hdev)
