@@ -2795,9 +2795,14 @@ done:
 
 static int btusb_mtk_shutdown(struct hci_dev *hdev)
 {
+	struct btusb_data *data = hci_get_drvdata(hdev);
 	struct btmtk_hci_wmt_params wmt_params;
 	u8 param = 0;
 	int err;
+
+	err = usb_autopm_get_interface(data->intf);
+	if (err < 0)
+		return err;
 
 	/* Disable the device */
 	wmt_params.op = BTMTK_WMT_FUNC_CTRL;
@@ -2807,12 +2812,12 @@ static int btusb_mtk_shutdown(struct hci_dev *hdev)
 	wmt_params.status = NULL;
 
 	err = btusb_mtk_hci_wmt_sync(hdev, &wmt_params);
-	if (err < 0) {
+	if (err < 0)
 		bt_dev_err(hdev, "Failed to send wmt func ctrl (%d)", err);
-		return err;
-	}
 
-	return 0;
+	usb_autopm_put_interface(data->intf);
+
+	return err;
 }
 
 static void btusb_mtk_cmd_timeout(struct hci_dev *hdev)
