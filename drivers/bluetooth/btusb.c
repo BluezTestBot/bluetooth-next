@@ -3695,8 +3695,8 @@ static int btusb_probe(struct usb_interface *intf,
 	data->recv_acl = hci_recv_frame;
 
 	hdev = hci_alloc_dev_priv(priv_size);
-	if (!hdev)
-		return -ENOMEM;
+	if (IS_ERR(hdev))
+		return PTR_ERR(hdev);
 
 	hdev->bus = HCI_USB;
 	hci_set_drvdata(hdev, data);

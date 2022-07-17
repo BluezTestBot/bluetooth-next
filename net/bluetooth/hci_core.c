@@ -2425,7 +2425,7 @@ struct hci_dev *hci_alloc_dev_priv(int sizeof_priv)
 
 	hdev = kzalloc(alloc_size, GFP_KERNEL);
 	if (!hdev)
-		return NULL;
+		return ERR_PTR(-ENOMEM);
 
 	hdev->pkt_type  = (HCI_DM1 | HCI_DH1 | HCI_HV1);
 	hdev->esco_type = (ESCO_HV1);
