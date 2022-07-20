@@ -1703,7 +1703,8 @@ int hci_add_adv_instance(struct hci_dev *hdev, u8 instance, u32 flags,
 			 u16 adv_data_len, u8 *adv_data,
 			 u16 scan_rsp_len, u8 *scan_rsp_data,
 			 u16 timeout, u16 duration, s8 tx_power,
-			 u32 min_interval, u32 max_interval)
+			 u32 min_interval, u32 max_interval,
+			 u8 mesh_handle)
 {
 	struct adv_info *adv_instance;
 
@@ -1715,7 +1716,7 @@ int hci_add_adv_instance(struct hci_dev *hdev, u8 instance, u32 flags,
 		       sizeof(adv_instance->scan_rsp_data));
 	} else {
 		if (hdev->adv_instance_cnt >= hdev->le_num_of_adv_sets ||
-		    instance < 1 || instance > hdev->le_num_of_adv_sets)
+		    instance < 1 || instance > hdev->le_num_of_adv_sets + 1)
 			return -EOVERFLOW;
 
 		adv_instance = kzalloc(sizeof(*adv_instance), GFP_KERNEL);
@@ -1732,6 +1733,11 @@ int hci_add_adv_instance(struct hci_dev *hdev, u8 instance, u32 flags,
 	adv_instance->min_interval = min_interval;
 	adv_instance->max_interval = max_interval;
 	adv_instance->tx_power = tx_power;
+	/* Defining a mesh_handle changes the timing units to ms,
+	 * rather than seconds, and ties the instance to the requested
+	 * mesh_tx queue.
+	 */
+	adv_instance->mesh = mesh_handle;
 
 	hci_set_adv_instance_data(hdev, instance, adv_data_len, adv_data,
 				  scan_rsp_len, scan_rsp_data);
@@ -2494,6 +2500,7 @@ struct hci_dev *hci_alloc_dev_priv(int sizeof_priv)
 	mutex_init(&hdev->lock);
 	mutex_init(&hdev->req_lock);
 
+	INIT_LIST_HEAD(&hdev->mesh_pending);
 	INIT_LIST_HEAD(&hdev->mgmt_pending);
 	INIT_LIST_HEAD(&hdev->reject_list);
 	INIT_LIST_HEAD(&hdev->accept_list);
