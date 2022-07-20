@@ -6971,11 +6971,16 @@ static int get_clock_info(struct sock *sk, struct hci_dev *hdev, void *data,
 	}
 
 	cmd = mgmt_pending_new(sk, MGMT_OP_GET_CLOCK_INFO, hdev, data, len);
-	if (!cmd)
+	if (!cmd) {
 		err = -ENOMEM;
-	else
+	} else {
+		if (conn) {
+			hci_conn_hold(conn);
+			cmd->user_data = hci_conn_get(conn);
+		}
 		err = hci_cmd_sync_queue(hdev, get_clock_info_sync, cmd,
 					 get_clock_info_complete);
+	}
 
 	if (err < 0) {
 		err = mgmt_cmd_complete(sk, hdev->id, MGMT_OP_GET_CLOCK_INFO,
@@ -6984,11 +6989,7 @@ static int get_clock_info(struct sock *sk, struct hci_dev *hdev, void *data,
 		if (cmd)
 			mgmt_pending_free(cmd);
 
-	} else if (conn) {
-		hci_conn_hold(conn);
-		cmd->user_data = hci_conn_get(conn);
 	}
-
 
 unlock:
 	hci_dev_unlock(hdev);
