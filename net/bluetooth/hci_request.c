@@ -32,6 +32,8 @@
 #include "msft.h"
 #include "eir.h"
 
+extern bool disconnected_accept_list_entries(struct hci_dev *hdev);
+
 void hci_req_init(struct hci_request *req, struct hci_dev *hdev)
 {
 	skb_queue_head_init(&req->cmd_q);
@@ -1782,24 +1784,6 @@ int hci_update_random_address(struct hci_request *req, bool require_privacy,
 	*own_addr_type = ADDR_LE_DEV_PUBLIC;
 
 	return 0;
-}
-
-static bool disconnected_accept_list_entries(struct hci_dev *hdev)
-{
-	struct bdaddr_list *b;
-
-	list_for_each_entry(b, &hdev->accept_list, list) {
-		struct hci_conn *conn;
-
-		conn = hci_conn_hash_lookup_ba(hdev, ACL_LINK, &b->bdaddr);
-		if (!conn)
-			return true;
-
-		if (conn->state != BT_CONNECTED && conn->state != BT_CONFIG)
-			return true;
-	}
-
-	return false;
 }
 
 void __hci_req_update_scan(struct hci_request *req)
