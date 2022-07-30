@@ -71,8 +71,4 @@ struct sk_buff *hci_prepare_cmd(struct hci_dev *hdev, u16 opcode, u32 plen,
 void __hci_req_update_adv_data(struct hci_request *req, u8 instance);
 int hci_req_update_adv_data(struct hci_dev *hdev, u8 instance);
 
-int hci_get_random_address(struct hci_dev *hdev, bool require_privacy,
-			   bool use_rpa, struct adv_info *adv_instance,
-			   u8 *own_addr_type, bdaddr_t *rand_addr);
-
 int hci_abort_conn(struct hci_conn *conn, u8 reason);
