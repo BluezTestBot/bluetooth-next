@@ -286,7 +286,7 @@ int hci_disconnect(struct hci_conn *conn, __u8 reason)
 			     &clkoff_cp);
 	}
 
-	return hci_abort_conn(conn, reason);
+	return hci_abort_conn(conn, reason, true);
 }
 
 static void hci_add_sco(struct hci_conn *conn, __u16 handle)
@@ -662,7 +662,7 @@ static void hci_conn_timeout(struct work_struct *work)
 		return;
 	}
 
-	hci_abort_conn(conn, hci_proto_disconn_ind(conn));
+	hci_abort_conn(conn, hci_proto_disconn_ind(conn), false);
 }
 
 /* Enter sniff mode */
@@ -748,7 +748,7 @@ static void le_conn_timeout(struct work_struct *work)
 		return;
 	}
 
-	hci_abort_conn(conn, HCI_ERROR_REMOTE_USER_TERM);
+	hci_abort_conn(conn, HCI_ERROR_REMOTE_USER_TERM, false);
 }
 
 struct iso_list_data {
