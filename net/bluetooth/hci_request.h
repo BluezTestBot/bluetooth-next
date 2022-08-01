@@ -84,10 +84,6 @@ void __hci_req_update_scan_rsp_data(struct hci_request *req, u8 instance);
 
 int __hci_req_schedule_adv_instance(struct hci_request *req, u8 instance,
 				    bool force);
-void hci_req_clear_adv_instance(struct hci_dev *hdev, struct sock *sk,
-				struct hci_request *req, u8 instance,
-				bool force);
-
 int __hci_req_setup_ext_adv_instance(struct hci_request *req, u8 instance);
 int __hci_req_start_ext_adv(struct hci_request *req, u8 instance);
 int __hci_req_enable_ext_advertising(struct hci_request *req, u8 instance);
@@ -109,6 +105,3 @@ int hci_update_random_address(struct hci_request *req, bool require_privacy,
 int hci_abort_conn(struct hci_conn *conn, u8 reason);
 void __hci_abort_conn(struct hci_request *req, struct hci_conn *conn,
 		      u8 reason);
-
-void hci_request_setup(struct hci_dev *hdev);
-void hci_request_cancel_all(struct hci_dev *hdev);
