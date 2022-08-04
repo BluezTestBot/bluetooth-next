@@ -187,9 +187,9 @@ static int uuids_show(struct seq_file *f, void *p)
 
 		seq_printf(f, "%pUb\n", val);
 	}
-	hci_dev_unlock(hdev);
 
-       return 0;
+	hci_dev_unlock(hdev);
+	return 0;
 }
 
 DEFINE_SHOW_ATTRIBUTE(uuids);
