@@ -6085,3 +6085,133 @@ int hci_update_adv_data(struct hci_dev *hdev, u8 instance)
 	*inst_ptr = instance;
 	return hci_cmd_sync_queue(hdev, _update_adv_data_sync, inst_ptr, NULL);
 }
+
+struct conn_reason {
+	struct hci_conn *conn;
+	u8 reason;
+};
+
+static int _abort_conn_sync(struct hci_dev *hdev, void *data)
+{
+	struct hci_conn *conn = ((struct conn_reason *)data)->conn;
+	u8 reason = ((struct conn_reason *)data)->reason;
+	int err = 0;
+
+	kfree(data);
+
+	switch (conn->state) {
+	case BT_CONNECTED:
+	case BT_CONFIG:
+		if (conn->type == AMP_LINK) {
+			struct hci_cp_disconn_phy_link cp;
+
+			cp.phy_handle = HCI_PHY_HANDLE(conn->handle);
+			cp.reason = reason;
+			err = __hci_cmd_sync_status(hdev,
+						    HCI_OP_DISCONN_PHY_LINK,
+						    sizeof(cp), &cp,
+						    HCI_CMD_TIMEOUT);
+		} else {
+			struct hci_cp_disconnect dc;
+
+			dc.handle = cpu_to_le16(conn->handle);
+			dc.reason = reason;
+			err = __hci_cmd_sync_status(hdev,
+						    HCI_OP_DISCONNECT,
+						    sizeof(dc), &dc,
+						    HCI_CMD_TIMEOUT);
+		}
+		conn->state = BT_DISCONN;
+		break;
+	case BT_CONNECT:
+		if (conn->type == LE_LINK) {
+			if (test_bit(HCI_CONN_SCANNING, &conn->flags))
+				break;
+
+			err = __hci_cmd_sync_status(hdev,
+						    HCI_OP_LE_CREATE_CONN_CANCEL,
+						    0, NULL, HCI_CMD_TIMEOUT);
+		} else if (conn->type == ACL_LINK) {
+			if (hdev->hci_ver < BLUETOOTH_VER_1_2)
+				break;
+
+			err = __hci_cmd_sync_status(hdev,
+						    HCI_OP_CREATE_CONN_CANCEL,
+						    6, &conn->dst,
+						    HCI_CMD_TIMEOUT);
+		}
+		break;
+	case BT_CONNECT2:
+		if (conn->type == ACL_LINK) {
+			struct hci_cp_reject_conn_req rej;
+
+			bacpy(&rej.bdaddr, &conn->dst);
+			rej.reason = reason;
+
+			err = __hci_cmd_sync_status(hdev,
+						    HCI_OP_REJECT_CONN_REQ,
+						    sizeof(rej), &rej,
+						    HCI_CMD_TIMEOUT);
+
+		} else if (conn->type == SCO_LINK || conn->type == ESCO_LINK) {
+			struct hci_cp_reject_sync_conn_req rej;
+
+			bacpy(&rej.bdaddr, &conn->dst);
+
+			/* SCO rejection has its own limited set of
+			 * allowed error values (0x0D-0x0F) which isn't
+			 * compatible with most values passed to this
+			 * function. To be safe hard-code one of the
+			 * values that's suitable for SCO.
+			 */
+			rej.reason = HCI_ERROR_REJ_LIMITED_RESOURCES;
+
+			err = __hci_cmd_sync_status(hdev,
+						    HCI_OP_REJECT_SYNC_CONN_REQ,
+						    sizeof(rej), &rej,
+						    HCI_CMD_TIMEOUT);
+		}
+		break;
+	default:
+		conn->state = BT_CLOSED;
+		break;
+	}
+
+	return err;
+}
+
+static void abort_conn_complete(struct hci_dev *hdev, void *data, int err)
+{
+	if (err)
+		bt_dev_dbg(hdev, "Failed to abort connection: err %d", err);
+}
+
+int hci_abort_conn(struct hci_conn *conn, u8 reason, bool async)
+{
+	struct conn_reason *conn_reason = kmalloc(sizeof(*conn_reason),
+						  GFP_KERNEL);
+	int err;
+
+	if (!conn_reason)
+		return -ENOMEM;
+
+	conn_reason->conn = conn;
+	conn_reason->reason = reason;
+
+	if (async) {
+		err = hci_cmd_sync_queue(conn->hdev, _abort_conn_sync,
+					 conn_reason, abort_conn_complete);
+
+		if (err)
+			kfree(conn_reason);
+	} else {
+		err = _abort_conn_sync(conn->hdev, conn_reason);
+	}
+
+	if (err && err != -ENODATA) {
+		bt_dev_err(conn->hdev, "failed to run HCI req: err %d", err);
+		return err;
+	}
+
+	return 0;
+}

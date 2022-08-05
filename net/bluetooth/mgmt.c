@@ -3235,7 +3235,7 @@ static int cancel_pair_device(struct sock *sk, struct hci_dev *hdev, void *data,
 					      le_addr_type(addr->type));
 
 	if (conn->conn_reason == CONN_REASON_PAIR_DEVICE)
-		hci_abort_conn(conn, HCI_ERROR_REMOTE_USER_TERM);
+		hci_abort_conn(conn, HCI_ERROR_REMOTE_USER_TERM, true);
 
 unlock:
 	hci_dev_unlock(hdev);
