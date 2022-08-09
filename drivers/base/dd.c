@@ -426,6 +426,31 @@ static ssize_t coredump_store(struct device *dev, struct device_attribute *attr,
 }
 static DEVICE_ATTR_WO(coredump);
 
+static ssize_t coredump_disabled_show(struct device *dev,
+				      struct device_attribute *attr,
+				      char *buf)
+{
+	return scnprintf(buf, 3, "%d\n", dev->coredump_disabled);
+}
+
+static ssize_t coredump_disabled_store(struct device *dev,
+				       struct device_attribute *attr,
+				       const char *buf, size_t count)
+{
+	long coredump_disabled;
+
+	if (!kstrtol(buf, 10, &coredump_disabled)) {
+		/* Consider any non-zero value as true */
+		if (coredump_disabled)
+			dev->coredump_disabled = true;
+		else
+			dev->coredump_disabled = false;
+	}
+
+	return count;
+}
+static DEVICE_ATTR_RW(coredump_disabled);
+
 static int driver_sysfs_add(struct device *dev)
 {
 	int ret;
@@ -448,9 +473,19 @@ static int driver_sysfs_add(struct device *dev)
 		return 0;
 
 	ret = device_create_file(dev, &dev_attr_coredump);
-	if (!ret)
-		return 0;
+	if (ret)
+		goto rm_driver;
 
+	ret = device_create_file(dev, &dev_attr_coredump_disabled);
+	if (ret)
+		goto rm_coredump;
+
+	return 0;
+
+rm_coredump:
+	device_remove_file(dev, &dev_attr_coredump);
+
+rm_driver:
 	sysfs_remove_link(&dev->kobj, "driver");
 
 rm_dev:
@@ -466,8 +501,10 @@ static void driver_sysfs_remove(struct device *dev)
 	struct device_driver *drv = dev->driver;
 
 	if (drv) {
-		if (drv->coredump)
+		if (drv->coredump) {
+			device_remove_file(dev, &dev_attr_coredump_disabled);
 			device_remove_file(dev, &dev_attr_coredump);
+		}
 		sysfs_remove_link(&drv->p->kobj, kobject_name(&dev->kobj));
 		sysfs_remove_link(&dev->kobj, "driver");
 	}
