@@ -469,6 +469,8 @@ struct device_physical_location {
  * 		This identifies the device type and carries type-specific
  * 		information.
  * @mutex:	Mutex to synchronize calls to its driver.
+ * @coredump_disabled: Can be used by drivers to selectively enable/disable the
+ *		coredump for a particular device via sysfs entry.
  * @bus:	Type of bus device is on.
  * @driver:	Which driver has allocated this
  * @platform_data: Platform data specific to the device.
@@ -560,6 +562,8 @@ struct device {
 
 	const char		*init_name; /* initial name of the device */
 	const struct device_type *type;
+
+	bool			coredump_disabled;
 
 	struct bus_type	*bus;		/* type of bus device is on */
 	struct device_driver *driver;	/* which driver has allocated this
