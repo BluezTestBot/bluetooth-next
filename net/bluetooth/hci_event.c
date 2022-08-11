@@ -4178,6 +4178,13 @@ static void hci_cmd_complete_evt(struct hci_dev *hdev, void *data,
 			break;
 		}
 	}
+	if (i == ARRAY_SIZE(hci_cc_table)) {
+		/* Unknown opcode, assume byte 0 contains the status, so
+		 * that e.g. __hci_cmd_sync() properly returns errors
+		 * for vendor specific commands send by HCI drivers.
+		 */
+		*status = skb->data[0];
+	}
 
 	handle_cmd_cnt_and_timer(hdev, ev->ncmd);
 
