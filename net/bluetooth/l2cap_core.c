@@ -1992,12 +1992,12 @@ static struct l2cap_chan *l2cap_global_chan_by_psm(int state, __le16 psm,
 			src_match = !bacmp(&c->src, src);
 			dst_match = !bacmp(&c->dst, dst);
 			if (src_match && dst_match) {
-				c = l2cap_chan_hold_unless_zero(c);
-				if (!c)
+				c1 = l2cap_chan_hold_unless_zero(c);
+				if (!c1)
 					continue;
 
 				read_unlock(&chan_list_lock);
-				return c;
+				return c1;
 			}
 
 			/* Closest match */
