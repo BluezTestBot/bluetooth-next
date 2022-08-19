@@ -1317,17 +1317,32 @@ static int iso_sock_shutdown(struct socket *sock, int how)
 	sock_hold(sk);
 	lock_sock(sk);
 
-	if (!sk->sk_shutdown) {
-		sk->sk_shutdown = SHUTDOWN_MASK;
-		iso_sock_clear_timer(sk);
-		__iso_sock_close(sk);
-
-		if (sock_flag(sk, SOCK_LINGER) && sk->sk_lingertime &&
-		    !(current->flags & PF_EXITING))
-			err = bt_sock_wait_state(sk, BT_CLOSED,
-						 sk->sk_lingertime);
+	switch (how) {
+	case SHUT_RD:
+		if (sk->sk_shutdown & RCV_SHUTDOWN)
+			goto unlock;
+		sk->sk_shutdown |= RCV_SHUTDOWN;
+		break;
+	case SHUT_WR:
+		if (sk->sk_shutdown & SEND_SHUTDOWN)
+			goto unlock;
+		sk->sk_shutdown |= SEND_SHUTDOWN;
+		break;
+	case SHUT_RDWR:
+		if (sk->sk_shutdown & SHUTDOWN_MASK)
+			goto unlock;
+		sk->sk_shutdown |= SHUTDOWN_MASK;
+		break;
 	}
 
+	iso_sock_clear_timer(sk);
+	__iso_sock_close(sk);
+
+	if (sock_flag(sk, SOCK_LINGER) && sk->sk_lingertime &&
+	    !(current->flags & PF_EXITING))
+		err = bt_sock_wait_state(sk, BT_CLOSED, sk->sk_lingertime);
+
+unlock:
 	release_sock(sk);
 	sock_put(sk);
 
