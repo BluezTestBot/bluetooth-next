@@ -819,16 +819,14 @@ int msft_set_filter_enable(struct hci_dev *hdev, bool enable)
 {
 	struct hci_request req;
 	struct msft_data *msft = hdev->msft_data;
-	int err;
 
 	if (!msft)
 		return -EOPNOTSUPP;
 
 	hci_req_init(&req, hdev);
 	msft_req_add_set_filter_enable(&req, enable);
-	err = hci_req_run_skb(&req, msft_le_set_advertisement_filter_enable_cb);
 
-	return err;
+	return hci_req_run_skb(&req, msft_le_set_advertisement_filter_enable_cb);
 }
 
 bool msft_curve_validity(struct hci_dev *hdev)
