@@ -4049,7 +4049,7 @@ static int set_phy_configuration(struct sock *sk, struct hci_dev *hdev,
 {
 	struct mgmt_cp_set_phy_configuration *cp = data;
 	struct mgmt_pending_cmd *cmd;
-	u32 selected_phys, configurable_phys, supported_phys, unconfigure_phys;
+	u32 selected_phys, configurable_phys, supported_phys;
 	u16 pkt_type = (HCI_DH1 | HCI_DM1);
 	bool changed = false;
 	int err;
@@ -4060,14 +4060,7 @@ static int set_phy_configuration(struct sock *sk, struct hci_dev *hdev,
 	supported_phys = get_supported_phys(hdev);
 	selected_phys = __le32_to_cpu(cp->selected_phys);
 
-	if (selected_phys & ~supported_phys)
-		return mgmt_cmd_status(sk, hdev->id,
-				       MGMT_OP_SET_PHY_CONFIGURATION,
-				       MGMT_STATUS_INVALID_PARAMS);
-
-	unconfigure_phys = supported_phys & ~configurable_phys;
-
-	if ((selected_phys & unconfigure_phys) != unconfigure_phys)
+	if (selected_phys & ~configurable_phys)
 		return mgmt_cmd_status(sk, hdev->id,
 				       MGMT_OP_SET_PHY_CONFIGURATION,
 				       MGMT_STATUS_INVALID_PARAMS);
