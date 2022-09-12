@@ -2576,6 +2576,10 @@ err_free_skb:
 	data->evt_skb = NULL;
 err_free_wc:
 	kfree(wc);
+
+	if (err < 0)
+		btmtk_reset_sync(hdev);
+
 	return err;
 }
 
