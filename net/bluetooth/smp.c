@@ -1803,7 +1803,9 @@ static u8 smp_cmd_pairing_req(struct l2cap_conn *conn, struct sk_buff *skb)
 		return 0;
 	}
 
+	hci_dev_lock(hdev);
 	build_pairing_cmd(conn, req, &rsp, auth);
+	hci_dev_unlock(hdev);
 
 	if (rsp.auth_req & SMP_AUTH_SC) {
 		set_bit(SMP_FLAG_SC, &smp->flags);
@@ -2335,7 +2337,9 @@ static u8 smp_cmd_security_req(struct l2cap_conn *conn, struct sk_buff *skb)
 	skb_pull(skb, sizeof(*rp));
 
 	memset(&cp, 0, sizeof(cp));
+	hci_dev_lock(hdev);
 	build_pairing_cmd(conn, &cp, NULL, auth);
+	hci_dev_unlock(hdev);
 
 	smp->preq[0] = SMP_CMD_PAIRING_REQ;
 	memcpy(&smp->preq[1], &cp, sizeof(cp));
@@ -2380,6 +2384,7 @@ int smp_conn_security(struct hci_conn *hcon, __u8 sec_level)
 		return 1;
 	}
 
+	hci_dev_lock(hcon->hdev);
 	l2cap_chan_lock(chan);
 
 	/* If SMP is already in progress ignore this request */
@@ -2435,6 +2440,7 @@ int smp_conn_security(struct hci_conn *hcon, __u8 sec_level)
 
 unlock:
 	l2cap_chan_unlock(chan);
+	hci_dev_unlock(hcon->hdev);
 	return ret;
 }
 
