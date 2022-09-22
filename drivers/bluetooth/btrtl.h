@@ -62,6 +62,7 @@ int btrtl_get_uart_settings(struct hci_dev *hdev,
 			    struct btrtl_device_info *btrtl_dev,
 			    unsigned int *controller_baudrate,
 			    u32 *device_baudrate, bool *flow_control);
+void btrtl_set_driver_name(struct hci_dev *hdev, const char *driver_name);
 
 #else
 
@@ -103,6 +104,11 @@ static inline int btrtl_get_uart_settings(struct hci_dev *hdev,
 					  bool *flow_control)
 {
 	return -ENOENT;
+}
+
+static inline void btrtl_set_driver_name(struct hci_dev *hdev, const char *driver_name)
+{
+	return -EOPNOTSUPP;
 }
 
 #endif

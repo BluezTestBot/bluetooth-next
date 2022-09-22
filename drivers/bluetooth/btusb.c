@@ -36,6 +36,10 @@ static bool reset = true;
 
 static struct usb_driver btusb_driver;
 
+#define DEVCOREDUMP_CODE_MEMDUMP	0x01
+#define DEVCOREDUMP_CODE_HW_ERR		0x02
+#define DEVCOREDUMP_CODE_CMD_TIMEOUT	0x03
+
 #define BTUSB_IGNORE			BIT(0)
 #define BTUSB_DIGIANSWER		BIT(1)
 #define BTUSB_CSR			BIT(2)
@@ -731,7 +735,22 @@ static void btusb_rtl_cmd_timeout(struct hci_dev *hdev)
 {
 	struct btusb_data *data = hci_get_drvdata(hdev);
 	struct gpio_desc *reset_gpio = data->reset_gpio;
+	struct sk_buff *skb;
+	u8 code[4] = { DEVCOREDUMP_CODE_CMD_TIMEOUT, 0, 0, 0 };
 
+	skb = alloc_skb(sizeof(code), GFP_ATOMIC);
+	if (!skb)
+		goto timeout_check;
+	skb_put_data(skb, code, sizeof(code));
+	if (!hci_devcoredump_init(hdev, skb->len)) {
+		hci_devcoredump_append(hdev, skb);
+		hci_devcoredump_complete(hdev);
+	} else {
+		bt_dev_err(hdev, "RTL: cmd timeout, failed to devcoredump");
+		kfree_skb(skb);
+	}
+
+timeout_check:
 	if (++data->cmd_timeout_cnt < 5)
 		return;
 
@@ -755,6 +774,26 @@ static void btusb_rtl_cmd_timeout(struct hci_dev *hdev)
 	gpiod_set_value_cansleep(reset_gpio, 1);
 	msleep(200);
 	gpiod_set_value_cansleep(reset_gpio, 0);
+}
+
+static void btusb_rtl_hw_error(struct hci_dev *hdev, u8 code)
+{
+	u8 devcoredump_code[4] = { DEVCOREDUMP_CODE_HW_ERR, code, 0, 0 };
+	struct sk_buff *skb;
+
+	bt_dev_info(hdev, "RTL: hw err, trigger devcoredump");
+
+	skb = alloc_skb(sizeof(devcoredump_code), GFP_ATOMIC);
+	if (!skb)
+		return;
+	skb_put_data(skb, devcoredump_code, sizeof(devcoredump_code));
+	if (!hci_devcoredump_init(hdev, skb->len)) {
+		hci_devcoredump_append(hdev, skb);
+		hci_devcoredump_complete(hdev);
+	} else {
+		bt_dev_err(hdev, "RTL: hw err, failed to generate devcoredump");
+		kfree_skb(skb);
+	}
 }
 
 static void btusb_qca_cmd_timeout(struct hci_dev *hdev)
@@ -2315,6 +2354,38 @@ static int btusb_send_frame_intel(struct hci_dev *hdev, struct sk_buff *skb)
 	return -EILSEQ;
 }
 
+static int btusb_recv_event_realtek(struct hci_dev *hdev, struct sk_buff *skb)
+{
+	struct btusb_data *data = hci_get_drvdata(hdev);
+
+	if (skb->data[0] == HCI_VENDOR_PKT && skb->data[2] == 0x34) {
+		struct sk_buff *nskb;
+		u8 code[4] = { DEVCOREDUMP_CODE_MEMDUMP, 0, 0, 0 };
+
+		bt_dev_info(hdev, "RTL: received wdg reset vendor evt, len %u",
+			    skb->len);
+
+		nskb = alloc_skb(skb->len + sizeof(code), GFP_ATOMIC);
+		if (!nskb)
+			return -ENOMEM;
+		skb_put_data(nskb, code, sizeof(code));
+		skb_put_data(nskb, skb->data, skb->len);
+		kfree_skb(skb);
+
+		if (!hci_devcoredump_init(hdev, nskb->len)) {
+			hci_devcoredump_append(hdev, nskb);
+			hci_devcoredump_complete(hdev);
+		} else {
+			bt_dev_err(hdev, "Failed to generate devcoredump");
+			kfree_skb(nskb);
+		}
+
+		return 0;
+	}
+
+	return hci_recv_frame(data->hdev, skb);
+}
+
 /* UHW CR mapping */
 #define MTK_BT_MISC		0x70002510
 #define MTK_BT_SUBSYS_RST	0x70002610
@@ -3755,6 +3826,8 @@ static int btusb_probe(struct usb_interface *intf,
 		/* Override the rx handlers */
 		data->recv_event = btusb_recv_event_intel;
 		data->recv_bulk = btusb_recv_bulk_intel;
+	} else if (id->driver_info & BTUSB_REALTEK) {
+		data->recv_event = btusb_recv_event_realtek;
 	}
 
 	data->recv_acl = hci_recv_frame;
@@ -3913,9 +3986,11 @@ static int btusb_probe(struct usb_interface *intf,
 
 	if (IS_ENABLED(CONFIG_BT_HCIBTUSB_RTL) &&
 	    (id->driver_info & BTUSB_REALTEK)) {
+		btrtl_set_driver_name(hdev, btusb_driver.name);
 		hdev->setup = btrtl_setup_realtek;
 		hdev->shutdown = btrtl_shutdown_realtek;
 		hdev->cmd_timeout = btusb_rtl_cmd_timeout;
+		hdev->hw_error = btusb_rtl_hw_error;
 
 		/* Realtek devices need to set remote wakeup on auto-suspend */
 		set_bit(BTUSB_WAKEUP_AUTOSUSPEND, &data->flags);
