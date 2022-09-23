@@ -2545,6 +2545,8 @@ struct hci_dev *hci_alloc_dev_priv(int sizeof_priv)
 	hci_init_sysfs(hdev);
 	discovery_init(hdev);
 
+	hci_devcoredump_setup(hdev);
+
 	return hdev;
 }
 EXPORT_SYMBOL(hci_alloc_dev_priv);
