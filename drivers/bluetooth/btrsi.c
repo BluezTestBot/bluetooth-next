@@ -179,12 +179,12 @@ const struct rsi_mod_ops rsi_bt_ops = {
 };
 EXPORT_SYMBOL(rsi_bt_ops);
 
-static int rsi_91x_bt_module_init(void)
+static int __init rsi_91x_bt_module_init(void)
 {
 	return 0;
 }
 
-static void rsi_91x_bt_module_exit(void)
+static void __exit rsi_91x_bt_module_exit(void)
 {
 	return;
 }
