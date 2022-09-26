@@ -4309,6 +4309,9 @@ static int l2cap_connect_create_rsp(struct l2cap_conn *conn,
 		}
 	}
 
+	if (chan->state == BT_DISCONN)
+		goto unlock;
+
 	err = 0;
 
 	l2cap_chan_lock(chan);
