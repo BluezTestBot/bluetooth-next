@@ -2760,10 +2760,18 @@ int hci_register_suspend_notifier(struct hci_dev *hdev)
 {
 	int ret = 0;
 
-	if (!test_bit(HCI_QUIRK_NO_SUSPEND_NOTIFIER, &hdev->quirks)) {
+	hci_dev_lock(hdev);
+	if (!test_bit(HCI_QUIRK_NO_SUSPEND_NOTIFIER, &hdev->quirks) &&
+	    !hci_dev_test_and_set_flag(hdev, HCI_SUSPEND_REGISTERED)) {
+		memset(&hdev->suspend_notifier, 0,
+		       sizeof(hdev->suspend_notifier));
 		hdev->suspend_notifier.notifier_call = hci_suspend_notifier;
 		ret = register_pm_notifier(&hdev->suspend_notifier);
+
+		if (ret)
+			hci_dev_clear_flag(hdev, HCI_SUSPEND_REGISTERED);
 	}
+	hci_dev_unlock(hdev);
 
 	return ret;
 }
@@ -2772,8 +2780,12 @@ int hci_unregister_suspend_notifier(struct hci_dev *hdev)
 {
 	int ret = 0;
 
-	if (!test_bit(HCI_QUIRK_NO_SUSPEND_NOTIFIER, &hdev->quirks))
+	hci_dev_lock(hdev);
+	if (!test_bit(HCI_QUIRK_NO_SUSPEND_NOTIFIER, &hdev->quirks) &&
+	    hci_dev_test_and_clear_flag(hdev, HCI_SUSPEND_REGISTERED)) {
 		ret = unregister_pm_notifier(&hdev->suspend_notifier);
+	}
+	hci_dev_unlock(hdev);
 
 	return ret;
 }
