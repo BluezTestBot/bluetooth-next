@@ -481,6 +481,7 @@ static int hci_dev_do_open(struct hci_dev *hdev)
 	hci_req_sync_lock(hdev);
 
 	ret = hci_dev_open_sync(hdev);
+	mgmt_power_on(hdev, ret);
 
 	hci_req_sync_unlock(hdev);
 	return ret;
