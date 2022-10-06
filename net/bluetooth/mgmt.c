@@ -6501,10 +6501,28 @@ unlock:
 	return err;
 }
 
+static int set_addr_sync(struct hci_dev *hdev, void *data)
+{
+	struct mgmt_pending_cmd *cmd = data;
+	struct mgmt_cp_set_static_address *cp = cmd->param;
+
+	return hci_set_random_addr_sync(hdev, &cp->bdaddr);
+}
+
+static void set_addr_complete(struct hci_dev *hdev, void *data, int err)
+{
+	struct mgmt_pending_cmd *cmd = data;
+
+	mgmt_cmd_status(cmd->sk, hdev->id, MGMT_OP_SET_STATIC_ADDRESS,
+			mgmt_status(err));
+	mgmt_pending_remove(cmd);
+}
+
 static int set_static_address(struct sock *sk, struct hci_dev *hdev,
 			      void *data, u16 len)
 {
 	struct mgmt_cp_set_static_address *cp = data;
+	struct mgmt_pending_cmd *cmd = data;
 	int err;
 
 	bt_dev_dbg(hdev, "sock %p", sk);
@@ -6533,6 +6551,23 @@ static int set_static_address(struct sock *sk, struct hci_dev *hdev,
 	hci_dev_lock(hdev);
 
 	bacpy(&hdev->static_addr, &cp->bdaddr);
+
+	cmd = mgmt_pending_add(sk, MGMT_OP_SET_STATIC_ADDRESS, hdev, data, len);
+	if (!cmd)
+		err = -ENOMEM;
+	else
+		err = hci_cmd_sync_queue(hdev, set_addr_sync, cmd,
+					 set_addr_complete);
+
+	if (err < 0) {
+		if (cmd)
+			mgmt_pending_remove(cmd);
+
+		mgmt_cmd_status(sk, hdev->id, MGMT_OP_SET_STATIC_ADDRESS,
+				mgmt_status(err));
+
+		goto unlock;
+	}
 
 	err = send_settings_rsp(sk, MGMT_OP_SET_STATIC_ADDRESS, hdev);
 	if (err < 0)
