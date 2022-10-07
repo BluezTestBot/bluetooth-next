@@ -839,7 +839,7 @@ static bool adv_use_rpa(struct hci_dev *hdev, uint32_t flags)
 	return true;
 }
 
-static int hci_set_random_addr_sync(struct hci_dev *hdev, bdaddr_t *rpa)
+int hci_set_random_addr_sync(struct hci_dev *hdev, bdaddr_t *rpa)
 {
 	/* If we're advertising or initiating an LE connection we can't
 	 * go ahead and change the random address at this time. This is
