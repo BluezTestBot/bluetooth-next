@@ -1755,12 +1755,19 @@ struct hci_conn *hci_bind_cis(struct hci_dev *hdev, bdaddr_t *dst,
 {
 	struct hci_conn *cis;
 
+	/* Convert from ISO socket address type to HCI address type  */
+	if (dst_type == BDADDR_LE_PUBLIC)
+		dst_type = ADDR_LE_DEV_PUBLIC;
+	else
+		dst_type = ADDR_LE_DEV_RANDOM;
+
 	cis = hci_conn_hash_lookup_cis(hdev, dst, dst_type);
 	if (!cis) {
 		cis = hci_conn_add(hdev, ISO_LINK, dst, HCI_ROLE_MASTER);
 		if (!cis)
 			return ERR_PTR(-ENOMEM);
 		cis->cleanup = cis_cleanup;
+		cis->dst_type = dst_type;
 	}
 
 	if (cis->state == BT_CONNECTED)
@@ -2139,20 +2146,21 @@ struct hci_conn *hci_connect_cis(struct hci_dev *hdev, bdaddr_t *dst,
 {
 	struct hci_conn *le;
 	struct hci_conn *cis;
+	u8 hci_dst_type;
 
 	/* Convert from ISO socket address type to HCI address type  */
 	if (dst_type == BDADDR_LE_PUBLIC)
-		dst_type = ADDR_LE_DEV_PUBLIC;
+		hci_dst_type = ADDR_LE_DEV_PUBLIC;
 	else
-		dst_type = ADDR_LE_DEV_RANDOM;
+		hci_dst_type = ADDR_LE_DEV_RANDOM;
 
 	if (hci_dev_test_flag(hdev, HCI_ADVERTISING))
-		le = hci_connect_le(hdev, dst, dst_type, false,
+		le = hci_connect_le(hdev, dst, hci_dst_type, false,
 				    BT_SECURITY_LOW,
 				    HCI_LE_CONN_TIMEOUT,
 				    HCI_ROLE_SLAVE);
 	else
-		le = hci_connect_le_scan(hdev, dst, dst_type,
+		le = hci_connect_le_scan(hdev, dst, hci_dst_type,
 					 BT_SECURITY_LOW,
 					 HCI_LE_CONN_TIMEOUT,
 					 CONN_REASON_ISO_CONNECT);
