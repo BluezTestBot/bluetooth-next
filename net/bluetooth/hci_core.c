@@ -2660,7 +2660,7 @@ int hci_register_dev(struct hci_dev *hdev)
 
 	error = hci_register_suspend_notifier(hdev);
 	if (error)
-		goto err_wqueue;
+		goto err_hdev;
 
 	queue_work(hdev->req_workqueue, &hdev->power_on);
 
@@ -2669,6 +2669,14 @@ int hci_register_dev(struct hci_dev *hdev)
 
 	return id;
 
+err_hdev:
+	hci_dev_put(hdev);
+	if (hdev->rfkill) {
+		rfkill_unregister(hdev->rfkill);
+		rfkill_destroy(hdev->rfkill);
+		hdev->rfkill = NULL;
+	}
+	device_del(&hdev->dev);
 err_wqueue:
 	debugfs_remove_recursive(hdev->debugfs);
 	destroy_workqueue(hdev->workqueue);
