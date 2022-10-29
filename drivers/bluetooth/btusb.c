@@ -34,6 +34,7 @@ static bool force_scofix;
 static bool enable_autosuspend = IS_ENABLED(CONFIG_BT_HCIBTUSB_AUTOSUSPEND);
 static bool enable_poll_sync = IS_ENABLED(CONFIG_BT_HCIBTUSB_POLL_SYNC);
 static bool reset = true;
+static bool disable_fake_csr_forcesuspend_hack;
 
 static struct usb_driver btusb_driver;
 
@@ -2171,7 +2172,7 @@ static int btusb_setup_csr(struct hci_dev *hdev)
 		is_fake = true;
 
 	if (is_fake) {
-		bt_dev_warn(hdev, "CSR: Unbranded CSR clone detected; adding workarounds and force-suspending once...");
+		bt_dev_warn(hdev, "CSR: Unbranded CSR clone detected; adding workarounds...");
 
 		/* Generally these clones have big discrepancies between
 		 * advertised features and what's actually supported.
@@ -2215,21 +2216,24 @@ static int btusb_setup_csr(struct hci_dev *hdev)
 		 * apply this initialization quirk to every controller that gets here,
 		 * it should be harmless. The alternative is to not work at all.
 		 */
-		pm_runtime_allow(&data->udev->dev);
+		if (!disable_fake_csr_forcesuspend_hack) {
+			bt_dev_warn(hdev, "CSR: Unbranded CSR clone detected; force-suspending once...");
+			pm_runtime_allow(&data->udev->dev);
 
-		ret = pm_runtime_suspend(&data->udev->dev);
-		if (ret >= 0)
-			msleep(200);
-		else
-			bt_dev_warn(hdev, "CSR: Couldn't suspend the device for our Barrot 8041a02 receive-issue workaround");
+			ret = pm_runtime_suspend(&data->udev->dev);
+			if (ret >= 0)
+				msleep(200);
+			else
+				bt_dev_warn(hdev, "CSR: Couldn't suspend the device for our Barrot 8041a02 receive-issue workaround");
 
-		pm_runtime_forbid(&data->udev->dev);
+			pm_runtime_forbid(&data->udev->dev);
 
-		device_set_wakeup_capable(&data->udev->dev, false);
+			device_set_wakeup_capable(&data->udev->dev, false);
 
-		/* Re-enable autosuspend if this was requested */
-		if (enable_autosuspend)
-			usb_enable_autosuspend(data->udev);
+			/* Re-enable autosuspend if this was requested */
+			if (enable_autosuspend)
+				usb_enable_autosuspend(data->udev);
+		}
 	}
 
 	kfree_skb(skb);
@@ -4311,6 +4315,9 @@ MODULE_PARM_DESC(enable_autosuspend, "Enable USB autosuspend by default");
 
 module_param(reset, bool, 0644);
 MODULE_PARM_DESC(reset, "Send HCI reset command on initialization");
+
+module_param(disable_fake_csr_forcesuspend_hack, bool, 0644);
+MODULE_PARM_DESC(disable_fake_csr_forcesuspend_hack, "Don't indiscriminately force-suspend Chinese-cloned CSR dongles trying to unfreeze them");
 
 MODULE_AUTHOR("Marcel Holtmann <marcel@holtmann.org>");
 MODULE_DESCRIPTION("Generic Bluetooth USB driver ver " VERSION);
