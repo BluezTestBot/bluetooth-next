@@ -265,8 +265,10 @@ static int h5_close(struct hci_uart *hu)
 	if (h5->vnd && h5->vnd->close)
 		h5->vnd->close(h5);
 
-	if (!hu->serdev)
+	if (!hu->serdev) {
+		timer_shutdown_sync(&h5->timer);
 		kfree(h5);
+	}
 
 	return 0;
 }
