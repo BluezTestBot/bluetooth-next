@@ -18,6 +18,8 @@
 #include <linux/ptrace.h>
 #include <linux/poll.h>
 
+#include <linux/of.h>
+#include <linux/serdev.h>
 #include <linux/slab.h>
 #include <linux/tty.h>
 #include <linux/errno.h>
@@ -31,6 +33,10 @@
 #include <net/bluetooth/hci_core.h>
 
 #include "hci_uart.h"
+
+struct h4_device {
+	struct hci_uart hu;
+};
 
 struct h4_struct {
 	struct sk_buff *rx_skb;
@@ -130,6 +136,63 @@ static struct sk_buff *h4_dequeue(struct hci_uart *hu)
 	return skb_dequeue(&h4->txq);
 }
 
+static const struct hci_uart_proto h4p;
+
+static int h4_probe(struct serdev_device *serdev)
+{
+	struct h4_device *h4dev;
+	struct hci_uart *hu;
+	int ret;
+	u32 speed;
+
+	h4dev = devm_kzalloc(&serdev->dev, sizeof(*h4dev), GFP_KERNEL);
+	if (!h4dev)
+		return -ENOMEM;
+
+	hu = &h4dev->hu;
+
+	hu->serdev = serdev;
+	ret = device_property_read_u32(&serdev->dev, "max-speed", &speed);
+	if (!ret) {
+		/* h4 does not have any baudrate handling:
+		 * user oper speed from the start
+		 */
+		hu->init_speed = speed;
+		hu->oper_speed = speed;
+	}
+
+	serdev_device_set_drvdata(serdev, h4dev);
+	dev_info(&serdev->dev, "h4 device registered.\n");
+
+	return hci_uart_register_device(hu, &h4p);
+}
+
+static void h4_remove(struct serdev_device *serdev)
+{
+	struct h4_device *h4dev = serdev_device_get_drvdata(serdev);
+
+	dev_info(&serdev->dev, "h4 device unregistered.\n");
+
+	hci_uart_unregister_device(&h4dev->hu);
+}
+
+#ifdef CONFIG_OF
+static const struct of_device_id h4_bluetooth_of_match[] = {
+	{ .compatible = "nxp,aw-xm458-bt" },
+	{ },
+};
+MODULE_DEVICE_TABLE(of, h4_bluetooth_of_match);
+#endif
+
+static struct serdev_device_driver h4_serdev_driver = {
+	.probe = h4_probe,
+	.remove = h4_remove,
+	.driver = {
+		.name = "hci_uart_h4",
+		.of_match_table = of_match_ptr(h4_bluetooth_of_match),
+	},
+};
+
 static const struct hci_uart_proto h4p = {
 	.id		= HCI_UART_H4,
 	.name		= "H4",
@@ -143,11 +206,13 @@ static const struct hci_uart_proto h4p = {
 
 int __init h4_init(void)
 {
+	serdev_device_driver_register(&h4_serdev_driver);
 	return hci_uart_register_proto(&h4p);
 }
 
 int __exit h4_deinit(void)
 {
+	serdev_device_driver_unregister(&h4_serdev_driver);
 	return hci_uart_unregister_proto(&h4p);
 }
 
