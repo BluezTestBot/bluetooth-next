@@ -1,0 +1,49 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/net/h4-bluetooth.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: H4 Bluetooth
+
+maintainers:
+  - Dominique Martinet <dominique.martinet@atmark-techno.com>
+
+description:
+  H4 is a common bluetooth over uart protocol.
+  For example, the AW-XM458 is a WiFi + BT module where the WiFi part is
+  connected over PCI (M.2), while BT is connected over serial speaking
+  the H4 protocol. Its firmware is sent on the PCI side.
+
+properties:
+  compatible:
+    enum:
+      - nxp,aw-xm458-bt
+
+  max-speed: true
+
+required:
+  - compatible
+
+additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/gpio/gpio.h>
+    #include <dt-bindings/clock/imx8mp-clock.h>
+
+    uart1 {
+        pinctrl-names = "default";
+        pinctrl-0 = <&pinctrl_uart1>;
+        assigned-clocks = <&clk IMX8MP_CLK_UART1>;
+        assigned-clock-parents = <&clk IMX8MP_SYS_PLL1_80M>;
+        status = "okay";
+        fsl,dte-mode = <1>;
+        fsl,uart-has-rtscts;
+
+
+        bluetooth {
+            compatible = "nxp,aw-xm458-bt";
+            max-speed = <3000000>;
+        };
+    };
