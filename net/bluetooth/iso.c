@@ -882,6 +882,9 @@ static int iso_listen_bis(struct sock *sk)
 
 	hci_dev_unlock(hdev);
 
+	if (err)
+		hci_dev_put(hdev);
+
 	return err;
 }
 
