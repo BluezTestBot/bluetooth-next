@@ -124,6 +124,7 @@ config BT_HCIUART_SERDEV
 config BT_HCIUART_H4
 	bool "UART (H4) protocol support"
 	depends on BT_HCIUART
+	depends on BT_HCIUART_SERDEV
 	help
 	  UART (H4) is serial protocol for communication between Bluetooth
 	  device and host. This protocol is required for most Bluetooth devices
