@@ -233,8 +233,6 @@ static int __init test_ecdh(void)
 		goto done;
 	}
 
-	crypto_free_kpp(tfm);
-
 	rettime = ktime_get();
 	delta = ktime_sub(rettime, calltime);
 	duration = (unsigned long long) ktime_to_ns(delta) >> 10;
@@ -247,6 +245,8 @@ done:
 			 "PASS (%llu usecs)\n", duration);
 	else
 		snprintf(test_ecdh_buffer, sizeof(test_ecdh_buffer), "FAIL\n");
+
+	crypto_free_kpp(tfm);
 
 	debugfs_create_file("selftest_ecdh", 0444, bt_debugfs, NULL,
 			    &test_ecdh_fops);
