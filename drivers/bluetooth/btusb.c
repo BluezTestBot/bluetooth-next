@@ -34,6 +34,7 @@ static bool force_scofix;
 static bool enable_autosuspend = IS_ENABLED(CONFIG_BT_HCIBTUSB_AUTOSUSPEND);
 static bool enable_poll_sync = IS_ENABLED(CONFIG_BT_HCIBTUSB_POLL_SYNC);
 static bool reset = true;
+static bool disable_fake_csr_forcesuspend_hack;
 
 static struct usb_driver btusb_driver;
 
@@ -2112,6 +2113,11 @@ static int btusb_setup_csr(struct hci_dev *hdev)
 
 	rp = (struct hci_rp_read_local_version *)skb->data;
 
+	bt_dev_info(hdev, "CSR: Setting up dongle with HCI ver=%u rev=%04x; LMP ver=%u subver=%04x; manufacturer=%u",
+		le16_to_cpu(rp->hci_ver), le16_to_cpu(rp->hci_rev),
+		le16_to_cpu(rp->lmp_ver), le16_to_cpu(rp->lmp_subver),
+		le16_to_cpu(rp->manufacturer));
+
 	/* Detect a wide host of Chinese controllers that aren't CSR.
 	 *
 	 * Known fake bcdDevices: 0x0100, 0x0134, 0x1915, 0x2520, 0x7558, 0x8891
@@ -2166,7 +2172,7 @@ static int btusb_setup_csr(struct hci_dev *hdev)
 		is_fake = true;
 
 	if (is_fake) {
-		bt_dev_warn(hdev, "CSR: Unbranded CSR clone detected; adding workarounds and force-suspending once...");
+		bt_dev_warn(hdev, "CSR: Unbranded CSR clone detected; adding workarounds...");
 
 		/* Generally these clones have big discrepancies between
 		 * advertised features and what's actually supported.
@@ -2174,6 +2180,7 @@ static int btusb_setup_csr(struct hci_dev *hdev)
 		 * without these the controller will lock up.
 		 */
 		set_bit(HCI_QUIRK_BROKEN_STORED_LINK_KEY, &hdev->quirks);
+		set_bit(HCI_QUIRK_BROKEN_ERR_DATA_REPORTING, &hdev->quirks);
 		set_bit(HCI_QUIRK_BROKEN_FILTER_CLEAR_ALL, &hdev->quirks);
 		set_bit(HCI_QUIRK_NO_SUSPEND_NOTIFIER, &hdev->quirks);
 
@@ -2209,21 +2216,24 @@ static int btusb_setup_csr(struct hci_dev *hdev)
 		 * apply this initialization quirk to every controller that gets here,
 		 * it should be harmless. The alternative is to not work at all.
 		 */
-		pm_runtime_allow(&data->udev->dev);
+		if (!disable_fake_csr_forcesuspend_hack) {
+			bt_dev_warn(hdev, "CSR: Unbranded CSR clone detected; force-suspending once...");
+			pm_runtime_allow(&data->udev->dev);
 
-		ret = pm_runtime_suspend(&data->udev->dev);
-		if (ret >= 0)
-			msleep(200);
-		else
-			bt_dev_warn(hdev, "CSR: Couldn't suspend the device for our Barrot 8041a02 receive-issue workaround");
+			ret = pm_runtime_suspend(&data->udev->dev);
+			if (ret >= 0)
+				msleep(200);
+			else
+				bt_dev_warn(hdev, "CSR: Couldn't suspend the device for our Barrot 8041a02 receive-issue workaround");
 
-		pm_runtime_forbid(&data->udev->dev);
+			pm_runtime_forbid(&data->udev->dev);
 
-		device_set_wakeup_capable(&data->udev->dev, false);
+			device_set_wakeup_capable(&data->udev->dev, false);
 
-		/* Re-enable autosuspend if this was requested */
-		if (enable_autosuspend)
-			usb_enable_autosuspend(data->udev);
+			/* Re-enable autosuspend if this was requested */
+			if (enable_autosuspend)
+				usb_enable_autosuspend(data->udev);
+		}
 	}
 
 	kfree_skb(skb);
@@ -4305,6 +4315,9 @@ MODULE_PARM_DESC(enable_autosuspend, "Enable USB autosuspend by default");
 
 module_param(reset, bool, 0644);
 MODULE_PARM_DESC(reset, "Send HCI reset command on initialization");
+
+module_param(disable_fake_csr_forcesuspend_hack, bool, 0644);
+MODULE_PARM_DESC(disable_fake_csr_forcesuspend_hack, "Don't indiscriminately force-suspend Chinese-cloned CSR dongles trying to unfreeze them");
 
 MODULE_AUTHOR("Marcel Holtmann <marcel@holtmann.org>");
 MODULE_DESCRIPTION("Generic Bluetooth USB driver ver " VERSION);
