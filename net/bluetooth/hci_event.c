@@ -6778,6 +6778,7 @@ static void hci_le_cis_estabilished_evt(struct hci_dev *hdev, void *data,
 	struct hci_evt_le_cis_established *ev = data;
 	struct hci_conn *conn;
 	u16 handle = __le16_to_cpu(ev->handle);
+	__le32 interval;
 
 	bt_dev_dbg(hdev, "status 0x%2.2x", ev->status);
 
@@ -6798,22 +6799,25 @@ static void hci_le_cis_estabilished_evt(struct hci_dev *hdev, void *data,
 		goto unlock;
 	}
 
-	if (conn->role == HCI_ROLE_SLAVE) {
-		__le32 interval;
+	memset(&interval, 0, sizeof(interval));
+	memcpy(&interval, ev->c_latency, sizeof(ev->c_latency));
+	/* Converting from microseconds to milliseconds */
+	conn->iso_qos.in.latency = (__u16)(le16_to_cpu(interval) / 1000);
 
-		memset(&interval, 0, sizeof(interval));
+	memcpy(&interval, ev->p_latency, sizeof(ev->p_latency));
+	/* Converting from microseconds to milliseconds */
+	conn->iso_qos.out.latency = (__u16)(le16_to_cpu(interval) / 1000);
 
-		memcpy(&interval, ev->c_latency, sizeof(ev->c_latency));
-		conn->iso_qos.in.interval = le32_to_cpu(interval);
-		memcpy(&interval, ev->p_latency, sizeof(ev->p_latency));
-		conn->iso_qos.out.interval = le32_to_cpu(interval);
-		conn->iso_qos.in.latency = le16_to_cpu(ev->interval);
-		conn->iso_qos.out.latency = le16_to_cpu(ev->interval);
-		conn->iso_qos.in.sdu = le16_to_cpu(ev->c_mtu);
-		conn->iso_qos.out.sdu = le16_to_cpu(ev->p_mtu);
-		conn->iso_qos.in.phy = ev->c_phy;
-		conn->iso_qos.out.phy = ev->p_phy;
-	}
+	/* Converting interval to microseconds */
+	conn->iso_qos.in.interval =
+		(__u32)((le32_to_cpu(ev->interval) * 125 / 100) * 1000);
+	conn->iso_qos.out.interval =
+		(__u32)((le32_to_cpu(ev->interval) * 125 / 100) * 1000);
+
+	conn->iso_qos.in.sdu = le16_to_cpu(ev->c_mtu);
+	conn->iso_qos.out.sdu = le16_to_cpu(ev->p_mtu);
+	conn->iso_qos.in.phy = ev->c_phy;
+	conn->iso_qos.out.phy = ev->p_phy;
 
 	if (!ev->status) {
 		conn->state = BT_CONNECTED;
