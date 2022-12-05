@@ -347,11 +347,13 @@ static int bcsp_flush(struct hci_uart *hu)
 /* Remove ack'ed packets */
 static void bcsp_pkt_cull(struct bcsp_struct *bcsp)
 {
+	struct sk_buff_head free_list;
 	struct sk_buff *skb, *tmp;
 	unsigned long flags;
 	int i, pkts_to_be_removed;
 	u8 seqno;
 
+	skb_queue_head_init(&free_list);
 	spin_lock_irqsave(&bcsp->unack.lock, flags);
 
 	pkts_to_be_removed = skb_queue_len(&bcsp->unack);
@@ -378,13 +380,15 @@ static void bcsp_pkt_cull(struct bcsp_struct *bcsp)
 		i++;
 
 		__skb_unlink(skb, &bcsp->unack);
-		kfree_skb(skb);
+		__skb_queue_tail(&free_list, skb);
 	}
 
 	if (skb_queue_empty(&bcsp->unack))
 		del_timer(&bcsp->tbcsp);
 
 	spin_unlock_irqrestore(&bcsp->unack.lock, flags);
+
+	__skb_queue_purge(&free_list);
 
 	if (i != pkts_to_be_removed)
 		BT_ERR("Removed only %u out of %u pkts", i, pkts_to_be_removed);
