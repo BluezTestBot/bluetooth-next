@@ -283,11 +283,13 @@ static int h5_setup(struct hci_uart *hu)
 
 static void h5_pkt_cull(struct h5 *h5)
 {
+	struct sk_buff_head free_list;
 	struct sk_buff *skb, *tmp;
 	unsigned long flags;
 	int i, to_remove;
 	u8 seq;
 
+	skb_queue_head_init(&free_list);
 	spin_lock_irqsave(&h5->unack.lock, flags);
 
 	to_remove = skb_queue_len(&h5->unack);
@@ -313,7 +315,7 @@ static void h5_pkt_cull(struct h5 *h5)
 			break;
 
 		__skb_unlink(skb, &h5->unack);
-		kfree_skb(skb);
+		__skb_queue_tail(&free_list, skb);
 	}
 
 	if (skb_queue_empty(&h5->unack))
@@ -321,6 +323,8 @@ static void h5_pkt_cull(struct h5 *h5)
 
 unlock:
 	spin_unlock_irqrestore(&h5->unack.lock, flags);
+
+	__skb_queue_purge(&free_list);
 }
 
 static void h5_handle_internal_rx(struct hci_uart *hu)
