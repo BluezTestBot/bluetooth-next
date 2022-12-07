@@ -912,8 +912,9 @@ static int qca_enqueue(struct hci_uart *hu, struct sk_buff *skb)
 	default:
 		BT_ERR("Illegal tx state: %d (losing packet)",
 		       qca->tx_ibs_state);
+		spin_unlock_irqrestore(&qca->hci_ibs_lock, flags);
 		kfree_skb(skb);
-		break;
+		return 0;
 	}
 
 	spin_unlock_irqrestore(&qca->hci_ibs_lock, flags);

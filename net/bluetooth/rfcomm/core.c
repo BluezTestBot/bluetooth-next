@@ -590,8 +590,9 @@ int rfcomm_dlc_send(struct rfcomm_dlc *d, struct sk_buff *skb)
 
 		ret = rfcomm_dlc_send_frag(d, frag);
 		if (ret < 0) {
+			spin_unlock_irqrestore(&d->tx_queue.lock, flags);
 			kfree_skb(frag);
-			goto unlock;
+			goto out;
 		}
 
 		len += ret;
@@ -600,6 +601,7 @@ int rfcomm_dlc_send(struct rfcomm_dlc *d, struct sk_buff *skb)
 unlock:
 	spin_unlock_irqrestore(&d->tx_queue.lock, flags);
 
+out:
 	if (len > 0 && !test_bit(RFCOMM_TX_THROTTLED, &d->flags))
 		rfcomm_schedule();
 	return len;

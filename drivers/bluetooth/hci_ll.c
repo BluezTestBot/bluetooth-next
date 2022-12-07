@@ -345,8 +345,9 @@ static int ll_enqueue(struct hci_uart *hu, struct sk_buff *skb)
 	default:
 		BT_ERR("illegal hcill state: %ld (losing packet)",
 		       ll->hcill_state);
+		spin_unlock_irqrestore(&ll->hcill_lock, flags);
 		kfree_skb(skb);
-		break;
+		return 0;
 	}
 
 	spin_unlock_irqrestore(&ll->hcill_lock, flags);
