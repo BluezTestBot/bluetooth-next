@@ -247,16 +247,13 @@ static void spcp8x5_set_work_mode(struct usb_serial_port *port, u16 value,
 		dev_err(&port->dev, "failed to set work mode: %d\n", ret);
 }
 
-static int spcp8x5_carrier_raised(struct usb_serial_port *port)
+static bool spcp8x5_carrier_raised(struct usb_serial_port *port)
 {
 	u8 msr;
 	int ret;
 
 	ret = spcp8x5_get_msr(port, &msr);
-	if (ret || msr & MSR_STATUS_LINE_DCD)
-		return 1;
-
-	return 0;
+	return ret || msr & MSR_STATUS_LINE_DCD;
 }
 
 static void spcp8x5_dtr_rts(struct usb_serial_port *port, int on)

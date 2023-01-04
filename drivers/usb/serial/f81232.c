@@ -772,7 +772,7 @@ static bool f81232_tx_empty(struct usb_serial_port *port)
 	return true;
 }
 
-static int f81232_carrier_raised(struct usb_serial_port *port)
+static bool f81232_carrier_raised(struct usb_serial_port *port)
 {
 	u8 msr;
 	struct f81232_private *priv = usb_get_serial_port_data(port);
@@ -781,9 +781,7 @@ static int f81232_carrier_raised(struct usb_serial_port *port)
 	msr = priv->modem_status;
 	mutex_unlock(&priv->lock);
 
-	if (msr & UART_MSR_DCD)
-		return 1;
-	return 0;
+	return msr & UART_MSR_DCD;
 }
 
 static void f81232_get_serial(struct tty_struct *tty, struct serial_struct *ss)
