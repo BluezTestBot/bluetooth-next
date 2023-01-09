@@ -6197,10 +6197,15 @@ static int _update_adv_data_sync(struct hci_dev *hdev, void *data)
 int hci_update_adv_data(struct hci_dev *hdev, u8 instance)
 {
 	u8 *inst_ptr = kmalloc(1, GFP_KERNEL);
+	int ret;
 
 	if (!inst_ptr)
 		return -ENOMEM;
 
 	*inst_ptr = instance;
-	return hci_cmd_sync_queue(hdev, _update_adv_data_sync, inst_ptr, NULL);
+	ret = hci_cmd_sync_queue(hdev, _update_adv_data_sync, inst_ptr, NULL);
+	if (ret)
+		kfree(inst_ptr);
+
+	return ret;
 }
