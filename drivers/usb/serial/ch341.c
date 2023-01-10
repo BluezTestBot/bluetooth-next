@@ -413,12 +413,11 @@ static void ch341_port_remove(struct usb_serial_port *port)
 	kfree(priv);
 }
 
-static int ch341_carrier_raised(struct usb_serial_port *port)
+static bool ch341_carrier_raised(struct usb_serial_port *port)
 {
 	struct ch341_private *priv = usb_get_serial_port_data(port);
-	if (priv->msr & CH341_BIT_DCD)
-		return 1;
-	return 0;
+
+	return priv->msr & CH341_BIT_DCD;
 }
 
 static void ch341_dtr_rts(struct usb_serial_port *port, int on)
