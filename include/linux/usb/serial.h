@@ -293,7 +293,7 @@ struct usb_serial_driver {
 	/* Called by the tty layer for port level work. There may or may not
 	   be an attached tty at this point */
 	void (*dtr_rts)(struct usb_serial_port *port, int on);
-	int  (*carrier_raised)(struct usb_serial_port *port);
+	bool (*carrier_raised)(struct usb_serial_port *port);
 	/* Called by the usb serial hooks to allow the user to rework the
 	   termios state */
 	void (*init_termios)(struct tty_struct *tty);
