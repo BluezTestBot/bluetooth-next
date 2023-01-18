@@ -4022,8 +4022,8 @@ static int set_default_phy_sync(struct hci_dev *hdev, void *data)
 	if (!(selected_phys & MGMT_PHY_LE_RX_MASK))
 		cp_phy.all_phys |= 0x02;
 
-	if (selected_phys & MGMT_PHY_LE_1M_TX)
-		cp_phy.tx_phys |= HCI_LE_SET_PHY_1M;
+	/* 1M PHY shall always be supported */
+	cp_phy.tx_phys |= HCI_LE_SET_PHY_1M;
 
 	if (selected_phys & MGMT_PHY_LE_2M_TX)
 		cp_phy.tx_phys |= HCI_LE_SET_PHY_2M;
@@ -4031,8 +4031,8 @@ static int set_default_phy_sync(struct hci_dev *hdev, void *data)
 	if (selected_phys & MGMT_PHY_LE_CODED_TX)
 		cp_phy.tx_phys |= HCI_LE_SET_PHY_CODED;
 
-	if (selected_phys & MGMT_PHY_LE_1M_RX)
-		cp_phy.rx_phys |= HCI_LE_SET_PHY_1M;
+	/* 1M PHY shall always be supported */
+	cp_phy.rx_phys |= HCI_LE_SET_PHY_1M;
 
 	if (selected_phys & MGMT_PHY_LE_2M_RX)
 		cp_phy.rx_phys |= HCI_LE_SET_PHY_2M;
@@ -4051,25 +4051,17 @@ static int set_phy_configuration(struct sock *sk, struct hci_dev *hdev,
 {
 	struct mgmt_cp_set_phy_configuration *cp = data;
 	struct mgmt_pending_cmd *cmd;
-	u32 selected_phys, configurable_phys, supported_phys, unconfigure_phys;
+	u32 selected_phys, supported_phys;
 	u16 pkt_type = (HCI_DH1 | HCI_DM1);
 	bool changed = false;
 	int err;
 
 	bt_dev_dbg(hdev, "sock %p", sk);
 
-	configurable_phys = get_configurable_phys(hdev);
 	supported_phys = get_supported_phys(hdev);
 	selected_phys = __le32_to_cpu(cp->selected_phys);
 
 	if (selected_phys & ~supported_phys)
-		return mgmt_cmd_status(sk, hdev->id,
-				       MGMT_OP_SET_PHY_CONFIGURATION,
-				       MGMT_STATUS_INVALID_PARAMS);
-
-	unconfigure_phys = supported_phys & ~configurable_phys;
-
-	if ((selected_phys & unconfigure_phys) != unconfigure_phys)
 		return mgmt_cmd_status(sk, hdev->id,
 				       MGMT_OP_SET_PHY_CONFIGURATION,
 				       MGMT_STATUS_INVALID_PARAMS);
@@ -8388,10 +8380,10 @@ static u32 get_supported_adv_flags(struct hci_dev *hdev)
 		flags |= MGMT_ADV_FLAG_HW_OFFLOAD;
 		flags |= MGMT_ADV_FLAG_CAN_SET_TX_POWER;
 
-		if (hdev->le_features[1] & HCI_LE_PHY_2M)
+		if (le_2m_capable(hdev))
 			flags |= MGMT_ADV_FLAG_SEC_2M;
 
-		if (hdev->le_features[1] & HCI_LE_PHY_CODED)
+		if (le_coded_capable(hdev))
 			flags |= MGMT_ADV_FLAG_SEC_CODED;
 	}
 
