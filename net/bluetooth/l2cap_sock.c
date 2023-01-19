@@ -1681,9 +1681,11 @@ static void l2cap_sock_set_shutdown_cb(struct l2cap_chan *chan)
 {
 	struct sock *sk = chan->data;
 
-	lock_sock(sk);
-	sk->sk_shutdown = SHUTDOWN_MASK;
-	release_sock(sk);
+	if (sk) {
+		lock_sock(sk);
+		sk->sk_shutdown = SHUTDOWN_MASK;
+		release_sock(sk);
+	}
 }
 
 static long l2cap_sock_get_sndtimeo_cb(struct l2cap_chan *chan)
