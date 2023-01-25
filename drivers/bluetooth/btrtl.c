@@ -944,6 +944,39 @@ int btrtl_get_uart_settings(struct hci_dev *hdev,
 }
 EXPORT_SYMBOL_GPL(btrtl_get_uart_settings);
 
+int btrtl_usb_recv_isoc(u16 pos, u8 *data, u8 *p, u16 wMaxPacketSize)
+{
+	u8 *prev;
+	u8 tmp[8];
+	u8 zero[1] = {0};
+	u32 *prev_frag_a;
+	u32 *prev_frag_b;
+
+	/* Issue was found when alt was set to 3 or bigger */
+	if (wMaxPacketSize < 25)
+		return 0;
+
+	/* The first fragment is always correct. */
+	if (pos < wMaxPacketSize)
+		return 0;
+
+	if (memcmp(p, zero, sizeof(zero))) {
+		prev = data + (pos - wMaxPacketSize);
+		memcpy(tmp, prev + 4, 8);
+		prev_frag_a = (u32 *)(tmp);
+		prev_frag_b = (u32 *)(tmp + 4);
+		*prev_frag_a = swahw32(*prev_frag_a);
+		*prev_frag_b = swahw32(*prev_frag_b);
+
+		/* Check the current fragment with the previous one. */
+		if (!memcmp(p, prev, 2) && !memcmp(p + 2, tmp, 8))
+			return -1;
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(btrtl_usb_recv_isoc);
+
 MODULE_AUTHOR("Daniel Drake <drake@endlessm.com>");
 MODULE_DESCRIPTION("Bluetooth support for Realtek devices ver " VERSION);
 MODULE_VERSION(VERSION);
