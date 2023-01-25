@@ -1591,6 +1591,16 @@ int hci_remove_ext_adv_instance_sync(struct hci_dev *hdev, u8 instance,
 	if (!ext_adv_capable(hdev))
 		return 0;
 
+	/* When adapter is off, remove adv without sending HCI commands */
+	if (!hdev_is_powered(hdev)) {
+		hci_dev_lock(hdev);
+		err = hci_remove_adv_instance(hdev, instance);
+		if (!err)
+			mgmt_advertising_removed(sk, hdev, instance);
+		hci_dev_unlock(hdev);
+		return err;
+	}
+
 	err = hci_disable_ext_adv_instance_sync(hdev, instance);
 	if (err)
 		return err;
@@ -1772,12 +1782,35 @@ int hci_schedule_adv_instance_sync(struct hci_dev *hdev, u8 instance,
 	return hci_start_adv_sync(hdev, instance);
 }
 
+static void hci_clear_ext_adv_ins_during_power_off(struct hci_dev *hdev,
+						   struct sock *sk)
+{
+	struct adv_info *adv, *n;
+	int err;
+
+	hci_dev_lock(hdev);
+	list_for_each_entry_safe(adv, n, &hdev->adv_instances, list) {
+		u8 instance = adv->instance;
+
+		err = hci_remove_adv_instance(hdev, instance);
+		if (!err)
+			mgmt_advertising_removed(sk, hdev, instance);
+	}
+	hci_dev_unlock(hdev);
+}
+
 static int hci_clear_adv_sets_sync(struct hci_dev *hdev, struct sock *sk)
 {
 	int err;
 
 	if (!ext_adv_capable(hdev))
 		return 0;
+
+	/* When adapter is off, remove adv without sending HCI commands */
+	if (!hdev_is_powered(hdev)) {
+		hci_clear_ext_adv_ins_during_power_off(hdev, sk);
+		return 0;
+	}
 
 	/* Disable instance 0x00 to disable all instances */
 	err = hci_disable_ext_adv_instance_sync(hdev, 0x00);
@@ -5177,9 +5210,27 @@ static int hci_disconnect_all_sync(struct hci_dev *hdev, u8 reason)
 	return 0;
 }
 
+static void hci_disable_ext_advertising_temporarily(struct hci_dev *hdev)
+{
+	struct adv_info *adv, *n;
+
+	if (!ext_adv_capable(hdev))
+		return;
+
+	hci_dev_lock(hdev);
+
+	list_for_each_entry_safe(adv, n, &hdev->adv_instances, list)
+		adv->enabled = false;
+
+	hci_dev_clear_flag(hdev, HCI_LE_ADV);
+
+	hci_dev_unlock(hdev);
+}
+
 /* This function perform power off HCI command sequence as follows:
  *
- * Clear Advertising
+ * Disable Advertising Instances. Do not clear adv instances so advertising
+ * can be re-enabled on power on.
  * Stop Discovery
  * Disconnect all connections
  * hci_dev_close_sync
@@ -5199,9 +5250,7 @@ static int hci_power_off_sync(struct hci_dev *hdev)
 			return err;
 	}
 
-	err = hci_clear_adv_sync(hdev, NULL, false);
-	if (err)
-		return err;
+	hci_disable_ext_advertising_temporarily(hdev);
 
 	err = hci_stop_discovery_sync(hdev);
 	if (err)
