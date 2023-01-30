@@ -1,0 +1,67 @@
+# SPDX-License-Identifier: (GPL-2.0 OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: "http://devicetree.org/schemas/net/bluetooth/nxp-bluetooth.yaml#"
+$schema: "http://devicetree.org/meta-schemas/core.yaml#"
+
+title: NXP Bluetooth chips
+
+description:
+  This documents the binding structure and common properties for serial
+  attached NXP Bluetooth devices.
+
+maintainers:
+  - Neeraj Sanjay Kale <neeraj.sanjaykale@nxp.com>
+
+properties:
+  compatible:
+    enum:
+      - nxp,nxp-generic-bt-chip
+      - nxp,nxp-legacy-bt-chip
+
+  firmware-name:
+    description:
+      Specify firmware file name. If this property is not
+      specified, it is fetched from the user-space config
+      file nxp/bt_mod_para.conf
+
+required:
+  - compatible
+
+additionalProperties: false
+
+examples:
+  - |
+    &uart1 {
+      pinctrl-names = "default";
+      pinctrl-0 = <&pinctrl_uart1>;
+      assigned-clocks = <&clk IMX8MM_CLK_UART1>;
+      assigned-clock-parents = <&clk IMX8MM_SYS_PLL1_80M>;
+      fsl,uart-has-rtscts;
+      status = "okay";
+      bluetooth {
+              compatible = "nxp,nxp-generic-bt-chip";
+      };
+    };
+  - |
+    &uart2 {
+      bluetooth {
+              compatible = "nxp,nxp-generic-bt-chip";
+              firmware-name = "uartuart_n61x_v1.bin"
+      };
+    };
+  - |
+    &uart3 {
+      bluetooth {
+              compatible = "nxp,nxp-legacy-bt-chip";
+      };
+    };
+  - |
+    &uart4 {
+      bluetooth {
+              compatible = "nxp,nxp-legacy-bt-chip";
+              firmware-name = "uartuart8987_bt.bin"
+      };
+    };
+
+
