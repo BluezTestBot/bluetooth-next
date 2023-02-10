@@ -1050,14 +1050,11 @@ static int pl2303_tiocmget(struct tty_struct *tty)
 	return result;
 }
 
-static int pl2303_carrier_raised(struct usb_serial_port *port)
+static bool pl2303_carrier_raised(struct usb_serial_port *port)
 {
 	struct pl2303_private *priv = usb_get_serial_port_data(port);
 
-	if (priv->line_status & UART_DCD)
-		return 1;
-
-	return 0;
+	return priv->line_status & UART_DCD;
 }
 
 static void pl2303_set_break(struct usb_serial_port *port, bool enable)
