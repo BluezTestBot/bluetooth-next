@@ -286,6 +286,8 @@ static int msft_le_cancel_monitor_advertisement_cb(struct hci_dev *hdev,
 		 * suspend. It will be re-monitored on resume.
 		 */
 		if (!msft->suspending) {
+			bt_dev_dbg(hdev, "%s remove monitor %d status %d", hdev->name,
+				   monitor->handle, status);
 			hci_free_adv_monitor(hdev, monitor);
 
 			/* Clear any monitored devices by this Adv Monitor */

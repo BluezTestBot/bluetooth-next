@@ -1981,8 +1981,6 @@ static int hci_remove_adv_monitor(struct hci_dev *hdev,
 
 	case HCI_ADV_MONITOR_EXT_MSFT:
 		status = msft_remove_monitor(hdev, monitor);
-		bt_dev_dbg(hdev, "%s remove monitor %d msft status %d",
-			   hdev->name, monitor->handle, status);
 		break;
 	}
 
