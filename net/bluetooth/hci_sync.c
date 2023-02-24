@@ -644,6 +644,23 @@ void hci_cmd_sync_init(struct hci_dev *hdev)
 	INIT_DELAYED_WORK(&hdev->adv_instance_expire, adv_timeout_expire);
 }
 
+static void hci_pend_cmd_sync_clear(struct hci_dev *hdev)
+{
+	struct hci_cmd_sync_work_entry *entry, *tmp;
+
+	mutex_lock(&hdev->cmd_sync_work_lock);
+	list_for_each_entry_safe(entry, tmp, &hdev->cmd_sync_work_list, list) {
+		if (entry->destroy) {
+			hci_req_sync_lock(hdev);
+			entry->destroy(hdev, entry->data, -ECANCELED);
+			hci_req_sync_unlock(hdev);
+		}
+		list_del(&entry->list);
+		kfree(entry);
+	}
+	mutex_unlock(&hdev->cmd_sync_work_lock);
+}
+
 void hci_cmd_sync_clear(struct hci_dev *hdev)
 {
 	struct hci_cmd_sync_work_entry *entry, *tmp;
@@ -4896,8 +4913,10 @@ int hci_dev_close_sync(struct hci_dev *hdev)
 
 	if (!auto_off && hdev->dev_type == HCI_PRIMARY &&
 	    !hci_dev_test_flag(hdev, HCI_USER_CHANNEL) &&
-	    hci_dev_test_flag(hdev, HCI_MGMT))
+	    hci_dev_test_flag(hdev, HCI_MGMT)) {
+		hci_pend_cmd_sync_clear(hdev);
 		__mgmt_power_off(hdev);
+	}
 
 	hci_inquiry_cache_flush(hdev);
 	hci_pend_le_actions_clear(hdev);
