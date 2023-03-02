@@ -278,6 +278,75 @@ static int vhci_setup(struct hci_dev *hdev)
 	return 0;
 }
 
+static void vhci_coredump(struct hci_dev *hdev)
+{
+	/* No need to do anything */
+}
+
+static int vhci_coredump_hdr(struct hci_dev *hdev, char *buf, size_t size)
+{
+	char *ptr = buf;
+	size_t rem = size;
+	size_t read = 0;
+
+	read = snprintf(ptr, rem, "Controller Name: vhci_ctrl\n");
+	rem -= read;
+	ptr += read;
+
+	read = snprintf(ptr, rem, "Firmware Version: vhci_fw\n");
+	rem -= read;
+	ptr += read;
+
+	read = snprintf(ptr, rem, "Driver: vhci_drv\n");
+	rem -= read;
+	ptr += read;
+
+	read = snprintf(ptr, rem, "Vendor: vhci\n");
+	rem -= read;
+	ptr += read;
+
+	return size - rem;
+}
+
+static ssize_t force_devcoredump_write(struct file *file,
+				       const char __user *user_buf,
+				       size_t count, loff_t *ppos)
+{
+	struct vhci_data *data = file->private_data;
+	struct hci_dev *hdev = data->hdev;
+	struct sk_buff *skb = NULL;
+	char buf[512];
+	int ret;
+
+	ret = simple_write_to_buffer(&buf, sizeof(buf), ppos, user_buf, count);
+	if (ret < count)
+		return ret;
+
+	skb = alloc_skb(count, GFP_ATOMIC);
+	if (!skb)
+		return -ENOMEM;
+	skb_put_data(skb, &buf, count);
+
+	hci_devcoredump_register(hdev, vhci_coredump, vhci_coredump_hdr, NULL);
+
+	ret = hci_devcoredump_init(hdev, skb->len);
+	if (ret) {
+		BT_ERR("Failed to generate devcoredump");
+		kfree_skb(skb);
+		return ret;
+	}
+
+	hci_devcoredump_append(hdev, skb);
+	hci_devcoredump_complete(hdev);
+
+	return count;
+}
+
+static const struct file_operations force_devcoredump_fops = {
+	.open		= simple_open,
+	.write		= force_devcoredump_write,
+};
+
 static int __vhci_create_device(struct vhci_data *data, __u8 opcode)
 {
 	struct hci_dev *hdev;
@@ -354,6 +423,9 @@ static int __vhci_create_device(struct vhci_data *data, __u8 opcode)
 	if (IS_ENABLED(CONFIG_BT_AOSPEXT))
 		debugfs_create_file("aosp_capable", 0644, hdev->debugfs, data,
 				    &aosp_capable_fops);
+
+	debugfs_create_file("force_devcoredump", 0644, hdev->debugfs, data,
+			    &force_devcoredump_fops);
 
 	hci_skb_pkt_type(skb) = HCI_VENDOR_PKT;
 
