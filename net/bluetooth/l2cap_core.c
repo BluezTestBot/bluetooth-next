@@ -2350,6 +2350,10 @@ static inline int l2cap_skbuff_fromiovec(struct l2cap_chan *chan,
 					 struct msghdr *msg, int len,
 					 int count, struct sk_buff *skb)
 {
+	/* `conn` may be NULL, or dangling as this is called from some contexts
+	 * where `chan->ops->alloc_skb` was just called, and the connection
+	 * status was not checked afterward.
+	 */
 	struct l2cap_conn *conn = chan->conn;
 	struct sk_buff **frag;
 	int sent = 0;
@@ -2364,6 +2368,13 @@ static inline int l2cap_skbuff_fromiovec(struct l2cap_chan *chan,
 	frag = &skb_shinfo(skb)->frag_list;
 	while (len) {
 		struct sk_buff *tmp;
+
+		/* Channel lock is released before requesting new skb and then
+		 * reacquired thus we need to recheck channel state.
+		 * chan->state == BT_CONNECTED implies that conn is still valid.
+		 */
+		if (chan->state != BT_CONNECTED)
+			return -ENOTCONN;
 
 		count = min_t(unsigned int, conn->mtu, len);
 
