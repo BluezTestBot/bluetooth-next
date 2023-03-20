@@ -474,22 +474,20 @@ static int send_mcast_pkt(struct sk_buff *skb, struct net_device *netdev)
 		dev = lowpan_btle_dev(entry->netdev);
 
 		list_for_each_entry_rcu(pentry, &dev->peers, list) {
-			int ret;
-
 			local_skb = skb_clone(skb, GFP_ATOMIC);
 
 			BT_DBG("xmit %s to %pMR type %u IP %pI6c chan %p",
 			       netdev->name,
 			       &pentry->chan->dst, pentry->chan->dst_type,
 			       &pentry->peer_addr, pentry->chan);
-			ret = send_pkt(pentry->chan, local_skb, netdev);
-			if (ret < 0)
-				err = ret;
-
+			err = send_pkt(pentry->chan, local_skb, netdev);
 			kfree_skb(local_skb);
+			if (err < 0)
+				goto out;
 		}
 	}
 
+out:
 	rcu_read_unlock();
 
 	return err;
