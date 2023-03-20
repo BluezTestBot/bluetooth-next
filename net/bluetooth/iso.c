@@ -3,6 +3,7 @@
  * BlueZ - Bluetooth protocol stack for Linux
  *
  * Copyright (C) 2022 Intel Corporation
+ * Copyright 2023 NXP
  */
 
 #include <linux/module.h>
@@ -58,7 +59,9 @@ struct iso_pinfo {
 	__u8			bc_bis[ISO_MAX_NUM_BIS];
 	__u16			sync_handle;
 	__u32			flags;
-	struct bt_iso_qos	qos;
+	struct bt_iso_unicast_qos	unicast_qos;
+	struct bt_iso_bcast_sink_qos	sink_qos;
+	struct bt_iso_bcast_source_qos	source_qos;
 	__u8			base_len;
 	__u8			base[BASE_MAX_LENGTH];
 	struct iso_conn		*conn;
@@ -265,14 +268,14 @@ static int iso_connect_bis(struct sock *sk)
 	}
 
 	/* Fail if out PHYs are marked as disabled */
-	if (!iso_pi(sk)->qos.out.phy) {
+	if (!iso_pi(sk)->source_qos.out.phy) {
 		err = -EINVAL;
 		goto unlock;
 	}
 
 	hcon = hci_connect_bis(hdev, &iso_pi(sk)->dst,
 			       le_addr_type(iso_pi(sk)->dst_type),
-			       &iso_pi(sk)->qos, iso_pi(sk)->base_len,
+			       &iso_pi(sk)->source_qos, iso_pi(sk)->base_len,
 			       iso_pi(sk)->base);
 	if (IS_ERR(hcon)) {
 		err = PTR_ERR(hcon);
@@ -337,7 +340,7 @@ static int iso_connect_cis(struct sock *sk)
 	}
 
 	/* Fail if either PHYs are marked as disabled */
-	if (!iso_pi(sk)->qos.in.phy && !iso_pi(sk)->qos.out.phy) {
+	if (!iso_pi(sk)->unicast_qos.in.phy && !iso_pi(sk)->unicast_qos.out.phy) {
 		err = -EINVAL;
 		goto unlock;
 	}
@@ -346,7 +349,7 @@ static int iso_connect_cis(struct sock *sk)
 	if (test_bit(BT_SK_DEFER_SETUP, &bt_sk(sk)->flags)) {
 		hcon = hci_bind_cis(hdev, &iso_pi(sk)->dst,
 				    le_addr_type(iso_pi(sk)->dst_type),
-				    &iso_pi(sk)->qos);
+				    &iso_pi(sk)->unicast_qos);
 		if (IS_ERR(hcon)) {
 			err = PTR_ERR(hcon);
 			goto unlock;
@@ -354,7 +357,7 @@ static int iso_connect_cis(struct sock *sk)
 	} else {
 		hcon = hci_connect_cis(hdev, &iso_pi(sk)->dst,
 				       le_addr_type(iso_pi(sk)->dst_type),
-				       &iso_pi(sk)->qos);
+				       &iso_pi(sk)->unicast_qos);
 		if (IS_ERR(hcon)) {
 			err = PTR_ERR(hcon);
 			goto unlock;
@@ -400,24 +403,40 @@ unlock:
 	return err;
 }
 
-static struct bt_iso_qos *iso_sock_get_qos(struct sock *sk)
+static struct bt_iso_unicast_qos *iso_sock_get_unicast_qos(struct sock *sk)
 {
 	if (sk->sk_state == BT_CONNECTED || sk->sk_state == BT_CONNECT2)
-		return &iso_pi(sk)->conn->hcon->iso_qos;
+		return &iso_pi(sk)->conn->hcon->iso_unicast_qos;
 
-	return &iso_pi(sk)->qos;
+	return &iso_pi(sk)->unicast_qos;
 }
 
-static int iso_send_frame(struct sock *sk, struct sk_buff *skb)
+static struct bt_iso_bcast_sink_qos *iso_sock_get_bcast_sink_qos(struct sock *sk)
+{
+	if (sk->sk_state == BT_CONNECTED || sk->sk_state == BT_CONNECT2)
+		return &iso_pi(sk)->conn->hcon->iso_sink_qos;
+
+	return &iso_pi(sk)->sink_qos;
+}
+
+static struct bt_iso_bcast_source_qos *iso_sock_get_bcast_source_qos(struct sock *sk)
+{
+	if (sk->sk_state == BT_CONNECTED || sk->sk_state == BT_CONNECT2)
+		return &iso_pi(sk)->conn->hcon->iso_source_qos;
+
+	return &iso_pi(sk)->source_qos;
+}
+
+static int iso_send_frame(struct sock *sk, struct sk_buff *skb,
+			  struct bt_iso_io_qos *out)
 {
 	struct iso_conn *conn = iso_pi(sk)->conn;
-	struct bt_iso_qos *qos = iso_sock_get_qos(sk);
 	struct hci_iso_data_hdr *hdr;
 	int len = 0;
 
 	BT_DBG("sk %p len %d", sk, skb->len);
 
-	if (skb->len > qos->out.sdu)
+	if (skb->len > out->sdu)
 		return -EMSGSIZE;
 
 	len = skb->len;
@@ -679,13 +698,37 @@ static struct proto iso_proto = {
 	.rtn		= 2u, \
 }
 
-static struct bt_iso_qos default_qos = {
+static struct bt_iso_unicast_qos default_unicast_qos = {
 	.cig		= BT_ISO_QOS_CIG_UNSET,
 	.cis		= BT_ISO_QOS_CIS_UNSET,
 	.sca		= 0x00,
 	.packing	= 0x00,
 	.framing	= 0x00,
 	.in		= DEFAULT_IO_QOS,
+	.out		= DEFAULT_IO_QOS,
+};
+
+static struct bt_iso_bcast_sink_qos default_sink_qos = {
+	.options	= 0x00,
+	.skip		= 0x0000,
+	.sync_timeout	= 0x4000,
+	.sync_cte_type	= 0x0000,
+	.big		= BT_ISO_QOS_BIG_UNSET,
+	.encryption	= 0x00,
+	.bcode		= {0x00},
+	.mse		= 0x00,
+	.timeout	= 0x4000,
+	.in		= DEFAULT_IO_QOS,
+};
+
+static struct bt_iso_bcast_source_qos default_source_qos = {
+	.sync_interval	= 0x07,
+	.big		= BT_ISO_QOS_BIG_UNSET,
+	.bis		= BT_ISO_QOS_BIS_UNSET,
+	.packing	= 0x00,
+	.framing	= 0x00,
+	.encryption	= 0x00,
+	.bcode		= {0x00},
 	.out		= DEFAULT_IO_QOS,
 };
 
@@ -712,7 +755,9 @@ static struct sock *iso_sock_alloc(struct net *net, struct socket *sock,
 	/* Set address type as public as default src address is BDADDR_ANY */
 	iso_pi(sk)->src_type = BDADDR_LE_PUBLIC;
 
-	iso_pi(sk)->qos = default_qos;
+	iso_pi(sk)->unicast_qos = default_unicast_qos;
+	iso_pi(sk)->sink_qos = default_sink_qos;
+	iso_pi(sk)->source_qos = default_source_qos;
 
 	bt_sock_link(&iso_sk_list, sk);
 	return sk;
@@ -895,7 +940,7 @@ static int iso_listen_bis(struct sock *sk)
 
 	err = hci_pa_create_sync(hdev, &iso_pi(sk)->dst,
 				 le_addr_type(iso_pi(sk)->dst_type),
-				 iso_pi(sk)->bc_sid);
+				 iso_pi(sk)->bc_sid, &iso_pi(sk)->sink_qos);
 
 	hci_dev_put(hdev);
 
@@ -1086,10 +1131,15 @@ static int iso_sock_sendmsg(struct socket *sock, struct msghdr *msg,
 
 	lock_sock(sk);
 
-	if (sk->sk_state == BT_CONNECTED)
-		err = iso_send_frame(sk, skb);
-	else
+	if (sk->sk_state == BT_CONNECTED) {
+		if (bacmp(&conn->hcon->dst, BDADDR_ANY))
+			err = iso_send_frame(sk, skb, &iso_sock_get_unicast_qos(sk)->out);
+		else
+			err = iso_send_frame(sk, skb,
+					     &iso_sock_get_bcast_source_qos(sk)->out);
+	} else {
 		err = -ENOTCONN;
+	}
 
 	release_sock(sk);
 
@@ -1154,7 +1204,7 @@ static bool check_io_qos(struct bt_iso_io_qos *qos)
 	return true;
 }
 
-static bool check_qos(struct bt_iso_qos *qos)
+static bool check_unicast_qos(struct bt_iso_unicast_qos *qos)
 {
 	if (qos->sca > 0x07)
 		return false;
@@ -1174,12 +1224,60 @@ static bool check_qos(struct bt_iso_qos *qos)
 	return true;
 }
 
+static bool check_bcast_sink_qos(struct bt_iso_bcast_sink_qos *qos)
+{
+	if (qos->options > 0x07)
+		return false;
+
+	if (qos->skip > 0x01f3)
+		return false;
+
+	if (qos->sync_timeout < 0x000a || qos->sync_timeout > 0x4000)
+		return false;
+
+	if (qos->sync_cte_type > 0x1f)
+		return false;
+
+	if (qos->encryption > 0x01)
+		return false;
+
+	if (qos->mse > 0x1f)
+		return false;
+
+	if (qos->timeout < 0x000a || qos->timeout > 0x4000)
+		return false;
+
+	if (!check_io_qos(&qos->in))
+		return false;
+
+	return true;
+}
+
+static bool check_bcast_source_qos(struct bt_iso_bcast_source_qos *qos)
+{
+	if (qos->sync_interval > 0x07)
+		return false;
+
+	if (qos->packing > 0x01)
+		return false;
+
+	if (qos->framing > 0x01)
+		return false;
+
+	if (qos->encryption > 0x01)
+		return false;
+
+	if (!check_io_qos(&qos->out))
+		return false;
+
+	return true;
+}
+
 static int iso_sock_setsockopt(struct socket *sock, int level, int optname,
 			       sockptr_t optval, unsigned int optlen)
 {
 	struct sock *sk = sock->sk;
 	int len, err = 0;
-	struct bt_iso_qos qos;
 	u32 opt;
 
 	BT_DBG("sk %p", sk);
@@ -1204,32 +1302,96 @@ static int iso_sock_setsockopt(struct socket *sock, int level, int optname,
 			clear_bit(BT_SK_DEFER_SETUP, &bt_sk(sk)->flags);
 		break;
 
-	case BT_ISO_QOS:
+	case BT_ISO_UNICAST_QOS:
+		struct bt_iso_unicast_qos unicast_qos;
+
 		if (sk->sk_state != BT_OPEN && sk->sk_state != BT_BOUND &&
 		    sk->sk_state != BT_CONNECT2) {
 			err = -EINVAL;
 			break;
 		}
 
-		len = min_t(unsigned int, sizeof(qos), optlen);
-		if (len != sizeof(qos)) {
+		len = min_t(unsigned int, sizeof(unicast_qos), optlen);
+		if (len != sizeof(unicast_qos)) {
 			err = -EINVAL;
 			break;
 		}
 
-		memset(&qos, 0, sizeof(qos));
+		memset(&unicast_qos, 0, sizeof(unicast_qos));
 
-		if (copy_from_sockptr(&qos, optval, len)) {
+		if (copy_from_sockptr(&unicast_qos, optval, len)) {
 			err = -EFAULT;
 			break;
 		}
 
-		if (!check_qos(&qos)) {
+		if (!check_unicast_qos(&unicast_qos)) {
 			err = -EINVAL;
 			break;
 		}
 
-		iso_pi(sk)->qos = qos;
+		iso_pi(sk)->unicast_qos = unicast_qos;
+
+		break;
+
+	case BT_ISO_BCAST_SINK_QOS:
+		struct bt_iso_bcast_sink_qos sink_qos;
+
+		if (sk->sk_state != BT_OPEN && sk->sk_state != BT_BOUND &&
+		    sk->sk_state != BT_CONNECT2) {
+			err = -EINVAL;
+			break;
+		}
+
+		len = min_t(unsigned int, sizeof(sink_qos), optlen);
+		if (len != sizeof(sink_qos)) {
+			err = -EINVAL;
+			break;
+		}
+
+		memset(&sink_qos, 0, sizeof(sink_qos));
+
+		if (copy_from_sockptr(&sink_qos, optval, len)) {
+			err = -EFAULT;
+			break;
+		}
+
+		if (!check_bcast_sink_qos(&sink_qos)) {
+			err = -EINVAL;
+			break;
+		}
+
+		iso_pi(sk)->sink_qos = sink_qos;
+
+		break;
+
+	case BT_ISO_BCAST_SOURCE_QOS:
+		struct bt_iso_bcast_source_qos source_qos;
+
+		if (sk->sk_state != BT_OPEN && sk->sk_state != BT_BOUND &&
+		    sk->sk_state != BT_CONNECT2) {
+			err = -EINVAL;
+			break;
+		}
+
+		len = min_t(unsigned int, sizeof(source_qos), optlen);
+		if (len != sizeof(source_qos)) {
+			err = -EINVAL;
+			break;
+		}
+
+		memset(&source_qos, 0, sizeof(source_qos));
+
+		if (copy_from_sockptr(&source_qos, optval, len)) {
+			err = -EFAULT;
+			break;
+		}
+
+		if (!check_bcast_source_qos(&source_qos)) {
+			err = -EINVAL;
+			break;
+		}
+
+		iso_pi(sk)->source_qos = source_qos;
 
 		break;
 
@@ -1270,7 +1432,6 @@ static int iso_sock_getsockopt(struct socket *sock, int level, int optname,
 {
 	struct sock *sk = sock->sk;
 	int len, err = 0;
-	struct bt_iso_qos *qos;
 	u8 base_len;
 	u8 *base;
 
@@ -1294,11 +1455,29 @@ static int iso_sock_getsockopt(struct socket *sock, int level, int optname,
 
 		break;
 
-	case BT_ISO_QOS:
-		qos = iso_sock_get_qos(sk);
+	case BT_ISO_UNICAST_QOS:
+		struct bt_iso_unicast_qos *unicast_qos = iso_sock_get_unicast_qos(sk);
 
-		len = min_t(unsigned int, len, sizeof(*qos));
-		if (copy_to_user(optval, qos, len))
+		len = min_t(unsigned int, len, sizeof(*unicast_qos));
+		if (copy_to_user(optval, unicast_qos, len))
+			err = -EFAULT;
+
+		break;
+
+	case BT_ISO_BCAST_SINK_QOS:
+		struct bt_iso_bcast_sink_qos *sink_qos = iso_sock_get_bcast_sink_qos(sk);
+
+		len = min_t(unsigned int, len, sizeof(*sink_qos));
+		if (copy_to_user(optval, sink_qos, len))
+			err = -EFAULT;
+
+		break;
+
+	case BT_ISO_BCAST_SOURCE_QOS:
+		struct bt_iso_bcast_source_qos *source_qos = iso_sock_get_bcast_source_qos(sk);
+
+		len = min_t(unsigned int, len, sizeof(*source_qos));
+		if (copy_to_user(optval, source_qos, len))
 			err = -EFAULT;
 
 		break;
@@ -1419,7 +1598,7 @@ static bool iso_match_big(struct sock *sk, void *data)
 {
 	struct hci_evt_le_big_sync_estabilished *ev = data;
 
-	return ev->handle == iso_pi(sk)->qos.big;
+	return ev->handle == iso_pi(sk)->sink_qos.big;
 }
 
 static void iso_conn_ready(struct iso_conn *conn)
@@ -1550,7 +1729,7 @@ int iso_connect_ind(struct hci_dev *hdev, bdaddr_t *bdaddr, __u8 *flags)
 				iso_pi(sk)->bc_num_bis = ev2->num_bis;
 
 			err = hci_le_big_create_sync(hdev,
-						     &iso_pi(sk)->qos,
+						     &iso_pi(sk)->sink_qos,
 						     iso_pi(sk)->sync_handle,
 						     iso_pi(sk)->bc_num_bis,
 						     iso_pi(sk)->bc_bis);
