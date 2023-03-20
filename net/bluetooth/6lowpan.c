@@ -475,6 +475,10 @@ static int send_mcast_pkt(struct sk_buff *skb, struct net_device *netdev)
 
 		list_for_each_entry_rcu(pentry, &dev->peers, list) {
 			local_skb = skb_clone(skb, GFP_ATOMIC);
+			if (!local_skb) {
+				err = -ENOMEM;
+				goto out;
+			}
 
 			BT_DBG("xmit %s to %pMR type %u IP %pI6c chan %p",
 			       netdev->name,
