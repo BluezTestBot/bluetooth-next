@@ -932,7 +932,6 @@
  *	Check permission before transmitting a message to another socket.
  *	@sock contains the socket structure.
  *	@msg contains the message to be transmitted.
- *	@size contains the size of message.
  *	Return 0 if permission is granted.
  * @socket_recvmsg:
  *	Check permission before receiving a message from a socket.

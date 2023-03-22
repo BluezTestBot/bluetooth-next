@@ -311,13 +311,14 @@ int espintcp_push_skb(struct sock *sk, struct sk_buff *skb)
 }
 EXPORT_SYMBOL_GPL(espintcp_push_skb);
 
-static int espintcp_sendmsg(struct sock *sk, struct msghdr *msg, size_t size)
+static int espintcp_sendmsg(struct sock *sk, struct msghdr *msg)
 {
 	long timeo = sock_sndtimeo(sk, msg->msg_flags & MSG_DONTWAIT);
 	struct espintcp_ctx *ctx = espintcp_getctx(sk);
 	struct espintcp_msg *emsg = &ctx->partial;
 	struct iov_iter pfx_iter;
 	struct kvec pfx_iov = {};
+	size_t size = msg_data_left(msg);
 	size_t msglen = size + 2;
 	char buf[2] = {0};
 	int err, end;
@@ -325,7 +326,7 @@ static int espintcp_sendmsg(struct sock *sk, struct msghdr *msg, size_t size)
 	if (msg->msg_flags & ~MSG_DONTWAIT)
 		return -EOPNOTSUPP;
 
-	if (size > MAX_ESPINTCP_MSG)
+	if (msg_data_left(msg) > MAX_ESPINTCP_MSG)
 		return -EMSGSIZE;
 
 	if (msg->msg_controllen)
@@ -362,7 +363,8 @@ static int espintcp_sendmsg(struct sock *sk, struct msghdr *msg, size_t size)
 	if (err < 0)
 		goto fail;
 
-	err = sk_msg_memcopy_from_iter(sk, &msg->msg_iter, &emsg->skmsg, size);
+	err = sk_msg_memcopy_from_iter(sk, &msg->msg_iter, &emsg->skmsg,
+				       msg_data_left(msg));
 	if (err < 0)
 		goto fail;
 

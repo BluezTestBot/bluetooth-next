@@ -20,7 +20,7 @@ int udpv6_getsockopt(struct sock *sk, int level, int optname,
 		     char __user *optval, int __user *optlen);
 int udpv6_setsockopt(struct sock *sk, int level, int optname, sockptr_t optval,
 		     unsigned int optlen);
-int udpv6_sendmsg(struct sock *sk, struct msghdr *msg, size_t len);
+int udpv6_sendmsg(struct sock *sk, struct msghdr *msg);
 int udpv6_recvmsg(struct sock *sk, struct msghdr *msg, size_t len, int flags,
 		  int *addr_len);
 void udpv6_destroy_sock(struct sock *sk);

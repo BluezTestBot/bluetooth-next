@@ -280,7 +280,7 @@ static void rxrpc_queue_packet(struct rxrpc_sock *rx, struct rxrpc_call *call,
  */
 static int rxrpc_send_data(struct rxrpc_sock *rx,
 			   struct rxrpc_call *call,
-			   struct msghdr *msg, size_t len,
+			   struct msghdr *msg,
 			   rxrpc_notify_end_tx_t notify_end_tx,
 			   bool *_dropped_lock)
 {
@@ -327,9 +327,9 @@ reload:
 
 	ret = -EMSGSIZE;
 	if (call->tx_total_len != -1) {
-		if (len - copied > call->tx_total_len)
+		if (msg_data_left(msg) > call->tx_total_len)
 			goto maybe_error;
-		if (!more && len - copied != call->tx_total_len)
+		if (!more && msg_data_left(msg) != call->tx_total_len)
 			goto maybe_error;
 	}
 
@@ -612,7 +612,7 @@ rxrpc_new_client_call_for_sendmsg(struct rxrpc_sock *rx, struct msghdr *msg,
  * - caller holds the socket locked
  * - the socket may be either a client socket or a server socket
  */
-int rxrpc_do_sendmsg(struct rxrpc_sock *rx, struct msghdr *msg, size_t len)
+int rxrpc_do_sendmsg(struct rxrpc_sock *rx, struct msghdr *msg)
 	__releases(&rx->sk.sk_lock.slock)
 {
 	struct rxrpc_call *call;
@@ -723,7 +723,7 @@ int rxrpc_do_sendmsg(struct rxrpc_sock *rx, struct msghdr *msg, size_t len)
 	} else if (p.command != RXRPC_CMD_SEND_DATA) {
 		ret = -EINVAL;
 	} else {
-		ret = rxrpc_send_data(rx, call, msg, len, NULL, &dropped_lock);
+		ret = rxrpc_send_data(rx, call, msg, NULL, &dropped_lock);
 	}
 
 out_put_unlock:
@@ -744,7 +744,6 @@ error_release_sock:
  * @sock: The socket the call is on
  * @call: The call to send data through
  * @msg: The data to send
- * @len: The amount of data to send
  * @notify_end_tx: Notification that the last packet is queued.
  *
  * Allow a kernel service to send data on a call.  The call must be in an state
@@ -753,7 +752,7 @@ error_release_sock:
  * more data to come, otherwise this data will end the transmission phase.
  */
 int rxrpc_kernel_send_data(struct socket *sock, struct rxrpc_call *call,
-			   struct msghdr *msg, size_t len,
+			   struct msghdr *msg,
 			   rxrpc_notify_end_tx_t notify_end_tx)
 {
 	bool dropped_lock = false;
@@ -766,7 +765,7 @@ int rxrpc_kernel_send_data(struct socket *sock, struct rxrpc_call *call,
 
 	mutex_lock(&call->user_mutex);
 
-	ret = rxrpc_send_data(rxrpc_sk(sock->sk), call, msg, len,
+	ret = rxrpc_send_data(rxrpc_sk(sock->sk), call, msg,
 			      notify_end_tx, &dropped_lock);
 	if (ret == -ESHUTDOWN)
 		ret = call->error;

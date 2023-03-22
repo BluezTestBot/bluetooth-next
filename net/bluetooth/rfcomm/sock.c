@@ -558,8 +558,7 @@ static int rfcomm_sock_getname(struct socket *sock, struct sockaddr *addr, int p
 	return sizeof(struct sockaddr_rc);
 }
 
-static int rfcomm_sock_sendmsg(struct socket *sock, struct msghdr *msg,
-			       size_t len)
+static int rfcomm_sock_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	struct sock *sk = sock->sk;
 	struct rfcomm_dlc *d = rfcomm_pi(sk)->dlc;
@@ -586,8 +585,8 @@ static int rfcomm_sock_sendmsg(struct socket *sock, struct msghdr *msg,
 	if (sent)
 		return sent;
 
-	skb = bt_skb_sendmmsg(sk, msg, len, d->mtu, RFCOMM_SKB_HEAD_RESERVE,
-			      RFCOMM_SKB_TAIL_RESERVE);
+	skb = bt_skb_sendmmsg(sk, msg, msg_data_left(msg), d->mtu,
+			      RFCOMM_SKB_HEAD_RESERVE, RFCOMM_SKB_TAIL_RESERVE);
 	if (IS_ERR(skb))
 		return PTR_ERR(skb);
 

@@ -1224,8 +1224,7 @@ err:
 	return err;
 }
 
-static int tap_sendmsg(struct socket *sock, struct msghdr *m,
-		       size_t total_len)
+static int tap_sendmsg(struct socket *sock, struct msghdr *m)
 {
 	struct tap_queue *q = container_of(sock, struct tap_queue, sock);
 	struct tun_msg_ctl *ctl = m->msg_control;

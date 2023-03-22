@@ -192,8 +192,7 @@ struct proto_ops {
 	int		(*getsockopt)(struct socket *sock, int level,
 				      int optname, char __user *optval, int __user *optlen);
 	void		(*show_fdinfo)(struct seq_file *m, struct socket *sock);
-	int		(*sendmsg)   (struct socket *sock, struct msghdr *m,
-				      size_t total_len);
+	int		(*sendmsg)   (struct socket *sock, struct msghdr *m);
 	/* Notes for implementing recvmsg:
 	 * ===============================
 	 * msg->msg_namelen should get updated by the recvmsg handlers
@@ -222,8 +221,7 @@ struct proto_ops {
 	int		(*read_skb)(struct sock *sk, skb_read_actor_t recv_actor);
 	int		(*sendpage_locked)(struct sock *sk, struct page *page,
 					   int offset, size_t size, int flags);
-	int		(*sendmsg_locked)(struct sock *sk, struct msghdr *msg,
-					  size_t size);
+	int		(*sendmsg_locked)(struct sock *sk, struct msghdr *msg);
 	int		(*set_rcvlowat)(struct sock *sk, int val);
 };
 

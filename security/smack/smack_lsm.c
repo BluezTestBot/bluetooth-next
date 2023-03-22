@@ -3730,14 +3730,12 @@ static int smack_unix_may_send(struct socket *sock, struct socket *other)
  * smack_socket_sendmsg - Smack check based on destination host
  * @sock: the socket
  * @msg: the message
- * @size: the size of the message
  *
  * Return 0 if the current subject can write to the destination host.
  * For IPv4 this is only a question if the destination is a single label host.
  * For IPv6 this is a check against the label of the port.
  */
-static int smack_socket_sendmsg(struct socket *sock, struct msghdr *msg,
-				int size)
+static int smack_socket_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	struct sockaddr_in *sip = (struct sockaddr_in *) msg->msg_name;
 #if IS_ENABLED(CONFIG_IPV6)

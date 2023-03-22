@@ -833,8 +833,7 @@ static int pppoe_ioctl(struct socket *sock, unsigned int cmd,
 	return err;
 }
 
-static int pppoe_sendmsg(struct socket *sock, struct msghdr *m,
-			 size_t total_len)
+static int pppoe_sendmsg(struct socket *sock, struct msghdr *m)
 {
 	struct sk_buff *skb;
 	struct sock *sk = sock->sk;
@@ -843,6 +842,7 @@ static int pppoe_sendmsg(struct socket *sock, struct msghdr *m,
 	struct pppoe_hdr hdr;
 	struct pppoe_hdr *ph;
 	struct net_device *dev;
+	size_t total_len = msg_data_left(m);
 	char *start;
 	int hlen;
 

@@ -708,10 +708,8 @@ void __sock_tx_timestamp(__u16 tsflags, __u8 *tx_flags)
 }
 EXPORT_SYMBOL(__sock_tx_timestamp);
 
-INDIRECT_CALLABLE_DECLARE(int inet_sendmsg(struct socket *, struct msghdr *,
-					   size_t));
-INDIRECT_CALLABLE_DECLARE(int inet6_sendmsg(struct socket *, struct msghdr *,
-					    size_t));
+INDIRECT_CALLABLE_DECLARE(int inet_sendmsg(struct socket *, struct msghdr *));
+INDIRECT_CALLABLE_DECLARE(int inet6_sendmsg(struct socket *, struct msghdr *));
 
 static noinline void call_trace_sock_send_length(struct sock *sk, int ret,
 						 int flags)
@@ -722,8 +720,7 @@ static noinline void call_trace_sock_send_length(struct sock *sk, int ret,
 static inline int sock_sendmsg_nosec(struct socket *sock, struct msghdr *msg)
 {
 	int ret = INDIRECT_CALL_INET(sock->ops->sendmsg, inet6_sendmsg,
-				     inet_sendmsg, sock, msg,
-				     msg_data_left(msg));
+				     inet_sendmsg, sock, msg);
 	BUG_ON(ret == -EIOCBQUEUED);
 
 	if (trace_sock_send_length_enabled())
@@ -741,8 +738,7 @@ static inline int sock_sendmsg_nosec(struct socket *sock, struct msghdr *msg)
  */
 int sock_sendmsg(struct socket *sock, struct msghdr *msg)
 {
-	int err = security_socket_sendmsg(sock, msg,
-					  msg_data_left(msg));
+	int err = security_socket_sendmsg(sock, msg);
 
 	return err ?: sock_sendmsg_nosec(sock, msg);
 }
@@ -787,11 +783,11 @@ int kernel_sendmsg_locked(struct sock *sk, struct msghdr *msg,
 	struct socket *sock = sk->sk_socket;
 
 	if (!sock->ops->sendmsg_locked)
-		return sock_no_sendmsg_locked(sk, msg, size);
+		return sock_no_sendmsg_locked(sk, msg);
 
 	iov_iter_kvec(&msg->msg_iter, ITER_SOURCE, vec, num, size);
 
-	return sock->ops->sendmsg_locked(sk, msg, msg_data_left(msg));
+	return sock->ops->sendmsg_locked(sk, msg);
 }
 EXPORT_SYMBOL(kernel_sendmsg_locked);
 

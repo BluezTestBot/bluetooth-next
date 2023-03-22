@@ -202,11 +202,12 @@ static void rawsock_tx_work(struct work_struct *work)
 	kcov_remote_stop();
 }
 
-static int rawsock_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
+static int rawsock_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	struct sock *sk = sock->sk;
 	struct nfc_dev *dev = nfc_rawsock(sk)->dev;
 	struct sk_buff *skb;
+	size_t len = msg_data_left(msg);
 	int rc;
 
 	pr_debug("sock=%p sk=%p len=%zu\n", sock, sk, len);

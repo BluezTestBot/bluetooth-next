@@ -1004,7 +1004,7 @@ static int chtls_proccess_cmsg(struct sock *sk, struct msghdr *msg,
 	return rc;
 }
 
-int chtls_sendmsg(struct sock *sk, struct msghdr *msg, size_t size)
+int chtls_sendmsg(struct sock *sk, struct msghdr *msg)
 {
 	struct chtls_sock *csk = rcu_dereference_sk_user_data(sk);
 	struct chtls_dev *cdev = csk->cdev;
@@ -1058,7 +1058,7 @@ int chtls_sendmsg(struct sock *sk, struct msghdr *msg, size_t size)
 					tx_skb_finalize(skb);
 			}
 
-			recordsz = size;
+			recordsz = msg_data_left(msg);
 			csk->tlshws.txleft = recordsz;
 			csk->tlshws.type = record_type;
 		}
@@ -1080,8 +1080,8 @@ new_buf:
 								 false);
 			} else {
 				skb = get_tx_skb(sk,
-						 select_size(sk, size, flags,
-							     TX_HEADER_LEN));
+						 select_size(sk, msg_data_left(msg),
+							     flags, TX_HEADER_LEN));
 			}
 			if (unlikely(!skb))
 				goto wait_for_memory;
@@ -1089,8 +1089,8 @@ new_buf:
 			skb->ip_summed = CHECKSUM_UNNECESSARY;
 			copy = mss;
 		}
-		if (copy > size)
-			copy = size;
+		if (copy > msg_data_left(msg))
+			copy = msg_data_left(msg);
 
 		if (skb_tailroom(skb) > 0) {
 			copy = min(copy, skb_tailroom(skb));
@@ -1182,7 +1182,6 @@ copy:
 			tx_skb_finalize(skb);
 		tp->write_seq += copy;
 		copied += copy;
-		size -= copy;
 
 		if (is_tls_tx(csk))
 			csk->tlshws.txleft -= copy;
@@ -1191,7 +1190,7 @@ copy:
 		    (sk_stream_wspace(sk) < sk_stream_min_wspace(sk)))
 			ULP_SKB_CB(skb)->flags |= ULPCB_FLAG_NO_APPEND;
 
-		if (size == 0)
+		if (msg_data_left(msg) == 0)
 			goto out;
 
 		if (ULP_SKB_CB(skb)->flags & ULPCB_FLAG_NO_APPEND)

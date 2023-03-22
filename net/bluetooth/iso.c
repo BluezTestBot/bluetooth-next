@@ -1031,12 +1031,12 @@ static int iso_sock_getname(struct socket *sock, struct sockaddr *addr,
 	return sizeof(struct sockaddr_iso);
 }
 
-static int iso_sock_sendmsg(struct socket *sock, struct msghdr *msg,
-			    size_t len)
+static int iso_sock_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	struct sock *sk = sock->sk;
 	struct iso_conn *conn = iso_pi(sk)->conn;
 	struct sk_buff *skb, **frag;
+	size_t len = msg_data_left(msg);
 	int err;
 
 	BT_DBG("sock %p, sk %p", sock, sk);

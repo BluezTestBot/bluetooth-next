@@ -200,7 +200,7 @@ static bool pvcalls_conn_back_write(struct sock_mapping *map)
 		iov_iter_kvec(&msg.msg_iter, ITER_SOURCE, vec, 2, size);
 	}
 
-	ret = inet_sendmsg(map->sock, &msg, size);
+	ret = inet_sendmsg(map->sock, &msg);
 	if (ret == -EAGAIN) {
 		atomic_inc(&map->write);
 		atomic_inc(&map->io);

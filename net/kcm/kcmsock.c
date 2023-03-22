@@ -904,7 +904,7 @@ out_error:
 	return err;
 }
 
-static int kcm_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
+static int kcm_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	struct sock *sk = sock->sk;
 	struct kcm_sock *kcm = kcm_sk(sk);

@@ -997,10 +997,10 @@ static int aa_sock_msg_perm(const char *op, u32 request, struct socket *sock,
 /**
  * apparmor_socket_sendmsg - check perms before sending msg to another socket
  */
-static int apparmor_socket_sendmsg(struct socket *sock,
-				   struct msghdr *msg, int size)
+static int apparmor_socket_sendmsg(struct socket *sock, struct msghdr *msg)
 {
-	return aa_sock_msg_perm(OP_SENDMSG, AA_MAY_SEND, sock, msg, size);
+	return aa_sock_msg_perm(OP_SENDMSG, AA_MAY_SEND, sock, msg,
+				msg_data_left(msg));
 }
 
 /**

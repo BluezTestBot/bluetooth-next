@@ -476,7 +476,7 @@ static void vhost_tx_batch(struct vhost_net *net,
 
 	msghdr->msg_control = &ctl;
 	msghdr->msg_controllen = sizeof(ctl);
-	err = sock->ops->sendmsg(sock, msghdr, 0);
+	err = sock->ops->sendmsg(sock, msghdr);
 	if (unlikely(err < 0)) {
 		vq_err(&nvq->vq, "Fail to batch sending packets\n");
 
@@ -836,7 +836,7 @@ static void handle_tx_copy(struct vhost_net *net, struct socket *sock)
 				msg.msg_flags &= ~MSG_MORE;
 		}
 
-		err = sock->ops->sendmsg(sock, &msg, len);
+		err = sock->ops->sendmsg(sock, &msg);
 		if (unlikely(err < 0)) {
 			if (err == -EAGAIN || err == -ENOMEM || err == -ENOBUFS) {
 				vhost_discard_vq_desc(vq, 1);
@@ -933,7 +933,7 @@ static void handle_tx_zerocopy(struct vhost_net *net, struct socket *sock)
 			msg.msg_flags &= ~MSG_MORE;
 		}
 
-		err = sock->ops->sendmsg(sock, &msg, len);
+		err = sock->ops->sendmsg(sock, &msg);
 		if (unlikely(err < 0)) {
 			if (zcopy_used) {
 				if (vq->heads[ubuf->desc].len == VHOST_DMA_IN_PROGRESS)

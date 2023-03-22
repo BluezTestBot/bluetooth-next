@@ -70,7 +70,7 @@ int  ping_getfrag(void *from, char *to, int offset, int fraglen, int odd,
 
 int  ping_recvmsg(struct sock *sk, struct msghdr *msg, size_t len,
 		  int flags, int *addr_len);
-int  ping_common_sendmsg(int family, struct msghdr *msg, size_t len,
+int  ping_common_sendmsg(int family, struct msghdr *msg,
 			 void *user_icmph, size_t icmph_len);
 int  ping_queue_rcv_skb(struct sock *sk, struct sk_buff *skb);
 enum skb_drop_reason ping_rcv(struct sk_buff *skb);

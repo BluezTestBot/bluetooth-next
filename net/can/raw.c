@@ -814,13 +814,14 @@ static bool raw_bad_txframe(struct raw_sock *ro, struct sk_buff *skb, int mtu)
 	return true;
 }
 
-static int raw_sendmsg(struct socket *sock, struct msghdr *msg, size_t size)
+static int raw_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	struct sock *sk = sock->sk;
 	struct raw_sock *ro = raw_sk(sk);
 	struct sockcm_cookie sockc;
 	struct sk_buff *skb;
 	struct net_device *dev;
+	size_t size = msg_data_left(msg);
 	int ifindex;
 	int err = -EINVAL;
 

@@ -2531,13 +2531,14 @@ out:
 	return ret;
 }
 
-static int tun_sendmsg(struct socket *sock, struct msghdr *m, size_t total_len)
+static int tun_sendmsg(struct socket *sock, struct msghdr *m)
 {
 	int ret, i;
 	struct tun_file *tfile = container_of(sock, struct tun_file, socket);
 	struct tun_struct *tun = tun_get(tfile);
 	struct tun_msg_ctl *ctl = m->msg_control;
 	struct xdp_buff *xdp;
+	size_t total_len = msg_data_left(m);
 
 	if (!tun)
 		return -EBADFD;

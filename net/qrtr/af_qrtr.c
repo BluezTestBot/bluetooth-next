@@ -888,7 +888,7 @@ static int qrtr_bcast_enqueue(struct qrtr_node *node, struct sk_buff *skb,
 	return 0;
 }
 
-static int qrtr_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
+static int qrtr_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	DECLARE_SOCKADDR(struct sockaddr_qrtr *, addr, msg->msg_name);
 	int (*enqueue_fn)(struct qrtr_node *, struct sk_buff *, int,
@@ -898,7 +898,7 @@ static int qrtr_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
 	struct sock *sk = sock->sk;
 	struct qrtr_node *node;
 	struct sk_buff *skb;
-	size_t plen;
+	size_t plen, len = msg_data_left(msg);
 	u32 type;
 	int rc;
 

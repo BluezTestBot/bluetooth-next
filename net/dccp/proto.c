@@ -725,12 +725,13 @@ static int dccp_msghdr_parse(struct msghdr *msg, struct sk_buff *skb)
 	return 0;
 }
 
-int dccp_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
+int dccp_sendmsg(struct sock *sk, struct msghdr *msg)
 {
 	const struct dccp_sock *dp = dccp_sk(sk);
 	const int flags = msg->msg_flags;
 	const int noblock = flags & MSG_DONTWAIT;
 	struct sk_buff *skb;
+	size_t len = msg_data_left(msg);
 	int rc, size;
 	long timeo;
 

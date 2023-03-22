@@ -489,14 +489,12 @@ static int tomoyo_socket_bind(struct socket *sock, struct sockaddr *addr,
  *
  * @sock: Pointer to "struct socket".
  * @msg:  Pointer to "struct msghdr".
- * @size: Size of message.
  *
  * Returns 0 on success, negative value otherwise.
  */
-static int tomoyo_socket_sendmsg(struct socket *sock, struct msghdr *msg,
-				 int size)
+static int tomoyo_socket_sendmsg(struct socket *sock, struct msghdr *msg)
 {
-	return tomoyo_socket_sendmsg_permission(sock, msg, size);
+	return tomoyo_socket_sendmsg_permission(sock, msg);
 }
 
 struct lsm_blob_sizes tomoyo_blob_sizes __lsm_ro_after_init = {

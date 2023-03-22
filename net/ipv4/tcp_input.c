@@ -4948,9 +4948,10 @@ static int __must_check tcp_queue_rcv(struct sock *sk, struct sk_buff *skb,
 	return eaten;
 }
 
-int tcp_send_rcvq(struct sock *sk, struct msghdr *msg, size_t size)
+int tcp_send_rcvq(struct sock *sk, struct msghdr *msg)
 {
 	struct sk_buff *skb;
+	size_t size = msg_data_left(msg);
 	int err = -ENOMEM;
 	int data_len = 0;
 	bool fragstolen;

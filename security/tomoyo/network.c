@@ -751,12 +751,10 @@ int tomoyo_socket_bind_permission(struct socket *sock, struct sockaddr *addr,
  *
  * @sock: Pointer to "struct socket".
  * @msg:  Pointer to "struct msghdr".
- * @size: Unused.
  *
  * Returns 0 on success, negative value otherwise.
  */
-int tomoyo_socket_sendmsg_permission(struct socket *sock, struct msghdr *msg,
-				     int size)
+int tomoyo_socket_sendmsg_permission(struct socket *sock, struct msghdr *msg)
 {
 	struct tomoyo_addr_info address;
 	const u8 family = tomoyo_sock_family(sock->sk);

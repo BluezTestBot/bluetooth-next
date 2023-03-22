@@ -952,19 +952,18 @@ static void af_alg_data_wakeup(struct sock *sk)
  *
  * @sock: socket of connection to user space
  * @msg: message from user space
- * @size: size of message from user space
  * @ivsize: the size of the IV for the cipher operation to verify that the
  *	   user-space-provided IV has the right size
  * Return: the number of copied data upon success, < 0 upon error
  */
-int af_alg_sendmsg(struct socket *sock, struct msghdr *msg, size_t size,
-		   unsigned int ivsize)
+int af_alg_sendmsg(struct socket *sock, struct msghdr *msg, unsigned int ivsize)
 {
 	struct sock *sk = sock->sk;
 	struct alg_sock *ask = alg_sk(sk);
 	struct af_alg_ctx *ctx = ask->private;
 	struct af_alg_tsgl *sgl;
 	struct af_alg_control con = {};
+	size_t len;
 	long copied = 0;
 	bool enc = false;
 	bool init = false;
@@ -1012,9 +1011,8 @@ int af_alg_sendmsg(struct socket *sock, struct msghdr *msg, size_t size,
 		ctx->aead_assoclen = con.aead_assoclen;
 	}
 
-	while (size) {
+	while ((len = msg_data_left(msg))) {
 		struct scatterlist *sg;
-		size_t len = size;
 		size_t plen;
 
 		/* use the existing memory in an allocated page */
@@ -1037,7 +1035,6 @@ int af_alg_sendmsg(struct socket *sock, struct msghdr *msg, size_t size,
 
 			ctx->used += len;
 			copied += len;
-			size -= len;
 			continue;
 		}
 
@@ -1086,11 +1083,10 @@ int af_alg_sendmsg(struct socket *sock, struct msghdr *msg, size_t size,
 			len -= plen;
 			ctx->used += plen;
 			copied += plen;
-			size -= plen;
 			sgl->cur++;
 		} while (len && sgl->cur < MAX_SGL_ENTS);
 
-		if (!size)
+		if (!msg_data_left(msg))
 			sg_mark_end(sg + sgl->cur - 1);
 
 		ctx->merge = plen & (PAGE_SIZE - 1);

@@ -502,13 +502,13 @@ error:
  *   - sends a call data packet
  *   - may send an abort (abort code in control data)
  */
-static int rxrpc_sendmsg(struct socket *sock, struct msghdr *m, size_t len)
+static int rxrpc_sendmsg(struct socket *sock, struct msghdr *m)
 {
 	struct rxrpc_local *local;
 	struct rxrpc_sock *rx = rxrpc_sk(sock->sk);
 	int ret;
 
-	_enter(",{%d},,%zu", rx->sk.sk_state, len);
+	_enter(",{%d},,%zu", rx->sk.sk_state, msg_data_left(m));
 
 	if (m->msg_flags & MSG_OOB)
 		return -EOPNOTSUPP;
@@ -562,7 +562,7 @@ static int rxrpc_sendmsg(struct socket *sock, struct msghdr *m, size_t len)
 		fallthrough;
 	case RXRPC_SERVER_BOUND:
 	case RXRPC_SERVER_LISTENING:
-		ret = rxrpc_do_sendmsg(rx, m, len);
+		ret = rxrpc_do_sendmsg(rx, m);
 		/* The socket has been unlocked */
 		goto out;
 	default:

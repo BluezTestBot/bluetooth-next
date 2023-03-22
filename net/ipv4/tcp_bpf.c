@@ -396,9 +396,10 @@ more_data:
 	return ret;
 }
 
-static int tcp_bpf_sendmsg(struct sock *sk, struct msghdr *msg, size_t size)
+static int tcp_bpf_sendmsg(struct sock *sk, struct msghdr *msg)
 {
 	struct sk_msg tmp, *msg_tx = NULL;
+	size_t size = msg_data_left(msg);
 	int copied = 0, err = 0;
 	struct sk_psock *psock;
 	long timeo;
@@ -410,7 +411,7 @@ static int tcp_bpf_sendmsg(struct sock *sk, struct msghdr *msg, size_t size)
 
 	psock = sk_psock_get(sk);
 	if (unlikely(!psock))
-		return tcp_sendmsg(sk, msg, size);
+		return tcp_sendmsg(sk, msg);
 
 	lock_sock(sk);
 	timeo = sock_sndtimeo(sk, msg->msg_flags & MSG_DONTWAIT);

@@ -1112,10 +1112,11 @@ static int pipe_skb_send(struct sock *sk, struct sk_buff *skb)
 
 }
 
-static int pep_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
+static int pep_sendmsg(struct sock *sk, struct msghdr *msg)
 {
 	struct pep_sock *pn = pep_sk(sk);
 	struct sk_buff *skb;
+	size_t len = msg_data_left(msg);
 	long timeo;
 	int flags = msg->msg_flags;
 	int err, done;

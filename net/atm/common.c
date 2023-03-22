@@ -565,12 +565,13 @@ int vcc_recvmsg(struct socket *sock, struct msghdr *msg, size_t size,
 	return copied;
 }
 
-int vcc_sendmsg(struct socket *sock, struct msghdr *m, size_t size)
+int vcc_sendmsg(struct socket *sock, struct msghdr *m)
 {
 	struct sock *sk = sock->sk;
 	DEFINE_WAIT(wait);
 	struct atm_vcc *vcc;
 	struct sk_buff *skb;
+	size_t size = msg_data_left(m);
 	int eff, error;
 
 	lock_sock(sk);

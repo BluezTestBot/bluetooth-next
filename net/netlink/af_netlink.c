@@ -1857,7 +1857,7 @@ static void netlink_cmsg_listen_all_nsid(struct sock *sk, struct msghdr *msg,
 		 &NETLINK_CB(skb).nsid);
 }
 
-static int netlink_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
+static int netlink_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	struct sock *sk = sock->sk;
 	struct netlink_sock *nlk = nlk_sk(sk);
@@ -1872,7 +1872,7 @@ static int netlink_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
 	if (msg->msg_flags & MSG_OOB)
 		return -EOPNOTSUPP;
 
-	if (len == 0) {
+	if (msg_data_left(msg) == 0) {
 		pr_warn_once("Zero length message leads to an empty skb\n");
 		return -ENODATA;
 	}
@@ -1911,10 +1911,10 @@ static int netlink_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
 	}
 
 	err = -EMSGSIZE;
-	if (len > sk->sk_sndbuf - 32)
+	if (msg_data_left(msg) > sk->sk_sndbuf - 32)
 		goto out;
 	err = -ENOBUFS;
-	skb = netlink_alloc_large_skb(len, dst_group);
+	skb = netlink_alloc_large_skb(msg_data_left(msg), dst_group);
 	if (skb == NULL)
 		goto out;
 
@@ -1924,7 +1924,8 @@ static int netlink_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
 	NETLINK_CB(skb).flags	= netlink_skb_flags;
 
 	err = -EFAULT;
-	if (memcpy_from_msg(skb_put(skb, len), msg, len)) {
+	if (memcpy_from_msg(skb_put(skb, msg_data_left(msg)),
+			    msg, msg_data_left(msg))) {
 		kfree_skb(skb);
 		goto out;
 	}

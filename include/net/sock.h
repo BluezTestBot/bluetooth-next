@@ -1261,8 +1261,7 @@ struct proto {
 	int			(*compat_ioctl)(struct sock *sk,
 					unsigned int cmd, unsigned long arg);
 #endif
-	int			(*sendmsg)(struct sock *sk, struct msghdr *msg,
-					   size_t len);
+	int			(*sendmsg)(struct sock *sk, struct msghdr *msg);
 	int			(*recvmsg)(struct sock *sk, struct msghdr *msg,
 					   size_t len, int flags, int *addr_len);
 	int			(*sendpage)(struct sock *sk, struct page *page,
@@ -1901,8 +1900,8 @@ int sock_no_getname(struct socket *, struct sockaddr *, int);
 int sock_no_ioctl(struct socket *, unsigned int, unsigned long);
 int sock_no_listen(struct socket *, int);
 int sock_no_shutdown(struct socket *, int);
-int sock_no_sendmsg(struct socket *, struct msghdr *, size_t);
-int sock_no_sendmsg_locked(struct sock *sk, struct msghdr *msg, size_t len);
+int sock_no_sendmsg(struct socket *sk, struct msghdr *msg);
+int sock_no_sendmsg_locked(struct sock *sk, struct msghdr *msg);
 int sock_no_recvmsg(struct socket *, struct msghdr *, size_t, int);
 int sock_no_mmap(struct file *file, struct socket *sock,
 		 struct vm_area_struct *vma);

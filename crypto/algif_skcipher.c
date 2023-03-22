@@ -34,8 +34,7 @@
 #include <linux/net.h>
 #include <net/sock.h>
 
-static int skcipher_sendmsg(struct socket *sock, struct msghdr *msg,
-			    size_t size)
+static int skcipher_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	struct sock *sk = sock->sk;
 	struct alg_sock *ask = alg_sk(sk);
@@ -44,7 +43,7 @@ static int skcipher_sendmsg(struct socket *sock, struct msghdr *msg,
 	struct crypto_skcipher *tfm = pask->private;
 	unsigned ivsize = crypto_skcipher_ivsize(tfm);
 
-	return af_alg_sendmsg(sock, msg, size, ivsize);
+	return af_alg_sendmsg(sock, msg, ivsize);
 }
 
 static int _skcipher_recvmsg(struct socket *sock, struct msghdr *msg,
@@ -234,8 +233,7 @@ unlock_child:
 	return err;
 }
 
-static int skcipher_sendmsg_nokey(struct socket *sock, struct msghdr *msg,
-				  size_t size)
+static int skcipher_sendmsg_nokey(struct socket *sock, struct msghdr *msg)
 {
 	int err;
 
@@ -243,7 +241,7 @@ static int skcipher_sendmsg_nokey(struct socket *sock, struct msghdr *msg,
 	if (err)
 		return err;
 
-	return skcipher_sendmsg(sock, msg, size);
+	return skcipher_sendmsg(sock, msg);
 }
 
 static ssize_t skcipher_sendpage_nokey(struct socket *sock, struct page *page,

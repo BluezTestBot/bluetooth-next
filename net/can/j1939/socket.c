@@ -1187,12 +1187,12 @@ static int j1939_sk_send_loop(struct j1939_priv *priv,  struct sock *sk,
 	return ret;
 }
 
-static int j1939_sk_sendmsg(struct socket *sock, struct msghdr *msg,
-			    size_t size)
+static int j1939_sk_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	struct sock *sk = sock->sk;
 	struct j1939_sock *jsk = j1939_sk(sk);
 	struct j1939_priv *priv;
+	size_t size = msg_data_left(msg);
 	int ifindex;
 	int ret;
 

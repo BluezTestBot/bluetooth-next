@@ -471,7 +471,7 @@ static int raw_getfrag(void *from, char *to, int offset, int len, int odd,
 	return ip_generic_getfrag(rfv->msg, to, offset, len, odd, skb);
 }
 
-static int raw_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
+static int raw_sendmsg(struct sock *sk, struct msghdr *msg)
 {
 	struct inet_sock *inet = inet_sk(sk);
 	struct net *net = sock_net(sk);
@@ -485,6 +485,7 @@ static int raw_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
 	int err;
 	struct ip_options_data opt_copy;
 	struct raw_frag_vec rfv;
+	size_t len = msg_data_left(msg);
 	int hdrincl;
 
 	err = -EMSGSIZE;

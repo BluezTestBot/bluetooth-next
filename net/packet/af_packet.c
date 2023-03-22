@@ -1947,14 +1947,14 @@ static void packet_parse_headers(struct sk_buff *skb, struct socket *sock)
  *	protocol layers and you must therefore supply it with a complete frame
  */
 
-static int packet_sendmsg_spkt(struct socket *sock, struct msghdr *msg,
-			       size_t len)
+static int packet_sendmsg_spkt(struct socket *sock, struct msghdr *msg)
 {
 	struct sock *sk = sock->sk;
 	DECLARE_SOCKADDR(struct sockaddr_pkt *, saddr, msg->msg_name);
 	struct sk_buff *skb = NULL;
 	struct net_device *dev;
 	struct sockcm_cookie sockc;
+	size_t len = msg_data_left(msg);
 	__be16 proto = 0;
 	int err;
 	int extra_len = 0;
@@ -2933,7 +2933,7 @@ static struct sk_buff *packet_alloc_skb(struct sock *sk, size_t prepad,
 	return skb;
 }
 
-static int packet_snd(struct socket *sock, struct msghdr *msg, size_t len)
+static int packet_snd(struct socket *sock, struct msghdr *msg)
 {
 	struct sock *sk = sock->sk;
 	DECLARE_SOCKADDR(struct sockaddr_ll *, saddr, msg->msg_name);
@@ -2946,6 +2946,7 @@ static int packet_snd(struct socket *sock, struct msghdr *msg, size_t len)
 	struct virtio_net_hdr vnet_hdr = { 0 };
 	int offset = 0;
 	struct packet_sock *po = pkt_sk(sk);
+	size_t len = msg_data_left(msg);
 	bool has_vnet_hdr = false;
 	int hlen, tlen, linear;
 	int extra_len = 0;
@@ -3093,7 +3094,7 @@ out:
 	return err;
 }
 
-static int packet_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
+static int packet_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	struct sock *sk = sock->sk;
 	struct packet_sock *po = pkt_sk(sk);
@@ -3104,7 +3105,7 @@ static int packet_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
 	if (data_race(po->tx_ring.pg_vec))
 		return tpacket_snd(po, msg);
 
-	return packet_snd(sock, msg, len);
+	return packet_snd(sock, msg);
 }
 
 /*

@@ -14,8 +14,7 @@ int pvcalls_front_accept(struct socket *sock,
 			 struct socket *newsock,
 			 int flags);
 int pvcalls_front_sendmsg(struct socket *sock,
-			  struct msghdr *msg,
-			  size_t len);
+			  struct msghdr *msg);
 int pvcalls_front_recvmsg(struct socket *sock,
 			  struct msghdr *msg,
 			  size_t len,

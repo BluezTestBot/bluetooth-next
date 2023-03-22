@@ -1566,7 +1566,7 @@ freeit:
 	return 0;
 }
 
-static int atalk_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
+static int atalk_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	struct sock *sk = sock->sk;
 	struct atalk_sock *at = at_sk(sk);
@@ -1579,6 +1579,7 @@ static int atalk_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
 	struct ddpehdr *ddp;
 	int size, hard_header_len;
 	struct atalk_route *rt, *rt_lo = NULL;
+	size_t len = msg_data_left(msg);
 	int err;
 
 	if (flags & ~(MSG_DONTWAIT|MSG_CMSG_COMPAT))

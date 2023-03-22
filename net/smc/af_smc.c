@@ -2653,10 +2653,11 @@ static int smc_getname(struct socket *sock, struct sockaddr *addr,
 	return smc->clcsock->ops->getname(smc->clcsock, addr, peer);
 }
 
-static int smc_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
+static int smc_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	struct sock *sk = sock->sk;
 	struct smc_sock *smc;
+	size_t len = msg_data_left(msg);
 	int rc;
 
 	smc = smc_sk(sk);
@@ -2681,7 +2682,7 @@ static int smc_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
 	}
 
 	if (smc->use_fallback) {
-		rc = smc->clcsock->ops->sendmsg(smc->clcsock, msg, len);
+		rc = smc->clcsock->ops->sendmsg(smc->clcsock, msg);
 	} else {
 		rc = smc_tx_sendmsg(smc, msg, len);
 		SMC_STAT_TX_PAYLOAD(smc, len, rc);

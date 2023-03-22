@@ -657,9 +657,10 @@ static int ping_v4_push_pending_frames(struct sock *sk, struct pingfakehdr *pfh,
 	return ip_push_pending_frames(sk, fl4);
 }
 
-int ping_common_sendmsg(int family, struct msghdr *msg, size_t len,
+int ping_common_sendmsg(int family, struct msghdr *msg,
 			void *user_icmph, size_t icmph_len)
 {
+	size_t len = msg_data_left(msg);
 	u8 type, code;
 
 	if (len > 0xFFFF)
@@ -703,7 +704,7 @@ int ping_common_sendmsg(int family, struct msghdr *msg, size_t len,
 }
 EXPORT_SYMBOL_GPL(ping_common_sendmsg);
 
-static int ping_v4_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
+static int ping_v4_sendmsg(struct sock *sk, struct msghdr *msg)
 {
 	struct net *net = sock_net(sk);
 	struct flowi4 fl4;
@@ -713,6 +714,7 @@ static int ping_v4_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
 	struct pingfakehdr pfh;
 	struct rtable *rt = NULL;
 	struct ip_options_data opt_copy;
+	size_t len = msg_data_left(msg);
 	int free = 0;
 	__be32 saddr, daddr, faddr;
 	u8  tos;
@@ -720,7 +722,7 @@ static int ping_v4_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
 
 	pr_debug("ping_v4_sendmsg(sk=%p,sk->num=%u)\n", inet, inet->inet_num);
 
-	err = ping_common_sendmsg(AF_INET, msg, len, &user_icmph,
+	err = ping_common_sendmsg(AF_INET, msg, &user_icmph,
 				  sizeof(user_icmph));
 	if (err)
 		return err;

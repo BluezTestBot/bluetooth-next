@@ -909,7 +909,7 @@ void rds6_inc_info_copy(struct rds_incoming *inc,
 			int flip);
 
 /* send.c */
-int rds_sendmsg(struct socket *sock, struct msghdr *msg, size_t payload_len);
+int rds_sendmsg(struct socket *sock, struct msghdr *msg);
 void rds_send_path_reset(struct rds_conn_path *conn);
 int rds_send_xmit(struct rds_conn_path *cp);
 struct sockaddr_in;

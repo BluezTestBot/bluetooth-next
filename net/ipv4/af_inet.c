@@ -815,7 +815,7 @@ int inet_send_prepare(struct sock *sk)
 }
 EXPORT_SYMBOL_GPL(inet_send_prepare);
 
-int inet_sendmsg(struct socket *sock, struct msghdr *msg, size_t size)
+int inet_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	struct sock *sk = sock->sk;
 
@@ -823,7 +823,7 @@ int inet_sendmsg(struct socket *sock, struct msghdr *msg, size_t size)
 		return -EAGAIN;
 
 	return INDIRECT_CALL_2(sk->sk_prot->sendmsg, tcp_sendmsg, udp_sendmsg,
-			       sk, msg, size);
+			       sk, msg);
 }
 EXPORT_SYMBOL(inet_sendmsg);
 

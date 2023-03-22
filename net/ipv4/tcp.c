@@ -1166,7 +1166,7 @@ void tcp_free_fastopen_req(struct tcp_sock *tp)
 }
 
 int tcp_sendmsg_fastopen(struct sock *sk, struct msghdr *msg, int *copied,
-			 size_t size, struct ubuf_info *uarg)
+			 struct ubuf_info *uarg)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct inet_sock *inet = inet_sk(sk);
@@ -1186,7 +1186,7 @@ int tcp_sendmsg_fastopen(struct sock *sk, struct msghdr *msg, int *copied,
 	if (unlikely(!tp->fastopen_req))
 		return -ENOBUFS;
 	tp->fastopen_req->data = msg;
-	tp->fastopen_req->size = size;
+	tp->fastopen_req->size = msg_data_left(msg);
 	tp->fastopen_req->uarg = uarg;
 
 	if (inet->defer_connect) {
@@ -1212,12 +1212,13 @@ int tcp_sendmsg_fastopen(struct sock *sk, struct msghdr *msg, int *copied,
 	return err;
 }
 
-int tcp_sendmsg_locked(struct sock *sk, struct msghdr *msg, size_t size)
+int tcp_sendmsg_locked(struct sock *sk, struct msghdr *msg)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct ubuf_info *uarg = NULL;
 	struct sk_buff *skb;
 	struct sockcm_cookie sockc;
+	size_t size = msg_data_left(msg);
 	int flags, err, copied = 0;
 	int mss_now = 0, size_goal, copied_syn = 0;
 	int process_backlog = 0;
@@ -1226,7 +1227,7 @@ int tcp_sendmsg_locked(struct sock *sk, struct msghdr *msg, size_t size)
 
 	flags = msg->msg_flags;
 
-	if ((flags & MSG_ZEROCOPY) && size) {
+	if ((flags & MSG_ZEROCOPY) && msg_data_left(msg)) {
 		skb = tcp_write_queue_tail(sk);
 
 		if (msg->msg_ubuf) {
@@ -1247,7 +1248,7 @@ int tcp_sendmsg_locked(struct sock *sk, struct msghdr *msg, size_t size)
 
 	if (unlikely(flags & MSG_FASTOPEN || inet_sk(sk)->defer_connect) &&
 	    !tp->repair) {
-		err = tcp_sendmsg_fastopen(sk, msg, &copied_syn, size, uarg);
+		err = tcp_sendmsg_fastopen(sk, msg, &copied_syn, uarg);
 		if (err == -EINPROGRESS && copied_syn > 0)
 			goto out;
 		else if (err)
@@ -1271,7 +1272,7 @@ int tcp_sendmsg_locked(struct sock *sk, struct msghdr *msg, size_t size)
 
 	if (unlikely(tp->repair)) {
 		if (tp->repair_queue == TCP_RECV_QUEUE) {
-			copied = tcp_send_rcvq(sk, msg, size);
+			copied = tcp_send_rcvq(sk, msg);
 			goto out_nopush;
 		}
 
@@ -1477,12 +1478,12 @@ out_err:
 }
 EXPORT_SYMBOL_GPL(tcp_sendmsg_locked);
 
-int tcp_sendmsg(struct sock *sk, struct msghdr *msg, size_t size)
+int tcp_sendmsg(struct sock *sk, struct msghdr *msg)
 {
 	int ret;
 
 	lock_sock(sk);
-	ret = tcp_sendmsg_locked(sk, msg, size);
+	ret = tcp_sendmsg_locked(sk, msg);
 	release_sock(sk);
 
 	return ret;

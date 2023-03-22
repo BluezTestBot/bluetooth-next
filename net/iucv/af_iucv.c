@@ -895,8 +895,7 @@ static int iucv_send_iprm(struct iucv_path *path, struct iucv_message *msg,
 				 (void *) prmdata, 8);
 }
 
-static int iucv_sock_sendmsg(struct socket *sock, struct msghdr *msg,
-			     size_t len)
+static int iucv_sock_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	struct sock *sk = sock->sk;
 	struct iucv_sock *iucv = iucv_sk(sk);
@@ -905,6 +904,7 @@ static int iucv_sock_sendmsg(struct socket *sock, struct msghdr *msg,
 	struct sk_buff *skb;
 	struct iucv_message txmsg = {0};
 	struct cmsghdr *cmsg;
+	size_t len = msg_data_left(msg);
 	int cmsg_done;
 	long timeo;
 	char user_id[9];

@@ -3662,13 +3662,14 @@ static int pfkey_send_migrate(const struct xfrm_selector *sel, u8 dir, u8 type,
 }
 #endif
 
-static int pfkey_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
+static int pfkey_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	struct sock *sk = sock->sk;
 	struct sk_buff *skb = NULL;
 	struct sadb_msg *hdr = NULL;
 	int err;
 	struct net *net = sock_net(sk);
+	size_t len = msg_data_left(msg);
 
 	err = -EOPNOTSUPP;
 	if (msg->msg_flags & MSG_OOB)

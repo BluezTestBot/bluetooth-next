@@ -1326,7 +1326,7 @@ out:
 	return err;
 }
 
-int udpv6_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
+int udpv6_sendmsg(struct sock *sk, struct msghdr *msg)
 {
 	struct ipv6_txoptions opt_space;
 	struct udp_sock *up = udp_sk(sk);
@@ -1343,6 +1343,7 @@ int udpv6_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
 	struct ipcm6_cookie ipc6;
 	int addr_len = msg->msg_namelen;
 	bool connected = false;
+	size_t len = msg_data_left(msg);
 	int ulen = len;
 	int corkreq = READ_ONCE(up->corkflag) || msg->msg_flags&MSG_MORE;
 	int err;
@@ -1397,7 +1398,7 @@ int udpv6_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
 do_udp_sendmsg:
 			if (ipv6_only_sock(sk))
 				return -ENETUNREACH;
-			return udp_sendmsg(sk, msg, len);
+			return udp_sendmsg(sk, msg);
 		}
 	}
 
@@ -1410,7 +1411,7 @@ do_udp_sendmsg:
 	getfrag  =  is_udplite ?  udplite_getfrag : ip_generic_getfrag;
 	if (up->pending) {
 		if (up->pending == AF_INET)
-			return udp_sendmsg(sk, msg, len);
+			return udp_sendmsg(sk, msg);
 		/*
 		 * There are pending frames.
 		 * The socket lock must be held while it's corked.

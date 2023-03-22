@@ -510,8 +510,7 @@ static int transmit_skb(struct sk_buff *skb, struct caifsock *cf_sk,
 }
 
 /* Copied from af_unix:unix_dgram_sendmsg, and adapted to CAIF */
-static int caif_seqpkt_sendmsg(struct socket *sock, struct msghdr *msg,
-			       size_t len)
+static int caif_seqpkt_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	struct sock *sk = sock->sk;
 	struct caifsock *cf_sk = container_of(sk, struct caifsock, sk);
@@ -520,6 +519,8 @@ static int caif_seqpkt_sendmsg(struct socket *sock, struct msghdr *msg,
 	struct sk_buff *skb = NULL;
 	int noblock;
 	long timeo;
+	size_t len = msg_data_left(msg);
+
 	caif_assert(cf_sk);
 	ret = sock_error(sk);
 	if (ret)
@@ -582,8 +583,7 @@ err:
  * Changed removed permission handling and added waiting for flow on
  * and other minor adaptations.
  */
-static int caif_stream_sendmsg(struct socket *sock, struct msghdr *msg,
-			       size_t len)
+static int caif_stream_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	struct sock *sk = sock->sk;
 	struct caifsock *cf_sk = container_of(sk, struct caifsock, sk);
@@ -605,10 +605,7 @@ static int caif_stream_sendmsg(struct socket *sock, struct msghdr *msg,
 	if (unlikely(sk->sk_shutdown & SEND_SHUTDOWN))
 		goto pipe_err;
 
-	while (sent < len) {
-
-		size = len-sent;
-
+	while ((size = msg_data_left(msg))) {
 		if (size > cf_sk->maxframe)
 			size = cf_sk->maxframe;
 

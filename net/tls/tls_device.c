@@ -566,7 +566,7 @@ last_record:
 	return rc;
 }
 
-int tls_device_sendmsg(struct sock *sk, struct msghdr *msg, size_t size)
+int tls_device_sendmsg(struct sock *sk, struct msghdr *msg)
 {
 	unsigned char record_type = TLS_RECORD_TYPE_DATA;
 	struct tls_context *tls_ctx = tls_get_ctx(sk);
@@ -583,7 +583,8 @@ int tls_device_sendmsg(struct sock *sk, struct msghdr *msg, size_t size)
 	}
 
 	iter.msg_iter = &msg->msg_iter;
-	rc = tls_push_data(sk, iter, size, msg->msg_flags, record_type, NULL);
+	rc = tls_push_data(sk, iter, msg_data_left(msg), msg->msg_flags,
+			   record_type, NULL);
 
 out:
 	release_sock(sk);

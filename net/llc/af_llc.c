@@ -919,12 +919,11 @@ copy_uaddr:
  *	llc_ui_sendmsg - Transmit data provided by the socket user.
  *	@sock: Socket to transmit data from.
  *	@msg: Various user related information.
- *	@len: Length of data to transmit.
  *
  *	Transmit data provided by the socket user.
  *	Returns non-negative upon success, negative otherwise.
  */
-static int llc_ui_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
+static int llc_ui_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	struct sock *sk = sock->sk;
 	struct llc_sock *llc = llc_sk(sk);
@@ -954,7 +953,7 @@ static int llc_ui_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
 			goto out;
 	}
 	hdrlen = llc->dev->hard_header_len + llc_ui_header_len(sk, addr);
-	size = hdrlen + len;
+	size = hdrlen + msg_data_left(msg);
 	if (size > llc->dev->mtu)
 		size = llc->dev->mtu;
 	copied = size - hdrlen;

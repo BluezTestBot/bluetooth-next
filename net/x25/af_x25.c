@@ -1100,7 +1100,7 @@ out_clear_request:
 	goto out;
 }
 
-static int x25_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
+static int x25_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	struct sock *sk = sock->sk;
 	struct x25_sock *x25 = x25_sk(sk);
@@ -1108,6 +1108,7 @@ static int x25_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
 	struct sockaddr_x25 sx25;
 	struct sk_buff *skb;
 	unsigned char *asmptr;
+	size_t len = msg_data_left(msg);
 	int noblock = msg->msg_flags & MSG_DONTWAIT;
 	size_t size;
 	int qbit = 0, rc = -EINVAL;

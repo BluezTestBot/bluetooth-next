@@ -1935,7 +1935,7 @@ static void sctp_sendmsg_update_sinfo(struct sctp_association *asoc,
 	}
 }
 
-static int sctp_sendmsg(struct sock *sk, struct msghdr *msg, size_t msg_len)
+static int sctp_sendmsg(struct sock *sk, struct msghdr *msg)
 {
 	struct sctp_endpoint *ep = sctp_sk(sk)->ep;
 	struct sctp_transport *transport = NULL;
@@ -1943,6 +1943,7 @@ static int sctp_sendmsg(struct sock *sk, struct msghdr *msg, size_t msg_len)
 	struct sctp_association *asoc, *tmp;
 	struct sctp_cmsgs cmsgs;
 	union sctp_addr *daddr;
+	size_t msg_len = msg_data_left(msg);
 	bool new = false;
 	__u16 sflags;
 	int err;

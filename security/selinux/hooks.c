@@ -4912,8 +4912,7 @@ static int selinux_socket_accept(struct socket *sock, struct socket *newsock)
 	return 0;
 }
 
-static int selinux_socket_sendmsg(struct socket *sock, struct msghdr *msg,
-				  int size)
+static int selinux_socket_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	return sock_has_perm(sock->sk, SOCKET__WRITE);
 }

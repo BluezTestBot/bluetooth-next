@@ -1692,8 +1692,7 @@ static int hci_logging_frame(struct sock *sk, struct sk_buff *skb,
 	return err;
 }
 
-static int hci_sock_sendmsg(struct socket *sock, struct msghdr *msg,
-			    size_t len)
+static int hci_sock_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	struct sock *sk = sock->sk;
 	struct hci_mgmt_chan *chan;
@@ -1701,6 +1700,7 @@ static int hci_sock_sendmsg(struct socket *sock, struct msghdr *msg,
 	struct sk_buff *skb;
 	int err;
 	const unsigned int flags = msg->msg_flags;
+	size_t len = msg_data_left(msg);
 
 	BT_DBG("sock %p sk %p", sock, sk);
 

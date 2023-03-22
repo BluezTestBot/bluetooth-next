@@ -262,14 +262,14 @@ no_sock:
  * when a user application does a sendmsg() on the session socket. L2TP and
  * PPP headers must be inserted into the user's data.
  */
-static int pppol2tp_sendmsg(struct socket *sock, struct msghdr *m,
-			    size_t total_len)
+static int pppol2tp_sendmsg(struct socket *sock, struct msghdr *m)
 {
 	struct sock *sk = sock->sk;
 	struct sk_buff *skb;
 	int error;
 	struct l2tp_session *session;
 	struct l2tp_tunnel *tunnel;
+	size_t total_len = msg_data_left(m);
 	int uhlen;
 
 	error = -ENOTCONN;

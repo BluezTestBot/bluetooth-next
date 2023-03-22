@@ -1489,7 +1489,7 @@ out:
 	return err;
 }
 
-static int ax25_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
+static int ax25_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	DECLARE_SOCKADDR(struct sockaddr_ax25 *, usax, msg->msg_name);
 	struct sock *sk = sock->sk;
@@ -1497,7 +1497,7 @@ static int ax25_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
 	struct sk_buff *skb;
 	ax25_digi dtmp, *dp;
 	ax25_cb *ax25;
-	size_t size;
+	size_t size, len = msg_data_left(msg);
 	int lv, err, addr_len = msg->msg_namelen;
 
 	if (msg->msg_flags & ~(MSG_DONTWAIT|MSG_EOR|MSG_CMSG_COMPAT))

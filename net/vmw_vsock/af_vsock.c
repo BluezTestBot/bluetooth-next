@@ -1131,8 +1131,7 @@ static __poll_t vsock_poll(struct file *file, struct socket *sock,
 	return mask;
 }
 
-static int vsock_dgram_sendmsg(struct socket *sock, struct msghdr *msg,
-			       size_t len)
+static int vsock_dgram_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	int err;
 	struct sock *sk;
@@ -1198,7 +1197,7 @@ static int vsock_dgram_sendmsg(struct socket *sock, struct msghdr *msg,
 		goto out;
 	}
 
-	err = transport->dgram_enqueue(vsk, remote_addr, msg, len);
+	err = transport->dgram_enqueue(vsk, remote_addr, msg, msg_data_left(msg));
 
 out:
 	release_sock(sk);
@@ -1737,8 +1736,7 @@ static int vsock_connectible_getsockopt(struct socket *sock,
 	return 0;
 }
 
-static int vsock_connectible_sendmsg(struct socket *sock, struct msghdr *msg,
-				     size_t len)
+static int vsock_connectible_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	struct sock *sk;
 	struct vsock_sock *vsk;
@@ -1794,7 +1792,7 @@ static int vsock_connectible_sendmsg(struct socket *sock, struct msghdr *msg,
 	if (err < 0)
 		goto out;
 
-	while (total_written < len) {
+	while (msg_data_left(msg)) {
 		ssize_t written;
 
 		add_wait_queue(sk_sleep(sk), &wait);
@@ -1856,10 +1854,10 @@ static int vsock_connectible_sendmsg(struct socket *sock, struct msghdr *msg,
 
 		if (sk->sk_type == SOCK_SEQPACKET) {
 			written = transport->seqpacket_enqueue(vsk,
-						msg, len - total_written);
+					msg, msg_data_left(msg));
 		} else {
 			written = transport->stream_enqueue(vsk,
-					msg, len - total_written);
+					msg, msg_data_left(msg));
 		}
 
 		if (written < 0) {
@@ -1882,7 +1880,7 @@ out_err:
 		 * 1) SOCK_STREAM socket.
 		 * 2) SOCK_SEQPACKET socket when whole buffer is sent.
 		 */
-		if (sk->sk_type == SOCK_STREAM || total_written == len)
+		if (sk->sk_type == SOCK_STREAM || !msg_data_left(msg))
 			err = total_written;
 	}
 out:

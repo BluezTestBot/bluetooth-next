@@ -1034,7 +1034,7 @@ int nr_rx_frame(struct sk_buff *skb, struct net_device *dev)
 	return 1;
 }
 
-static int nr_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
+static int nr_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	struct sock *sk = sock->sk;
 	struct nr_sock *nr = nr_sk(sk);
@@ -1043,6 +1043,7 @@ static int nr_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
 	struct sockaddr_ax25 sax;
 	struct sk_buff *skb;
 	unsigned char *asmptr;
+	size_t len = msg_data_left(msg);
 	int size;
 
 	if (msg->msg_flags & ~(MSG_DONTWAIT|MSG_EOR|MSG_CMSG_COMPAT))

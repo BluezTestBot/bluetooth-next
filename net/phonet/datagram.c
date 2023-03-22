@@ -70,10 +70,11 @@ static int pn_init(struct sock *sk)
 	return 0;
 }
 
-static int pn_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
+static int pn_sendmsg(struct sock *sk, struct msghdr *msg)
 {
 	DECLARE_SOCKADDR(struct sockaddr_pn *, target, msg->msg_name);
 	struct sk_buff *skb;
+	size_t len = msg_data_left(msg);
 	int err;
 
 	if (msg->msg_flags & ~(MSG_DONTWAIT|MSG_EOR|MSG_NOSIGNAL|

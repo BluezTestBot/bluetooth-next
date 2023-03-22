@@ -90,7 +90,7 @@ out_release:
 	return rc;
 }
 
-static int mctp_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
+static int mctp_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	DECLARE_SOCKADDR(struct sockaddr_mctp *, addr, msg->msg_name);
 	int rc, addrlen = msg->msg_namelen;
@@ -99,6 +99,7 @@ static int mctp_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
 	struct mctp_skb_cb *cb;
 	struct mctp_route *rt;
 	struct sk_buff *skb = NULL;
+	size_t len = msg_data_left(msg);
 	int hlen;
 
 	if (addr) {

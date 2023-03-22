@@ -1098,7 +1098,7 @@ static int rds_rdma_bytes(struct msghdr *msg, size_t *rdma_bytes)
 	return 0;
 }
 
-int rds_sendmsg(struct socket *sock, struct msghdr *msg, size_t payload_len)
+int rds_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	struct sock *sk = sock->sk;
 	struct rds_sock *rs = rds_sk_to_rs(sk);
@@ -1114,6 +1114,7 @@ int rds_sendmsg(struct socket *sock, struct msghdr *msg, size_t payload_len)
 	struct rds_conn_path *cpath;
 	struct in6_addr daddr;
 	__u32 scope_id = 0;
+	size_t payload_len = msg_data_left(msg);
 	size_t rdma_payload_len = 0;
 	bool zcopy = ((msg->msg_flags & MSG_ZEROCOPY) &&
 		      sock_flag(rds_rs_to_sk(rs), SOCK_ZEROCOPY));

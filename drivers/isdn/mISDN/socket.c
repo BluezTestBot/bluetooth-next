@@ -164,10 +164,11 @@ mISDN_sock_recvmsg(struct socket *sock, struct msghdr *msg, size_t len,
 }
 
 static int
-mISDN_sock_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
+mISDN_sock_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	struct sock		*sk = sock->sk;
 	struct sk_buff		*skb;
+	size_t			len = msg_data_left(msg);
 	int			err = -ENOMEM;
 
 	if (*debug & DEBUG_SOCKET)

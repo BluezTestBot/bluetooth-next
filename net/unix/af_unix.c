@@ -756,20 +756,20 @@ static int unix_ioctl(struct socket *, unsigned int, unsigned long);
 static int unix_compat_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg);
 #endif
 static int unix_shutdown(struct socket *, int);
-static int unix_stream_sendmsg(struct socket *, struct msghdr *, size_t);
+static int unix_stream_sendmsg(struct socket *, struct msghdr *);
 static int unix_stream_recvmsg(struct socket *, struct msghdr *, size_t, int);
 static ssize_t unix_stream_sendpage(struct socket *, struct page *, int offset,
 				    size_t size, int flags);
 static ssize_t unix_stream_splice_read(struct socket *,  loff_t *ppos,
 				       struct pipe_inode_info *, size_t size,
 				       unsigned int flags);
-static int unix_dgram_sendmsg(struct socket *, struct msghdr *, size_t);
+static int unix_dgram_sendmsg(struct socket *, struct msghdr *);
 static int unix_dgram_recvmsg(struct socket *, struct msghdr *, size_t, int);
 static int unix_read_skb(struct sock *sk, skb_read_actor_t recv_actor);
 static int unix_stream_read_skb(struct sock *sk, skb_read_actor_t recv_actor);
 static int unix_dgram_connect(struct socket *, struct sockaddr *,
 			      int, int);
-static int unix_seqpacket_sendmsg(struct socket *, struct msghdr *, size_t);
+static int unix_seqpacket_sendmsg(struct socket *, struct msghdr *);
 static int unix_seqpacket_recvmsg(struct socket *, struct msghdr *, size_t,
 				  int);
 
@@ -1888,14 +1888,14 @@ static void scm_stat_del(struct sock *sk, struct sk_buff *skb)
  *	Send AF_UNIX data.
  */
 
-static int unix_dgram_sendmsg(struct socket *sock, struct msghdr *msg,
-			      size_t len)
+static int unix_dgram_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	DECLARE_SOCKADDR(struct sockaddr_un *, sunaddr, msg->msg_name);
 	struct sock *sk = sock->sk, *other = NULL;
 	struct unix_sock *u = unix_sk(sk);
 	struct scm_cookie scm;
 	struct sk_buff *skb;
+	size_t len = msg_data_left(msg);
 	int data_len = 0;
 	int sk_locked;
 	long timeo;
@@ -2157,11 +2157,11 @@ static int queue_oob(struct socket *sock, struct msghdr *msg, struct sock *other
 }
 #endif
 
-static int unix_stream_sendmsg(struct socket *sock, struct msghdr *msg,
-			       size_t len)
+static int unix_stream_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	struct sock *sk = sock->sk;
 	struct sock *other = NULL;
+	size_t len = msg_data_left(msg);
 	int err, size;
 	struct sk_buff *skb;
 	int sent = 0;
@@ -2388,8 +2388,7 @@ err:
 	return err;
 }
 
-static int unix_seqpacket_sendmsg(struct socket *sock, struct msghdr *msg,
-				  size_t len)
+static int unix_seqpacket_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	int err;
 	struct sock *sk = sock->sk;
@@ -2404,7 +2403,7 @@ static int unix_seqpacket_sendmsg(struct socket *sock, struct msghdr *msg,
 	if (msg->msg_namelen)
 		msg->msg_namelen = 0;
 
-	return unix_dgram_sendmsg(sock, msg, len);
+	return unix_dgram_sendmsg(sock, msg);
 }
 
 static int unix_seqpacket_recvmsg(struct socket *sock, struct msghdr *msg,

@@ -629,7 +629,7 @@ static int xsk_check_common(struct xdp_sock *xs)
 	return 0;
 }
 
-static int __xsk_sendmsg(struct socket *sock, struct msghdr *m, size_t total_len)
+static int __xsk_sendmsg(struct socket *sock, struct msghdr *m)
 {
 	bool need_wait = !(m->msg_flags & MSG_DONTWAIT);
 	struct sock *sk = sock->sk;
@@ -663,12 +663,12 @@ static int __xsk_sendmsg(struct socket *sock, struct msghdr *m, size_t total_len
 	return 0;
 }
 
-static int xsk_sendmsg(struct socket *sock, struct msghdr *m, size_t total_len)
+static int xsk_sendmsg(struct socket *sock, struct msghdr *m)
 {
 	int ret;
 
 	rcu_read_lock();
-	ret = __xsk_sendmsg(sock, m, total_len);
+	ret = __xsk_sendmsg(sock, m);
 	rcu_read_unlock();
 
 	return ret;

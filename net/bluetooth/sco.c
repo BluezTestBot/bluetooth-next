@@ -722,11 +722,11 @@ static int sco_sock_getname(struct socket *sock, struct sockaddr *addr,
 	return sizeof(struct sockaddr_sco);
 }
 
-static int sco_sock_sendmsg(struct socket *sock, struct msghdr *msg,
-			    size_t len)
+static int sco_sock_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	struct sock *sk = sock->sk;
 	struct sk_buff *skb;
+	size_t len = msg_data_left(msg);
 	int err;
 
 	BT_DBG("sock %p, sk %p", sock, sk);

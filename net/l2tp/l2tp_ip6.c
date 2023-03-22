@@ -488,7 +488,7 @@ out:
 /* Userspace will call sendmsg() on the tunnel socket to send L2TP
  * control frames.
  */
-static int l2tp_ip6_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
+static int l2tp_ip6_sendmsg(struct sock *sk, struct msghdr *msg)
 {
 	struct ipv6_txoptions opt_space;
 	DECLARE_SOCKADDR(struct sockaddr_l2tpip6 *, lsa, msg->msg_name);
@@ -500,6 +500,7 @@ static int l2tp_ip6_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
 	struct dst_entry *dst = NULL;
 	struct flowi6 fl6;
 	struct ipcm6_cookie ipc6;
+	size_t len = msg_data_left(msg);
 	int addr_len = msg->msg_namelen;
 	int transhdrlen = 4; /* zero session-id */
 	int ulen;

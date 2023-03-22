@@ -770,8 +770,7 @@ error:
 	return ret;
 }
 
-static int llcp_sock_sendmsg(struct socket *sock, struct msghdr *msg,
-			     size_t len)
+static int llcp_sock_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	struct sock *sk = sock->sk;
 	struct nfc_llcp_sock *llcp_sock = nfc_llcp_sock(sk);
@@ -805,7 +804,7 @@ static int llcp_sock_sendmsg(struct socket *sock, struct msghdr *msg,
 		release_sock(sk);
 
 		return nfc_llcp_send_ui_frame(llcp_sock, addr->dsap, addr->ssap,
-					      msg, len);
+					      msg, msg_data_left(msg));
 	}
 
 	if (sk->sk_state != LLCP_CONNECTED) {
@@ -815,7 +814,7 @@ static int llcp_sock_sendmsg(struct socket *sock, struct msghdr *msg,
 
 	release_sock(sk);
 
-	return nfc_llcp_send_i_frame(llcp_sock, msg, len);
+	return nfc_llcp_send_i_frame(llcp_sock, msg, msg_data_left(msg));
 }
 
 static int llcp_sock_recvmsg(struct socket *sock, struct msghdr *msg,

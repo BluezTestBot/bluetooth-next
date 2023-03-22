@@ -88,12 +88,11 @@ static int ieee802154_sock_release(struct socket *sock)
 	return 0;
 }
 
-static int ieee802154_sock_sendmsg(struct socket *sock, struct msghdr *msg,
-				   size_t len)
+static int ieee802154_sock_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	struct sock *sk = sock->sk;
 
-	return sk->sk_prot->sendmsg(sk, msg, len);
+	return sk->sk_prot->sendmsg(sk, msg);
 }
 
 static int ieee802154_sock_bind(struct socket *sock, struct sockaddr *uaddr,
@@ -238,11 +237,12 @@ static int raw_disconnect(struct sock *sk, int flags)
 	return 0;
 }
 
-static int raw_sendmsg(struct sock *sk, struct msghdr *msg, size_t size)
+static int raw_sendmsg(struct sock *sk, struct msghdr *msg)
 {
 	struct net_device *dev;
 	unsigned int mtu;
 	struct sk_buff *skb;
+	size_t size = msg_data_left(msg);
 	int hlen, tlen;
 	int err;
 
@@ -605,7 +605,7 @@ static int dgram_disconnect(struct sock *sk, int flags)
 	return 0;
 }
 
-static int dgram_sendmsg(struct sock *sk, struct msghdr *msg, size_t size)
+static int dgram_sendmsg(struct sock *sk, struct msghdr *msg)
 {
 	struct net_device *dev;
 	unsigned int mtu;
@@ -614,6 +614,7 @@ static int dgram_sendmsg(struct sock *sk, struct msghdr *msg, size_t size)
 	struct dgram_sock *ro = dgram_sk(sk);
 	struct ieee802154_addr dst_addr;
 	DECLARE_SOCKADDR(struct sockaddr_ieee802154*, daddr, msg->msg_name);
+	size_t size = msg_data_left(msg);
 	int hlen, tlen;
 	int err;
 

@@ -1069,7 +1069,7 @@ int rose_rx_call_request(struct sk_buff *skb, struct net_device *dev, struct ros
 	return 1;
 }
 
-static int rose_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
+static int rose_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	struct sock *sk = sock->sk;
 	struct rose_sock *rose = rose_sk(sk);
@@ -1078,6 +1078,7 @@ static int rose_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
 	struct full_sockaddr_rose srose;
 	struct sk_buff *skb;
 	unsigned char *asmptr;
+	size_t len = msg_data_left(msg);
 	int n, size, qbit = 0;
 
 	if (msg->msg_flags & ~(MSG_DONTWAIT|MSG_EOR|MSG_CMSG_COMPAT))

@@ -3183,13 +3183,13 @@ int sock_no_shutdown(struct socket *sock, int how)
 }
 EXPORT_SYMBOL(sock_no_shutdown);
 
-int sock_no_sendmsg(struct socket *sock, struct msghdr *m, size_t len)
+int sock_no_sendmsg(struct socket *sock, struct msghdr *m)
 {
 	return -EOPNOTSUPP;
 }
 EXPORT_SYMBOL(sock_no_sendmsg);
 
-int sock_no_sendmsg_locked(struct sock *sk, struct msghdr *m, size_t len)
+int sock_no_sendmsg_locked(struct sock *sk, struct msghdr *m)
 {
 	return -EOPNOTSUPP;
 }

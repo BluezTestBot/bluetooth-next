@@ -60,8 +60,7 @@ static void hash_free_result(struct sock *sk, struct hash_ctx *ctx)
 	ctx->result = NULL;
 }
 
-static int hash_sendmsg(struct socket *sock, struct msghdr *msg,
-			size_t ignored)
+static int hash_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	int limit = ALG_MAX_PAGES * PAGE_SIZE;
 	struct sock *sk = sock->sk;
@@ -325,8 +324,7 @@ unlock_child:
 	return err;
 }
 
-static int hash_sendmsg_nokey(struct socket *sock, struct msghdr *msg,
-			      size_t size)
+static int hash_sendmsg_nokey(struct socket *sock, struct msghdr *msg)
 {
 	int err;
 
@@ -334,7 +332,7 @@ static int hash_sendmsg_nokey(struct socket *sock, struct msghdr *msg,
 	if (err)
 		return err;
 
-	return hash_sendmsg(sock, msg, size);
+	return hash_sendmsg(sock, msg);
 }
 
 static ssize_t hash_sendpage_nokey(struct socket *sock, struct page *page,

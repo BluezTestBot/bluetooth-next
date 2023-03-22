@@ -2301,9 +2301,9 @@ int security_socket_accept(struct socket *sock, struct socket *newsock)
 	return call_int_hook(socket_accept, 0, sock, newsock);
 }
 
-int security_socket_sendmsg(struct socket *sock, struct msghdr *msg, int size)
+int security_socket_sendmsg(struct socket *sock, struct msghdr *msg)
 {
-	return call_int_hook(socket_sendmsg, 0, sock, msg, size);
+	return call_int_hook(socket_sendmsg, 0, sock, msg);
 }
 
 int security_socket_recvmsg(struct socket *sock, struct msghdr *msg,

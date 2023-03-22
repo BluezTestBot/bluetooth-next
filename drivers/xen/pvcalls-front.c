@@ -531,10 +531,10 @@ out:
 	return len;
 }
 
-int pvcalls_front_sendmsg(struct socket *sock, struct msghdr *msg,
-			  size_t len)
+int pvcalls_front_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	struct sock_mapping *map;
+	size_t len = msg_data_left(msg);
 	int sent, tot_sent = 0;
 	int count = 0, flags;
 

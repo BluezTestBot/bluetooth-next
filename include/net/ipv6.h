@@ -1228,7 +1228,7 @@ int inet6_compat_ioctl(struct socket *sock, unsigned int cmd,
 
 int inet6_hash_connect(struct inet_timewait_death_row *death_row,
 			      struct sock *sk);
-int inet6_sendmsg(struct socket *sock, struct msghdr *msg, size_t size);
+int inet6_sendmsg(struct socket *sock, struct msghdr *msg);
 int inet6_recvmsg(struct socket *sock, struct msghdr *msg, size_t size,
 		  int flags);
 

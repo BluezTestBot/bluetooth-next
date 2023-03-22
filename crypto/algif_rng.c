@@ -130,11 +130,12 @@ static int rng_test_recvmsg(struct socket *sock, struct msghdr *msg, size_t len,
 	return ret;
 }
 
-static int rng_test_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
+static int rng_test_sendmsg(struct socket *sock, struct msghdr *msg)
 {
 	int err;
 	struct alg_sock *ask = alg_sk(sock->sk);
 	struct rng_ctx *ctx = ask->private;
+	size_t len = msg_data_left(msg);
 
 	lock_sock(sock->sk);
 	if (len > MAXSIZE) {

@@ -156,8 +156,8 @@ static int tipc_sk_leave(struct tipc_sock *tsk);
 static struct tipc_sock *tipc_sk_lookup(struct net *net, u32 portid);
 static int tipc_sk_insert(struct tipc_sock *tsk);
 static void tipc_sk_remove(struct tipc_sock *tsk);
-static int __tipc_sendstream(struct socket *sock, struct msghdr *m, size_t dsz);
-static int __tipc_sendmsg(struct socket *sock, struct msghdr *m, size_t dsz);
+static int __tipc_sendstream(struct socket *sock, struct msghdr *m);
+static int __tipc_sendmsg(struct socket *sock, struct msghdr *m);
 static void tipc_sk_push_backlog(struct tipc_sock *tsk, bool nagle_ack);
 static int tipc_wait_for_connect(struct socket *sock, long *timeo_p);
 
@@ -1385,7 +1385,6 @@ exit:
  * tipc_sendmsg - send message in connectionless manner
  * @sock: socket structure
  * @m: message to send
- * @dsz: amount of user data to be sent
  *
  * Message must have an destination specified explicitly.
  * Used for SOCK_RDM and SOCK_DGRAM messages,
@@ -1394,20 +1393,19 @@ exit:
  *
  * Return: the number of bytes sent on success, or errno otherwise
  */
-static int tipc_sendmsg(struct socket *sock,
-			struct msghdr *m, size_t dsz)
+static int tipc_sendmsg(struct socket *sock, struct msghdr *m)
 {
 	struct sock *sk = sock->sk;
 	int ret;
 
 	lock_sock(sk);
-	ret = __tipc_sendmsg(sock, m, dsz);
+	ret = __tipc_sendmsg(sock, m);
 	release_sock(sk);
 
 	return ret;
 }
 
-static int __tipc_sendmsg(struct socket *sock, struct msghdr *m, size_t dlen)
+static int __tipc_sendmsg(struct socket *sock, struct msghdr *m)
 {
 	struct sock *sk = sock->sk;
 	struct net *net = sock_net(sk);
@@ -1420,6 +1418,7 @@ static int __tipc_sendmsg(struct socket *sock, struct msghdr *m, size_t dlen)
 	struct tipc_msg *hdr = &tsk->phdr;
 	struct tipc_socket_addr skaddr;
 	struct sk_buff_head pkts;
+	size_t dlen = msg_data_left(m);
 	int atype, mtu, rc;
 
 	if (unlikely(dlen > TIPC_MAX_USER_MSG_SIZE))
@@ -1535,26 +1534,25 @@ static int __tipc_sendmsg(struct socket *sock, struct msghdr *m, size_t dlen)
  * tipc_sendstream - send stream-oriented data
  * @sock: socket structure
  * @m: data to send
- * @dsz: total length of data to be transmitted
  *
  * Used for SOCK_STREAM data.
  *
  * Return: the number of bytes sent on success (or partial success),
  * or errno if no data sent
  */
-static int tipc_sendstream(struct socket *sock, struct msghdr *m, size_t dsz)
+static int tipc_sendstream(struct socket *sock, struct msghdr *m)
 {
 	struct sock *sk = sock->sk;
 	int ret;
 
 	lock_sock(sk);
-	ret = __tipc_sendstream(sock, m, dsz);
+	ret = __tipc_sendstream(sock, m);
 	release_sock(sk);
 
 	return ret;
 }
 
-static int __tipc_sendstream(struct socket *sock, struct msghdr *m, size_t dlen)
+static int __tipc_sendstream(struct socket *sock, struct msghdr *m)
 {
 	struct sock *sk = sock->sk;
 	DECLARE_SOCKADDR(struct sockaddr_tipc *, dest, m->msg_name);
@@ -1564,6 +1562,7 @@ static int __tipc_sendstream(struct socket *sock, struct msghdr *m, size_t dlen)
 	struct tipc_msg *hdr = &tsk->phdr;
 	struct net *net = sock_net(sk);
 	struct sk_buff *skb;
+	size_t dlen = msg_data_left(m);
 	u32 dnode = tsk_peer_node(tsk);
 	int maxnagle = tsk->maxnagle;
 	int maxpkt = tsk->max_pkt;
@@ -1575,7 +1574,7 @@ static int __tipc_sendstream(struct socket *sock, struct msghdr *m, size_t dlen)
 
 	/* Handle implicit connection setup */
 	if (unlikely(dest && sk->sk_state == TIPC_OPEN)) {
-		rc = __tipc_sendmsg(sock, m, dlen);
+		rc = __tipc_sendmsg(sock, m);
 		if (dlen && dlen == rc) {
 			tsk->peer_caps = tipc_node_get_capabilities(net, dnode);
 			tsk->snt_unacked = tsk_inc(tsk, dlen + msg_hdr_sz(hdr));
@@ -1643,18 +1642,17 @@ static int __tipc_sendstream(struct socket *sock, struct msghdr *m, size_t dlen)
  * tipc_send_packet - send a connection-oriented message
  * @sock: socket structure
  * @m: message to send
- * @dsz: length of data to be transmitted
  *
  * Used for SOCK_SEQPACKET messages.
  *
  * Return: the number of bytes sent on success, or errno otherwise
  */
-static int tipc_send_packet(struct socket *sock, struct msghdr *m, size_t dsz)
+static int tipc_send_packet(struct socket *sock, struct msghdr *m)
 {
-	if (dsz > TIPC_MAX_USER_MSG_SIZE)
+	if (msg_data_left(m) > TIPC_MAX_USER_MSG_SIZE)
 		return -EMSGSIZE;
 
-	return tipc_sendstream(sock, m, dsz);
+	return tipc_sendstream(sock, m);
 }
 
 /* tipc_sk_finish_conn - complete the setup of a connection
@@ -2625,7 +2623,7 @@ static int tipc_connect(struct socket *sock, struct sockaddr *dest,
 		if (!timeout)
 			m.msg_flags = MSG_DONTWAIT;
 
-		res = __tipc_sendmsg(sock, &m, 0);
+		res = __tipc_sendmsg(sock, &m);
 		if ((res < 0) && (res != -EWOULDBLOCK))
 			goto exit;
 
@@ -2781,7 +2779,7 @@ static int tipc_accept(struct socket *sock, struct socket *new_sock, int flags,
 		skb_set_owner_r(buf, new_sk);
 	}
 	iov_iter_kvec(&m.msg_iter, ITER_SOURCE, NULL, 0, 0);
-	__tipc_sendstream(new_sock, &m, 0);
+	__tipc_sendstream(new_sock, &m);
 	release_sock(new_sk);
 exit:
 	release_sock(sk);

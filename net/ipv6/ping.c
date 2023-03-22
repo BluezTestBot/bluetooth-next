@@ -59,7 +59,7 @@ static int ping_v6_pre_connect(struct sock *sk, struct sockaddr *uaddr,
 	return BPF_CGROUP_RUN_PROG_INET6_CONNECT_LOCK(sk, uaddr);
 }
 
-static int ping_v6_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
+static int ping_v6_sendmsg(struct sock *sk, struct msghdr *msg)
 {
 	struct inet_sock *inet = inet_sk(sk);
 	struct ipv6_pinfo *np = inet6_sk(sk);
@@ -73,8 +73,9 @@ static int ping_v6_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
 	struct rt6_info *rt;
 	struct pingfakehdr pfh;
 	struct ipcm6_cookie ipc6;
+	size_t len = msg_data_left(msg);
 
-	err = ping_common_sendmsg(AF_INET6, msg, len, &user_icmph,
+	err = ping_common_sendmsg(AF_INET6, msg, &user_icmph,
 				  sizeof(user_icmph));
 	if (err)
 		return err;
