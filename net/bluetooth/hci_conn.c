@@ -1,6 +1,7 @@
 /*
    BlueZ - Bluetooth protocol stack for Linux
    Copyright (c) 2000-2001, 2010, Code Aurora Forum. All rights reserved.
+   Copyright 2023 NXP
 
    Written 2000,2001 by Maxim Krasnyansky <maxk@qualcomm.com>
 
@@ -790,13 +791,22 @@ struct iso_list_data {
 static void bis_list(struct hci_conn *conn, void *data)
 {
 	struct iso_list_data *d = data;
+	u8 check_big;
+	u8 check_bis = BT_ISO_QOS_BIS_UNSET;
 
 	/* Skip if not broadcast/ANY address */
 	if (bacmp(&conn->dst, BDADDR_ANY))
 		return;
 
-	if (d->big != conn->iso_qos.big || d->bis == BT_ISO_QOS_BIS_UNSET ||
-	    d->bis != conn->iso_qos.bis)
+	if (conn->role == HCI_ROLE_MASTER) {
+		check_big = conn->iso_qos.bcast.bsrc.big;
+		check_bis = conn->iso_qos.bcast.bsrc.bis;
+	} else {
+		check_big = conn->iso_qos.bcast.bsnk.big;
+	}
+
+	if (d->big != check_big || d->bis == BT_ISO_QOS_BIS_UNSET ||
+	    d->bis != check_bis)
 		return;
 
 	d->count++;
@@ -916,10 +926,10 @@ static void bis_cleanup(struct hci_conn *conn)
 		if (!test_and_clear_bit(HCI_CONN_PER_ADV, &conn->flags))
 			return;
 
-		hci_le_terminate_big(hdev, conn->iso_qos.big,
-				     conn->iso_qos.bis);
+		hci_le_terminate_big(hdev, conn->iso_qos.bcast.bsrc.big,
+				     conn->iso_qos.bcast.bsrc.bis);
 	} else {
-		hci_le_big_terminate(hdev, conn->iso_qos.big,
+		hci_le_big_terminate(hdev, conn->iso_qos.bcast.bsnk.big,
 				     conn->sync_handle);
 	}
 }
@@ -959,7 +969,7 @@ static void cis_cleanup(struct hci_conn *conn)
 	struct iso_list_data d;
 
 	memset(&d, 0, sizeof(d));
-	d.cig = conn->iso_qos.cig;
+	d.cig = conn->iso_qos.ucast.cig;
 
 	/* Check if ISO connection is a CIS and remove CIG if there are
 	 * no other connections using it.
@@ -968,7 +978,7 @@ static void cis_cleanup(struct hci_conn *conn)
 	if (d.count)
 		return;
 
-	hci_le_remove_cig(hdev, conn->iso_qos.cig);
+	hci_le_remove_cig(hdev, conn->iso_qos.ucast.cig);
 }
 
 struct hci_conn *hci_conn_add(struct hci_dev *hdev, int type, bdaddr_t *dst,
@@ -1394,12 +1404,12 @@ static int hci_explicit_conn_params_set(struct hci_dev *hdev,
 	return 0;
 }
 
-static int qos_set_big(struct hci_dev *hdev, struct bt_iso_qos *qos)
+static int qos_set_big(struct hci_dev *hdev, uint8_t *big)
 {
 	struct iso_list_data data;
 
 	/* Allocate a BIG if not set */
-	if (qos->big == BT_ISO_QOS_BIG_UNSET) {
+	if (*big == BT_ISO_QOS_BIG_UNSET) {
 		for (data.big = 0x00; data.big < 0xef; data.big++) {
 			data.count = 0;
 			data.bis = 0xff;
@@ -1414,13 +1424,14 @@ static int qos_set_big(struct hci_dev *hdev, struct bt_iso_qos *qos)
 			return -EADDRNOTAVAIL;
 
 		/* Update BIG */
-		qos->big = data.big;
+		*big = data.big;
 	}
 
 	return 0;
 }
 
-static int qos_set_bis(struct hci_dev *hdev, struct bt_iso_qos *qos)
+static int qos_set_bis(struct hci_dev *hdev,
+		       struct bt_iso_bcast_src_qos *qos)
 {
 	struct iso_list_data data;
 
@@ -1451,7 +1462,7 @@ static int qos_set_bis(struct hci_dev *hdev, struct bt_iso_qos *qos)
 
 /* This function requires the caller holds hdev->lock */
 static struct hci_conn *hci_add_bis(struct hci_dev *hdev, bdaddr_t *dst,
-				    struct bt_iso_qos *qos)
+				    struct bt_iso_bcast_src_qos *qos)
 {
 	struct hci_conn *conn;
 	struct iso_list_data data;
@@ -1464,7 +1475,7 @@ static struct hci_conn *hci_add_bis(struct hci_dev *hdev, bdaddr_t *dst,
 		return ERR_PTR(-EOPNOTSUPP);
 	}
 
-	err = qos_set_big(hdev, qos);
+	err = qos_set_big(hdev, &qos->big);
 	if (err)
 		return ERR_PTR(err);
 
@@ -1632,7 +1643,7 @@ struct hci_conn *hci_connect_sco(struct hci_dev *hdev, int type, bdaddr_t *dst,
 	return sco;
 }
 
-static void cis_add(struct iso_list_data *d, struct bt_iso_qos *qos)
+static void cis_add(struct iso_list_data *d, struct bt_iso_ucast_qos *qos)
 {
 	struct hci_cis_params *cis = &d->pdu.cis[d->pdu.cp.num_cis];
 
@@ -1655,8 +1666,8 @@ static void cis_list(struct hci_conn *conn, void *data)
 	if (!bacmp(&conn->dst, BDADDR_ANY))
 		return;
 
-	if (d->cig != conn->iso_qos.cig || d->cis == BT_ISO_QOS_CIS_UNSET ||
-	    d->cis != conn->iso_qos.cis)
+	if (d->cig != conn->iso_qos.ucast.cig || d->cis == BT_ISO_QOS_CIS_UNSET ||
+	    d->cis != conn->iso_qos.ucast.cis)
 		return;
 
 	d->count++;
@@ -1665,10 +1676,11 @@ static void cis_list(struct hci_conn *conn, void *data)
 	    d->count >= ARRAY_SIZE(d->pdu.cis))
 		return;
 
-	cis_add(d, &conn->iso_qos);
+	cis_add(d, &conn->iso_qos.ucast);
 }
 
-static int hci_le_create_big(struct hci_conn *conn, struct bt_iso_qos *qos)
+static int hci_le_create_big(struct hci_conn *conn,
+			     struct bt_iso_bcast_src_qos *qos)
 {
 	struct hci_dev *hdev = conn->hdev;
 	struct hci_cp_le_create_big cp;
@@ -1685,13 +1697,14 @@ static int hci_le_create_big(struct hci_conn *conn, struct bt_iso_qos *qos)
 	cp.bis.phy  = qos->out.phy;
 	cp.bis.packing = qos->packing;
 	cp.bis.framing = qos->framing;
-	cp.bis.encryption = 0x00;
-	memset(&cp.bis.bcode, 0, sizeof(cp.bis.bcode));
+	cp.bis.encryption = qos->encryption;
+	memcpy(&cp.bis.bcode, qos->bcode, sizeof(cp.bis.bcode));
 
 	return hci_send_cmd(hdev, HCI_OP_LE_CREATE_BIG, sizeof(cp), &cp);
 }
 
-static bool hci_le_set_cig_params(struct hci_conn *conn, struct bt_iso_qos *qos)
+static bool hci_le_set_cig_params(struct hci_conn *conn,
+				  struct bt_iso_ucast_qos *qos)
 {
 	struct hci_dev *hdev = conn->hdev;
 	struct iso_list_data data;
@@ -1775,7 +1788,7 @@ static bool hci_le_set_cig_params(struct hci_conn *conn, struct bt_iso_qos *qos)
 }
 
 struct hci_conn *hci_bind_cis(struct hci_dev *hdev, bdaddr_t *dst,
-			      __u8 dst_type, struct bt_iso_qos *qos)
+			      __u8 dst_type, struct bt_iso_ucast_qos *qos)
 {
 	struct hci_conn *cis;
 
@@ -1793,7 +1806,7 @@ struct hci_conn *hci_bind_cis(struct hci_dev *hdev, bdaddr_t *dst,
 
 	/* Check if CIS has been set and the settings matches */
 	if (cis->state == BT_BOUND &&
-	    !memcmp(&cis->iso_qos, qos, sizeof(*qos)))
+	    !memcmp(&cis->iso_qos.ucast, qos, sizeof(*qos)))
 		return cis;
 
 	/* Update LINK PHYs according to QoS preference */
@@ -1829,7 +1842,7 @@ struct hci_conn *hci_bind_cis(struct hci_dev *hdev, bdaddr_t *dst,
 		return ERR_PTR(-EINVAL);
 	}
 
-	cis->iso_qos = *qos;
+	cis->iso_qos.ucast = *qos;
 	cis->state = BT_BOUND;
 
 	return cis;
@@ -1839,10 +1852,19 @@ bool hci_iso_setup_path(struct hci_conn *conn)
 {
 	struct hci_dev *hdev = conn->hdev;
 	struct hci_cp_le_setup_iso_path cmd;
+	struct bt_iso_io_qos *in = NULL;
+	struct bt_iso_io_qos *out = NULL;
 
 	memset(&cmd, 0, sizeof(cmd));
 
-	if (conn->iso_qos.out.sdu) {
+	if (bacmp(&conn->dst, BDADDR_ANY)) {
+		in = &conn->iso_qos.ucast.in;
+		out = &conn->iso_qos.ucast.out;
+	} else {
+		out = &conn->iso_qos.bcast.bsrc.out;
+	}
+
+	if (out->sdu) {
 		cmd.handle = cpu_to_le16(conn->handle);
 		cmd.direction = 0x00; /* Input (Host to Controller) */
 		cmd.path = 0x00; /* HCI path if enabled */
@@ -1853,7 +1875,7 @@ bool hci_iso_setup_path(struct hci_conn *conn)
 			return false;
 	}
 
-	if (conn->iso_qos.in.sdu) {
+	if (in && in->sdu) {
 		cmd.handle = cpu_to_le16(conn->handle);
 		cmd.direction = 0x01; /* Output (Controller to Host) */
 		cmd.path = 0x00; /* HCI path if enabled */
@@ -1880,7 +1902,7 @@ static int hci_create_cis_sync(struct hci_dev *hdev, void *data)
 	cmd.cis[0].acl_handle = cpu_to_le16(conn->link->handle);
 	cmd.cis[0].cis_handle = cpu_to_le16(conn->handle);
 	cmd.cp.num_cis++;
-	cig = conn->iso_qos.cig;
+	cig = conn->iso_qos.ucast.cig;
 
 	hci_dev_lock(hdev);
 
@@ -1890,7 +1912,7 @@ static int hci_create_cis_sync(struct hci_dev *hdev, void *data)
 		struct hci_cis *cis = &cmd.cis[cmd.cp.num_cis];
 
 		if (conn == data || conn->type != ISO_LINK ||
-		    conn->state == BT_CONNECTED || conn->iso_qos.cig != cig)
+		    conn->state == BT_CONNECTED || conn->iso_qos.ucast.cig != cig)
 			continue;
 
 		/* Check if all CIS(s) belonging to a CIG are ready */
@@ -1987,19 +2009,19 @@ static void hci_iso_qos_setup(struct hci_dev *hdev, struct hci_conn *conn,
 }
 
 static void hci_bind_bis(struct hci_conn *conn,
-			 struct bt_iso_qos *qos)
+			 struct bt_iso_bcast_src_qos *qos)
 {
 	/* Update LINK PHYs according to QoS preference */
 	conn->le_tx_phy = qos->out.phy;
 	conn->le_tx_phy = qos->out.phy;
-	conn->iso_qos = *qos;
+	conn->iso_qos.bcast.bsrc = *qos;
 	conn->state = BT_BOUND;
 }
 
 static int create_big_sync(struct hci_dev *hdev, void *data)
 {
 	struct hci_conn *conn = data;
-	struct bt_iso_qos *qos = &conn->iso_qos;
+	struct bt_iso_bcast_src_qos *qos = &conn->iso_qos.bcast.bsrc;
 	u16 interval, sync_interval = 0;
 	u32 flags = 0;
 	int err;
@@ -2019,7 +2041,7 @@ static int create_big_sync(struct hci_dev *hdev, void *data)
 	if (err)
 		return err;
 
-	return hci_le_create_big(conn, &conn->iso_qos);
+	return hci_le_create_big(conn, &conn->iso_qos.bcast.bsrc);
 }
 
 static void create_pa_complete(struct hci_dev *hdev, void *data, int err)
@@ -2050,7 +2072,7 @@ static int create_pa_sync(struct hci_dev *hdev, void *data)
 }
 
 int hci_pa_create_sync(struct hci_dev *hdev, bdaddr_t *dst, __u8 dst_type,
-		       __u8 sid)
+		       __u8 sid,  struct bt_iso_bcast_snk_qos *qos)
 {
 	struct hci_cp_le_pa_create_sync *cp;
 
@@ -2063,15 +2085,19 @@ int hci_pa_create_sync(struct hci_dev *hdev, bdaddr_t *dst, __u8 dst_type,
 		return -ENOMEM;
 	}
 
+	cp->options = qos->options;
 	cp->sid = sid;
 	cp->addr_type = dst_type;
+	cp->skip = qos->skip;
+	cp->sync_timeout = qos->sync_timeout;
+	cp->sync_cte_type = qos->sync_cte_type;
 	bacpy(&cp->addr, dst);
 
 	/* Queue start pa_create_sync and scan */
 	return hci_cmd_sync_queue(hdev, create_pa_sync, cp, create_pa_complete);
 }
 
-int hci_le_big_create_sync(struct hci_dev *hdev, struct bt_iso_qos *qos,
+int hci_le_big_create_sync(struct hci_dev *hdev, struct bt_iso_bcast_snk_qos *qos,
 			   __u16 sync_handle, __u8 num_bis, __u8 bis[])
 {
 	struct _packed {
@@ -2083,13 +2109,17 @@ int hci_le_big_create_sync(struct hci_dev *hdev, struct bt_iso_qos *qos,
 	if (num_bis > sizeof(pdu.bis))
 		return -EINVAL;
 
-	err = qos_set_big(hdev, qos);
+	err = qos_set_big(hdev, &qos->big);
 	if (err)
 		return err;
 
 	memset(&pdu, 0, sizeof(pdu));
 	pdu.cp.handle = qos->big;
 	pdu.cp.sync_handle = cpu_to_le16(sync_handle);
+	pdu.cp.encryption = qos->encryption;
+	memcpy(pdu.cp.bcode, qos->bcode, sizeof(pdu.cp.bcode));
+	pdu.cp.mse = qos->mse;
+	pdu.cp.timeout = qos->timeout;
 	pdu.cp.num_bis = num_bis;
 	memcpy(pdu.bis, bis, num_bis);
 
@@ -2111,7 +2141,7 @@ static void create_big_complete(struct hci_dev *hdev, void *data, int err)
 }
 
 struct hci_conn *hci_connect_bis(struct hci_dev *hdev, bdaddr_t *dst,
-				 __u8 dst_type, struct bt_iso_qos *qos,
+				 __u8 dst_type, struct bt_iso_bcast_src_qos *qos,
 				 __u8 base_len, __u8 *base)
 {
 	struct hci_conn *conn;
@@ -2147,7 +2177,7 @@ struct hci_conn *hci_connect_bis(struct hci_dev *hdev, bdaddr_t *dst,
 }
 
 struct hci_conn *hci_connect_cis(struct hci_dev *hdev, bdaddr_t *dst,
-				 __u8 dst_type, struct bt_iso_qos *qos)
+				 __u8 dst_type, struct bt_iso_ucast_qos *qos)
 {
 	struct hci_conn *le;
 	struct hci_conn *cis;

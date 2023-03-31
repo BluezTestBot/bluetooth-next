@@ -1,6 +1,7 @@
 /*
    BlueZ - Bluetooth protocol stack for Linux
    Copyright (C) 2000-2001 Qualcomm Incorporated
+   Copyright 2023 NXP
 
    Written 2000,2001 by Maxim Krasnyansky <maxk@qualcomm.com>
 
@@ -171,23 +172,52 @@ struct bt_iso_io_qos {
 	__u8  rtn;
 };
 
-struct bt_iso_qos {
-	union {
-		__u8  cig;
-		__u8  big;
-	};
-	union {
-		__u8  cis;
-		__u8  bis;
-	};
-	union {
-		__u8  sca;
-		__u8  sync_interval;
-	};
+struct bt_iso_ucast_qos {
+	__u8  cig;
+	__u8  cis;
+	__u8  sca;
 	__u8  packing;
 	__u8  framing;
 	struct bt_iso_io_qos in;
 	struct bt_iso_io_qos out;
+};
+
+struct bt_iso_bcast_src_qos {
+	__u8  sync_interval;
+	__u8  big;
+	__u8  bis;
+	__u8  packing;
+	__u8  framing;
+	__u8  encryption;
+	__u8  bcode[16];
+	struct bt_iso_io_qos out;
+};
+
+struct bt_iso_bcast_snk_qos {
+	__u8  options;
+	__u16 skip;
+	__u16 sync_timeout;
+	__u8  sync_cte_type;
+	__u8  big;
+	__u8  encryption;
+	__u8  bcode[16];
+	__u8  mse;
+	__u16 timeout;
+	struct bt_iso_io_qos in;
+};
+
+struct bt_iso_bcast_qos {
+union {
+		struct bt_iso_bcast_src_qos bsrc;
+		struct bt_iso_bcast_snk_qos bsnk;
+	};
+};
+
+struct bt_iso_qos {
+	union {
+		struct bt_iso_ucast_qos ucast;
+		struct bt_iso_bcast_qos bcast;
+	};
 };
 
 #define BT_ISO_PHY_1M		0x01
