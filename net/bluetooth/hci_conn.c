@@ -1074,34 +1074,13 @@ struct hci_conn *hci_conn_add(struct hci_dev *hdev, int type, bdaddr_t *dst,
 	return conn;
 }
 
-static void hci_conn_unlink(struct hci_conn *conn)
+static void hci_conn_unlink_parent(struct hci_conn *conn)
 {
 	struct hci_dev *hdev = conn->hdev;
 
 	bt_dev_dbg(hdev, "hcon %p", conn);
 
-	if (!conn->parent) {
-		struct hci_link *link, *t;
-
-		list_for_each_entry_safe(link, t, &conn->link_list, list) {
-			struct hci_conn *child = link->conn;
-
-			hci_conn_unlink(child);
-
-			/* Due to race, SCO connection might be not established
-			 * yet at this point. Delete it now, otherwise it is
-			 * possible for it to be stuck and can't be deleted.
-			 */
-			if ((child->type == SCO_LINK ||
-			     child->type == ESCO_LINK) &&
-			    child->handle == HCI_CONN_HANDLE_UNSET)
-				hci_conn_del(child);
-		}
-
-		return;
-	}
-
-	if (!conn->link)
+	if (WARN_ON(!conn->link))
 		return;
 
 	list_del_rcu(&conn->link->list);
@@ -1113,6 +1092,36 @@ static void hci_conn_unlink(struct hci_conn *conn)
 
 	kfree(conn->link);
 	conn->link = NULL;
+}
+
+static void hci_conn_unlink_children(struct hci_conn *conn)
+{
+	struct hci_dev *hdev = conn->hdev;
+	struct hci_link *link, *t;
+
+	bt_dev_dbg(hdev, "hcon %p", conn);
+
+	list_for_each_entry_safe(link, t, &conn->link_list, list) {
+		struct hci_conn *child = link->conn;
+
+		hci_conn_unlink_parent(child);
+
+		/* Due to race, SCO connection might be not established
+		 * yet at this point. Delete it now, otherwise it is
+		 * possible for it to be stuck and can't be deleted.
+		 */
+		if (child->type == SCO_LINK || child->type == ESCO_LINK)
+			if (child->handle == HCI_CONN_HANDLE_UNSET)
+				hci_conn_del(child);
+	}
+}
+
+static void hci_conn_unlink(struct hci_conn *conn)
+{
+	if (conn->parent)
+		hci_conn_unlink_parent(conn);
+	else
+		hci_conn_unlink_children(conn);
 }
 
 void hci_conn_del(struct hci_conn *conn)
