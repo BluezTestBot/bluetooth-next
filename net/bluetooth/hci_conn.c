@@ -1105,6 +1105,7 @@ static void hci_conn_unlink(struct hci_conn *conn)
 	list_del_rcu(&conn->link->list);
 	synchronize_rcu();
 
+	hci_conn_drop(conn->parent);
 	hci_conn_put(conn->parent);
 	conn->parent = NULL;
 
@@ -1118,7 +1119,6 @@ void hci_conn_del(struct hci_conn *conn)
 
 	BT_DBG("%s hcon %p handle %d", hdev->name, conn, conn->handle);
 
-	cancel_delayed_work_sync(&conn->disc_work);
 	cancel_delayed_work_sync(&conn->auto_accept_work);
 	cancel_delayed_work_sync(&conn->idle_work);
 
@@ -1134,12 +1134,7 @@ void hci_conn_del(struct hci_conn *conn)
 		else
 			hdev->acl_cnt += conn->sent;
 	} else {
-		struct hci_conn *acl = conn->parent;
-
-		if (acl) {
-			hci_conn_unlink(conn);
-			hci_conn_drop(acl);
-		}
+		hci_conn_unlink(conn);
 
 		/* Unacked ISO frames */
 		if (conn->type == ISO_LINK) {
@@ -1151,6 +1146,11 @@ void hci_conn_del(struct hci_conn *conn)
 				hdev->acl_cnt += conn->sent;
 		}
 	}
+
+	/* hci_conn_unlink may trigger additional disc_work, so
+	 * ensure to perform cancelling after that.
+	 */
+	cancel_delayed_work_sync(&conn->disc_work);
 
 	if (conn->amp_mgr)
 		amp_mgr_put(conn->amp_mgr);
