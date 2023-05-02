@@ -1092,7 +1092,9 @@ static void hci_conn_unlink(struct hci_conn *conn)
 			 * yet at this point. Delete it now, otherwise it is
 			 * possible for it to be stuck and can't be deleted.
 			 */
-			if (child->handle == HCI_CONN_HANDLE_UNSET)
+			if ((child->type == SCO_LINK ||
+			     child->type == ESCO_LINK) &&
+			    child->handle == HCI_CONN_HANDLE_UNSET)
 				hci_conn_del(child);
 		}
 
@@ -1119,11 +1121,17 @@ void hci_conn_del(struct hci_conn *conn)
 
 	BT_DBG("%s hcon %p handle %d", hdev->name, conn, conn->handle);
 
+	hci_conn_unlink(conn);
+
+	/* hci_conn_unlink may trigger additional disc_work, so
+	 * ensure to perform cancelling after that.
+	 */
+	cancel_delayed_work_sync(&conn->disc_work);
+
 	cancel_delayed_work_sync(&conn->auto_accept_work);
 	cancel_delayed_work_sync(&conn->idle_work);
 
 	if (conn->type == ACL_LINK) {
-		hci_conn_unlink(conn);
 		/* Unacked frames */
 		hdev->acl_cnt += conn->sent;
 	} else if (conn->type == LE_LINK) {
@@ -1134,8 +1142,6 @@ void hci_conn_del(struct hci_conn *conn)
 		else
 			hdev->acl_cnt += conn->sent;
 	} else {
-		hci_conn_unlink(conn);
-
 		/* Unacked ISO frames */
 		if (conn->type == ISO_LINK) {
 			if (hdev->iso_pkts)
@@ -1146,11 +1152,6 @@ void hci_conn_del(struct hci_conn *conn)
 				hdev->acl_cnt += conn->sent;
 		}
 	}
-
-	/* hci_conn_unlink may trigger additional disc_work, so
-	 * ensure to perform cancelling after that.
-	 */
-	cancel_delayed_work_sync(&conn->disc_work);
 
 	if (conn->amp_mgr)
 		amp_mgr_put(conn->amp_mgr);
