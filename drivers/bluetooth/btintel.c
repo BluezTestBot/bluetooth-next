@@ -1282,7 +1282,7 @@ static int btintel_read_debug_features(struct hci_dev *hdev,
 	skb = __hci_cmd_sync(hdev, 0xfca6, sizeof(page_no), &page_no,
 			     HCI_INIT_TIMEOUT);
 	if (IS_ERR(skb)) {
-		bt_dev_err(hdev, "Reading supported features failed (%ld)",
+		bt_dev_dbg(hdev, "Reading supported features failed (%ld)",
 			   PTR_ERR(skb));
 		return PTR_ERR(skb);
 	}
@@ -1360,24 +1360,13 @@ static acpi_status btintel_ppag_callback(acpi_handle handle, u32 lvl, void *data
 	return AE_CTRL_TERMINATE;
 }
 
-static int btintel_set_debug_features(struct hci_dev *hdev,
-			       const struct intel_debug_features *features)
+static int btintel_set_debug_features(struct hci_dev *hdev)
 {
 	u8 mask[11] = { 0x0a, 0x92, 0x02, 0x7f, 0x00, 0x00, 0x00, 0x00,
 			0x00, 0x00, 0x00 };
 	u8 period[5] = { 0x04, 0x91, 0x02, 0x05, 0x00 };
 	u8 trace_enable = 0x02;
 	struct sk_buff *skb;
-
-	if (!features) {
-		bt_dev_warn(hdev, "Debug features not read");
-		return -EINVAL;
-	}
-
-	if (!(features->page1[0] & 0x3f)) {
-		bt_dev_info(hdev, "Telemetry exception format not supported");
-		return 0;
-	}
 
 	skb = __hci_cmd_sync(hdev, 0xfc8b, 11, mask, HCI_INIT_TIMEOUT);
 	if (IS_ERR(skb)) {
@@ -1409,23 +1398,12 @@ static int btintel_set_debug_features(struct hci_dev *hdev,
 	return 0;
 }
 
-static int btintel_reset_debug_features(struct hci_dev *hdev,
-				 const struct intel_debug_features *features)
+static int btintel_reset_debug_features(struct hci_dev *hdev)
 {
 	u8 mask[11] = { 0x0a, 0x92, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
 			0x00, 0x00, 0x00 };
 	u8 trace_enable = 0x00;
 	struct sk_buff *skb;
-
-	if (!features) {
-		bt_dev_warn(hdev, "Debug features not read");
-		return -EINVAL;
-	}
-
-	if (!(features->page1[0] & 0x3f)) {
-		bt_dev_info(hdev, "Telemetry exception format not supported");
-		return 0;
-	}
 
 	/* Should stop the trace before writing ddc event mask. */
 	skb = __hci_cmd_sync(hdev, 0xfca1, 1, &trace_enable, HCI_INIT_TIMEOUT);
@@ -1452,23 +1430,15 @@ static int btintel_reset_debug_features(struct hci_dev *hdev,
 
 int btintel_set_quality_report(struct hci_dev *hdev, bool enable)
 {
-	struct intel_debug_features features;
 	int err;
 
 	bt_dev_dbg(hdev, "enable %d", enable);
 
-	/* Read the Intel supported features and if new exception formats
-	 * supported, need to load the additional DDC config to enable.
-	 */
-	err = btintel_read_debug_features(hdev, &features);
-	if (err)
-		return err;
-
 	/* Set or reset the debug features. */
 	if (enable)
-		err = btintel_set_debug_features(hdev, &features);
+		err = btintel_set_debug_features(hdev);
 	else
-		err = btintel_reset_debug_features(hdev, &features);
+		err = btintel_reset_debug_features(hdev);
 
 	return err;
 }
@@ -1512,15 +1482,16 @@ static int btintel_register_devcoredump_support(struct hci_dev *hdev)
 	int err;
 
 	err = btintel_read_debug_features(hdev, &features);
-	if (err) {
-		bt_dev_info(hdev, "Error reading debug features");
+	if (err)
 		return err;
-	}
 
 	if (!(features.page1[0] & 0x3f)) {
 		bt_dev_dbg(hdev, "Telemetry exception format not supported");
 		return -EOPNOTSUPP;
 	}
+
+	/* Set up the quality report callback for Intel devices */
+	hdev->set_quality_report = btintel_set_quality_report;
 
 	hci_devcd_register(hdev, btintel_coredump, btintel_dmp_hdr, NULL);
 
@@ -2598,9 +2569,6 @@ static int btintel_setup_combined(struct hci_dev *hdev)
 	set_bit(HCI_QUIRK_STRICT_DUPLICATE_FILTER, &hdev->quirks);
 	set_bit(HCI_QUIRK_SIMULTANEOUS_DISCOVERY, &hdev->quirks);
 	set_bit(HCI_QUIRK_NON_PERSISTENT_DIAG, &hdev->quirks);
-
-	/* Set up the quality report callback for Intel devices */
-	hdev->set_quality_report = btintel_set_quality_report;
 
 	/* For Legacy device, check the HW platform value and size */
 	if (skb->len == sizeof(ver) && skb->data[1] == 0x37) {
