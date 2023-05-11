@@ -2232,8 +2232,7 @@ static void bcm4377_disable_aspm(struct bcm4377_data *bcm4377)
 	 * or if the BIOS hasn't handed over control to us. We must *always*
 	 * disable ASPM for this device due to hardware errata though.
 	 */
-	pcie_capability_clear_word(bcm4377->pdev, PCI_EXP_LNKCTL,
-				   PCI_EXP_LNKCTL_ASPMC);
+	pcie_lnkctl_clear_and_set(bcm4377->pdev, PCI_EXP_LNKCTL_ASPMC, 0);
 }
 
 static void bcm4377_pci_free_irq_vectors(void *data)
