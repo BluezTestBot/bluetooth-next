@@ -234,7 +234,15 @@ static const struct id_table ic_id_table[] = {
 	  .fw_name  = "rtl_bt/rtl8822cu_fw.bin",
 	  .cfg_name = "rtl_bt/rtl8822cu_config" },
 
-	/* 8822B */
+	/* 8822BS with UART interface */
+	{ IC_INFO(RTL_ROM_LMP_8822B, 0xb, 0x7, HCI_UART),
+	  .config_needed = true,
+	  .has_rom_version = true,
+	  .has_msft_ext = true,
+	  .fw_name  = "rtl_bt/rtl8822bs_fw.bin",
+	  .cfg_name = "rtl_bt/rtl8822bs_config" },
+
+	/* 8822BU with USB interface */
 	{ IC_INFO(RTL_ROM_LMP_8822B, 0xb, 0x7, HCI_USB),
 	  .config_needed = true,
 	  .has_rom_version = true,
@@ -1182,6 +1190,8 @@ void btrtl_set_quirks(struct hci_dev *hdev, struct btrtl_device_info *btrtl_dev)
 
 		hci_set_aosp_capable(hdev);
 		break;
+	case CHIP_ID_8822B:
+		set_bit(HCI_QUIRK_BROKEN_LOCAL_EXT_FEATURES_PAGE_2, &hdev->quirks);
 	default:
 		rtl_dev_dbg(hdev, "Central-peripheral role not enabled.");
 		rtl_dev_dbg(hdev, "WBS supported not enabled.");

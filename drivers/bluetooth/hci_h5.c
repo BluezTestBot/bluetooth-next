@@ -1072,6 +1072,10 @@ static struct h5_vnd rtl_vnd = {
 	.acpi_gpio_map	= acpi_btrtl_gpios,
 };
 
+static const struct h5_device_data h5_data_rtl8822bs = {
+	.vnd = &rtl_vnd,
+};
+
 static const struct h5_device_data h5_data_rtl8822cs = {
 	.vnd = &rtl_vnd,
 };
@@ -1100,6 +1104,8 @@ static const struct dev_pm_ops h5_serdev_pm_ops = {
 
 static const struct of_device_id rtl_bluetooth_of_match[] = {
 #ifdef CONFIG_BT_HCIUART_RTL
+	{ .compatible = "realtek,rtl8822bs-bt",
+	  .data = (const void *)&h5_data_rtl8822bs },
 	{ .compatible = "realtek,rtl8822cs-bt",
 	  .data = (const void *)&h5_data_rtl8822cs },
 	{ .compatible = "realtek,rtl8723bs-bt",
