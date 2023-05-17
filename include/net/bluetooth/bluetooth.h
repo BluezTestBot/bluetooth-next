@@ -198,6 +198,8 @@ struct bt_iso_bcast_qos {
 	__u8  sync_cte_type;
 	__u8  mse;
 	__u16 timeout;
+	__u8  dummy[2]; /* Dummy octets for padding compatibility with old BlueZ */
+	__u8  num_bis;
 };
 
 struct bt_iso_qos {

@@ -717,6 +717,7 @@ static struct bt_iso_qos default_qos = {
 		.sync_cte_type		= 0x00,
 		.mse			= 0x00,
 		.timeout		= 0x4000,
+		.num_bis		= 0x01,
 	},
 };
 
@@ -1247,6 +1248,9 @@ static bool check_bcast_qos(struct bt_iso_qos *qos)
 		return false;
 
 	if (qos->bcast.timeout < 0x000a || qos->bcast.timeout > 0x4000)
+		return false;
+
+	if (qos->bcast.num_bis < 0x01 || qos->bcast.num_bis > ISO_MAX_NUM_BIS)
 		return false;
 
 	return true;

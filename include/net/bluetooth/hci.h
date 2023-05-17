@@ -1,6 +1,7 @@
 /*
    BlueZ - Bluetooth protocol stack for Linux
    Copyright (C) 2000-2001 Qualcomm Incorporated
+   Copyright 2023 NXP
 
    Written 2000,2001 by Maxim Krasnyansky <maxk@qualcomm.com>
 
@@ -2811,6 +2812,12 @@ struct hci_evt_le_create_big_complete {
 	__le16  interval;
 	__u8    num_bis;
 	__le16  bis_handle[];
+} __packed;
+
+#define HCI_EVT_LE_TERM_BIG_COMPLETE	0x1c
+struct hci_evt_le_term_big_complete {
+	__u8    handle;
+	__u8    reason;
 } __packed;
 
 #define HCI_EVT_LE_BIG_SYNC_ESTABILISHED 0x1d

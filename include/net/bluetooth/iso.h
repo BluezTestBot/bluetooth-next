@@ -3,6 +3,7 @@
  * BlueZ - Bluetooth protocol stack for Linux
  *
  * Copyright (C) 2022 Intel Corporation
+ * Copyright 2023 NXP
  */
 
 #ifndef __ISO_H
@@ -27,6 +28,19 @@ struct sockaddr_iso {
 	bdaddr_t	iso_bdaddr;
 	__u8		iso_bdaddr_type;
 	struct sockaddr_iso_bc iso_bc[];
+};
+
+struct iso_bis {
+	__u16	handle;
+	bool	assigned;
+};
+
+/* hdev BIG list entry */
+struct iso_big {
+	struct list_head	list;
+	__u8			handle;
+	__u8			num_bis;
+	struct iso_bis		bis[ISO_MAX_NUM_BIS];
 };
 
 #endif /* __ISO_H */

@@ -35,6 +35,7 @@
 #include <net/bluetooth/mgmt.h>
 
 #include "hci_request.h"
+#include "hci_debugfs.h"
 #include "smp.h"
 #include "a2mp.h"
 #include "eir.h"
@@ -826,13 +827,6 @@ static int terminate_big_sync(struct hci_dev *hdev, void *data)
 
 	hci_remove_ext_adv_instance_sync(hdev, d->bis, NULL);
 
-	/* Check if ISO connection is a BIS and terminate BIG if there are
-	 * no other connections using it.
-	 */
-	hci_conn_hash_list_state(hdev, find_bis, ISO_LINK, BT_CONNECTED, d);
-	if (d->count)
-		return 0;
-
 	return hci_le_terminate_big_sync(hdev, d->big,
 					 HCI_ERROR_LOCAL_HOST_TERM);
 }
@@ -914,11 +908,25 @@ static int hci_le_big_terminate(struct hci_dev *hdev, u8 big, u16 sync_handle)
 static void bis_cleanup(struct hci_conn *conn)
 {
 	struct hci_dev *hdev = conn->hdev;
+	struct iso_list_data data;
+	struct iso_big *big;
 
 	bt_dev_dbg(hdev, "conn %p", conn);
 
 	if (conn->role == HCI_ROLE_MASTER) {
-		if (!test_and_clear_bit(HCI_CONN_PER_ADV, &conn->flags))
+		big = hci_bigs_list_lookup(&hdev->bigs, conn->iso_qos.bcast.big);
+
+		for (int i = 0; i < big->num_bis; i++)
+			if (!big->bis[i].assigned)
+				return;
+
+		data.count = 0;
+		data.big = conn->iso_qos.bcast.big;
+		data.bis = conn->iso_qos.bcast.bis;
+
+		hci_conn_hash_list_state(hdev, bis_list, ISO_LINK, BT_CONNECTED,
+					 &data);
+		if (data.count)
 			return;
 
 		hci_le_terminate_big(hdev, conn->iso_qos.bcast.big,
@@ -1486,13 +1494,40 @@ static int qos_set_bis(struct hci_dev *hdev, struct bt_iso_qos *qos)
 	return 0;
 }
 
+static int hci_match_bis_params(struct hci_dev *hdev, struct bt_iso_qos *qos,
+				__u8 base_len, __u8 *base, __u16 bis_state)
+{
+	struct hci_conn *conn;
+	__u8 eir[HCI_MAX_PER_AD_LENGTH];
+
+	if (base_len && base)
+		base_len = eir_append_service_data(eir, 0,  0x1851, base, base_len);
+
+	conn = hci_conn_hash_lookup_big_state(hdev, qos->bcast.big, bis_state);
+
+	if (memcmp(qos, &conn->iso_qos, sizeof(*qos)) ||
+	    base_len != conn->le_per_adv_data_len ||
+	    memcmp(conn->le_per_adv_data, eir, base_len))
+		return -EADDRINUSE;
+
+	return 0;
+}
+
 /* This function requires the caller holds hdev->lock */
 static struct hci_conn *hci_add_bis(struct hci_dev *hdev, bdaddr_t *dst,
-				    struct bt_iso_qos *qos)
+				    struct bt_iso_qos *qos, __u8 base_len,
+				    __u8 *base, bool *big_create,
+				    bool *connected)
 {
 	struct hci_conn *conn;
 	struct iso_list_data data;
 	int err;
+	int i;
+	struct iso_big *big;
+	__u16 handle;
+
+	*big_create = false;
+	*connected = false;
 
 	/* Let's make sure that le is enabled.*/
 	if (!hci_dev_test_flag(hdev, HCI_LE_ENABLED)) {
@@ -1509,25 +1544,70 @@ static struct hci_conn *hci_add_bis(struct hci_dev *hdev, bdaddr_t *dst,
 	if (err)
 		return ERR_PTR(err);
 
-	data.big = qos->bcast.big;
-	data.bis = qos->bcast.bis;
-	data.count = 0;
+	/* Check if BIG is already created */
+	big = hci_bigs_list_lookup(&hdev->bigs, qos->bcast.big);
+	if (!big) {
+		/* Check if there are other BISes bound to the same BIG */
+		data.big = qos->bcast.big;
+		data.bis = qos->bcast.bis;
+		data.count = 0;
 
-	/* Check if there is already a matching BIG/BIS */
-	hci_conn_hash_list_state(hdev, bis_list, ISO_LINK, BT_BOUND, &data);
-	if (data.count)
-		return ERR_PTR(-EADDRINUSE);
+		hci_conn_hash_list_state(hdev, bis_list, ISO_LINK, BT_BOUND, &data);
+		if (data.count) {
+			/* Check QoS and base parameters against the
+			 * other BOUND connections
+			 */
+			err = hci_match_bis_params(hdev, qos, base_len, base, BT_BOUND);
+			goto done;
+		}
 
-	conn = hci_conn_hash_lookup_bis(hdev, dst, qos->bcast.big, qos->bcast.bis);
-	if (conn)
-		return ERR_PTR(-EADDRINUSE);
+		*big_create = true;
+		goto done;
+	}
+
+	conn = hci_conn_hash_lookup_big_state(hdev, qos->bcast.big, BT_CONNECTED);
+	if (!conn) {
+		/* BIG is in the process of terminating.
+		 * Check BIS parameters against other BOUND connections if any,
+		 * and mark BIS as bound for the BIG. BIG will be recreated
+		 * after receiving the HCI_EVT_LE_TERM_BIG_COMPLETE event
+		 */
+		err = hci_match_bis_params(hdev, qos, base_len, base, BT_BOUND);
+		goto done;
+	}
+
+	/* BIG is already created. Check that QoS and
+	 * base parameters match the BIG
+	 */
+	err = hci_match_bis_params(hdev, qos, base_len, base, BT_CONNECTED);
+	if (!err) {
+		/* Try to assign a bis handle */
+		for (i = 0; i < big->num_bis; i++) {
+			if (big->bis[i].assigned)
+				continue;
+
+			handle = big->bis[i].handle;
+			big->bis[i].assigned = true;
+			*connected = true;
+			break;
+		}
+
+		if (i == big->num_bis)
+			err = -EADDRINUSE;
+	}
+
+done:
+	if (err)
+		return ERR_PTR(err);
 
 	conn = hci_conn_add(hdev, ISO_LINK, dst, HCI_ROLE_MASTER);
 	if (!conn)
 		return ERR_PTR(-ENOMEM);
 
-	set_bit(HCI_CONN_PER_ADV, &conn->flags);
 	conn->state = BT_CONNECT;
+
+	if (*connected)
+		conn->handle = handle;
 
 	hci_conn_hold(conn);
 	return conn;
@@ -1736,7 +1816,7 @@ static void cis_list(struct hci_conn *conn, void *data)
 	cis_add(d, &conn->iso_qos);
 }
 
-static int hci_le_create_big(struct hci_conn *conn, struct bt_iso_qos *qos)
+int hci_le_create_big(struct hci_conn *conn, struct bt_iso_qos *qos)
 {
 	struct hci_dev *hdev = conn->hdev;
 	struct hci_cp_le_create_big cp;
@@ -1745,7 +1825,7 @@ static int hci_le_create_big(struct hci_conn *conn, struct bt_iso_qos *qos)
 
 	cp.handle = qos->bcast.big;
 	cp.adv_handle = qos->bcast.bis;
-	cp.num_bis  = 0x01;
+	cp.num_bis  = qos->bcast.num_bis;
 	hci_cpu_to_le24(qos->bcast.out.interval, cp.bis.sdu_interval);
 	cp.bis.sdu = cpu_to_le16(qos->bcast.out.sdu);
 	cp.bis.latency =  cpu_to_le16(qos->bcast.out.latency);
@@ -2156,9 +2236,12 @@ struct hci_conn *hci_connect_bis(struct hci_dev *hdev, bdaddr_t *dst,
 {
 	struct hci_conn *conn;
 	int err;
+	bool big_create = false;
+	bool connected = false;
 
 	/* We need hci_conn object using the BDADDR_ANY as dst */
-	conn = hci_add_bis(hdev, dst, qos);
+	conn = hci_add_bis(hdev, dst, qos, base_len, base,
+			   &big_create, &connected);
 	if (IS_ERR(conn))
 		return conn;
 
@@ -2171,17 +2254,26 @@ struct hci_conn *hci_connect_bis(struct hci_dev *hdev, bdaddr_t *dst,
 		conn->le_per_adv_data_len = base_len;
 	}
 
-	/* Queue start periodic advertising and create BIG */
-	err = hci_cmd_sync_queue(hdev, create_big_sync, conn,
-				 create_big_complete);
-	if (err < 0) {
-		hci_conn_drop(conn);
-		return ERR_PTR(err);
+	if (big_create) {
+		/* Queue start periodic advertising and create BIG */
+		err = hci_cmd_sync_queue(hdev, create_big_sync, conn,
+					 create_big_complete);
+		if (err < 0) {
+			hci_conn_drop(conn);
+			return ERR_PTR(err);
+		}
 	}
 
 	hci_iso_qos_setup(hdev, conn, &qos->bcast.out,
 			  conn->le_tx_phy ? conn->le_tx_phy :
 			  hdev->le_tx_def_phys);
+
+	if (connected) {
+		conn->state = BT_CONNECTED;
+		hci_debugfs_create_conn(conn);
+		hci_conn_add_sysfs(conn);
+		hci_iso_setup_path(conn);
+	}
 
 	return conn;
 }

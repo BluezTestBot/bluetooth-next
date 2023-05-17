@@ -30,6 +30,7 @@
 #include <net/bluetooth/bluetooth.h>
 #include <net/bluetooth/hci_core.h>
 #include <net/bluetooth/mgmt.h>
+#include <net/bluetooth/iso.h>
 
 #include "hci_request.h"
 #include "hci_debugfs.h"
@@ -3903,6 +3904,11 @@ static void hci_cs_le_create_big(struct hci_dev *hdev, u8 status)
 	bt_dev_dbg(hdev, "status 0x%2.2x", status);
 }
 
+static void hci_cs_le_term_big(struct hci_dev *hdev, u8 status)
+{
+	bt_dev_dbg(hdev, "status 0x%2.2x", status);
+}
+
 static u8 hci_cc_set_per_adv_param(struct hci_dev *hdev, void *data,
 				   struct sk_buff *skb)
 {
@@ -4275,6 +4281,7 @@ static const struct hci_cs {
 	HCI_CS(HCI_OP_LE_EXT_CREATE_CONN, hci_cs_le_ext_create_conn),
 	HCI_CS(HCI_OP_LE_CREATE_CIS, hci_cs_le_create_cis),
 	HCI_CS(HCI_OP_LE_CREATE_BIG, hci_cs_le_create_big),
+	HCI_CS(HCI_OP_LE_TERM_BIG, hci_cs_le_term_big),
 };
 
 static void hci_cmd_status_evt(struct hci_dev *hdev, void *data,
@@ -6910,6 +6917,9 @@ static void hci_le_create_big_complete_evt(struct hci_dev *hdev, void *data,
 {
 	struct hci_evt_le_create_big_complete *ev = data;
 	struct hci_conn *conn;
+	struct iso_big *big;
+	struct hci_conn_hash *h = &hdev->conn_hash;
+	__u8 bis_idx = 0;
 
 	BT_DBG("%s status 0x%2.2x", hdev->name, ev->status);
 
@@ -6919,30 +6929,78 @@ static void hci_le_create_big_complete_evt(struct hci_dev *hdev, void *data,
 
 	hci_dev_lock(hdev);
 
-	conn = hci_conn_hash_lookup_big(hdev, ev->handle);
+	if (!ev->status) {
+		/* Add the created BIG to the list */
+		big = kzalloc(sizeof(*big), GFP_KERNEL);
+		if (!big)
+			return;
+
+		big->handle = ev->handle;
+		big->num_bis = ev->num_bis;
+
+		for (int i = 0; i < ev->num_bis; i++) {
+			big->bis[i].handle = __le16_to_cpu(ev->bis_handle[i]);
+			big->bis[i].assigned = false;
+		}
+
+		list_add(&big->list, &hdev->bigs);
+	}
+
+	rcu_read_lock();
+
+	/* Connect all BISes that are bound to the BIG */
+	list_for_each_entry_rcu(conn, &h->list, list) {
+		if (bacmp(&conn->dst, BDADDR_ANY) || conn->type != ISO_LINK ||
+		    conn->state != BT_BOUND ||
+		    conn->iso_qos.bcast.big != ev->handle)
+			continue;
+
+		if (ev->status) {
+			hci_connect_cfm(conn, ev->status);
+			hci_conn_del(conn);
+		}
+
+		if (big->num_bis > bis_idx) {
+			conn->handle = __le16_to_cpu(big->bis[bis_idx].handle);
+			big->bis[bis_idx].assigned = true;
+			bis_idx++;
+
+			conn->state = BT_CONNECTED;
+			hci_debugfs_create_conn(conn);
+			hci_conn_add_sysfs(conn);
+			hci_iso_setup_path(conn);
+			continue;
+		}
+	}
+
+	rcu_read_unlock();
+	hci_dev_unlock(hdev);
+}
+
+static void hci_le_term_big_complete_evt(struct hci_dev *hdev, void *data,
+					 struct sk_buff *skb)
+{
+	struct hci_evt_le_term_big_complete *ev = data;
+	struct iso_big *big;
+	struct hci_conn *conn;
+
+	BT_DBG("%s reason 0x%2.2x", hdev->name, ev->reason);
+
+	hci_dev_lock(hdev);
+
+	big = hci_bigs_list_lookup(&hdev->bigs, ev->handle);
+
+	if (big) {
+		list_del(&big->list);
+		kfree(big);
+	}
+
+	/* If there are any bound connections to the BIG, recreate it */
+	conn = hci_conn_hash_lookup_big_state(hdev, ev->handle, BT_BOUND);
 	if (!conn)
 		goto unlock;
 
-	if (conn->type != ISO_LINK) {
-		bt_dev_err(hdev,
-			   "Invalid connection link type handle 0x%2.2x",
-			   ev->handle);
-		goto unlock;
-	}
-
-	if (ev->num_bis)
-		conn->handle = __le16_to_cpu(ev->bis_handle[0]);
-
-	if (!ev->status) {
-		conn->state = BT_CONNECTED;
-		hci_debugfs_create_conn(conn);
-		hci_conn_add_sysfs(conn);
-		hci_iso_setup_path(conn);
-		goto unlock;
-	}
-
-	hci_connect_cfm(conn, ev->status);
-	hci_conn_del(conn);
+	hci_le_create_big(conn, &conn->iso_qos);
 
 unlock:
 	hci_dev_unlock(hdev);
@@ -7089,6 +7147,10 @@ static const struct hci_le_ev {
 		     hci_le_create_big_complete_evt,
 		     sizeof(struct hci_evt_le_create_big_complete),
 		     HCI_MAX_EVENT_SIZE),
+	/* [0x1c = HCI_EVT_LE_TERM_BIG_COMPLETE] */
+	HCI_LE_EV(HCI_EVT_LE_TERM_BIG_COMPLETE,
+		  hci_le_term_big_complete_evt,
+		  sizeof(struct hci_evt_le_term_big_complete)),
 	/* [0x1d = HCI_EV_LE_BIG_SYNC_ESTABILISHED] */
 	HCI_LE_EV_VL(HCI_EVT_LE_BIG_SYNC_ESTABILISHED,
 		     hci_le_big_sync_established_evt,
