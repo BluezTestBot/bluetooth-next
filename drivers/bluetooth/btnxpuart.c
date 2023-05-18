@@ -1319,6 +1319,7 @@ static void nxp_serdev_remove(struct serdev_device *serdev)
 	hci_free_dev(hdev);
 }
 
+#ifdef CONFIG_OF
 static struct btnxpuart_data w8987_data = {
 	.helper_fw_name = NULL,
 	.fw_name = FIRMWARE_W8987,
@@ -1335,6 +1336,7 @@ static const struct of_device_id nxpuart_of_match_table[] = {
 	{ }
 };
 MODULE_DEVICE_TABLE(of, nxpuart_of_match_table);
+#endif
 
 static struct serdev_device_driver nxp_serdev_driver = {
 	.probe = nxp_serdev_probe,
