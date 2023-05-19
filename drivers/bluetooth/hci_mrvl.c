@@ -167,7 +167,7 @@ static int mrvl_recv_fw_req(struct hci_dev *hdev, struct sk_buff *skb)
 	struct mrvl_data *mrvl = hu->priv;
 	int ret = 0;
 
-	if ((pkt->lhs ^ pkt->rhs) != 0xffff) {
+	if ((pkt->lhs ^ pkt->rhs) != cpu_to_le16(0xffff)) {
 		bt_dev_err(hdev, "Corrupted mrvl header");
 		mrvl_send_ack(hu, MRVL_NAK);
 		ret = -EINVAL;
@@ -200,7 +200,7 @@ static int mrvl_recv_chip_ver(struct hci_dev *hdev, struct sk_buff *skb)
 	u16 version = le16_to_cpu(pkt->lhs);
 	int ret = 0;
 
-	if ((pkt->lhs ^ pkt->rhs) != 0xffff) {
+	if ((pkt->lhs ^ pkt->rhs) != cpu_to_le16(0xffff)) {
 		bt_dev_err(hdev, "Corrupted mrvl header");
 		mrvl_send_ack(hu, MRVL_NAK);
 		ret = -EINVAL;
