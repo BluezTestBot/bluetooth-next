@@ -129,8 +129,7 @@ static int ll_open(struct hci_uart *hu)
 	if (hu->serdev) {
 		struct ll_device *lldev = serdev_device_get_drvdata(hu->serdev);
 
-		if (!IS_ERR(lldev->ext_clk))
-			clk_prepare_enable(lldev->ext_clk);
+		clk_prepare_enable(lldev->ext_clk);
 	}
 
 	return 0;
@@ -703,8 +702,8 @@ static int hci_ti_probe(struct serdev_device *serdev)
 	if (IS_ERR(lldev->enable_gpio))
 		return PTR_ERR(lldev->enable_gpio);
 
-	lldev->ext_clk = devm_clk_get(&serdev->dev, "ext_clock");
-	if (IS_ERR(lldev->ext_clk) && PTR_ERR(lldev->ext_clk) != -ENOENT)
+	lldev->ext_clk = devm_clk_get_optional(&serdev->dev, "ext_clock");
+	if (IS_ERR(lldev->ext_clk))
 		return PTR_ERR(lldev->ext_clk);
 
 	of_property_read_u32(serdev->dev.of_node, "max-speed", &max_speed);
