@@ -950,6 +950,8 @@ static void find_cis(struct hci_conn *conn, void *data)
 	/* Ignore broadcast or if CIG don't match */
 	if (!bacmp(&conn->dst, BDADDR_ANY) || d->cig != conn->iso_qos.ucast.cig)
 		return;
+	if (d->cig != conn->iso_qos.ucast.cig)
+		return;
 
 	d->count++;
 }
