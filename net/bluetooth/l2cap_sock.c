@@ -1423,6 +1423,7 @@ static int l2cap_sock_release(struct socket *sock)
 	l2cap_chan_hold(chan);
 	l2cap_chan_lock(chan);
 
+	__clear_chan_timer(chan);
 	sock_orphan(sk);
 	l2cap_sock_kill(sk);
 
