@@ -4161,8 +4161,12 @@ static struct l2cap_chan *l2cap_connect(struct l2cap_conn *conn,
 
 	result = L2CAP_CR_NO_MEM;
 
-	/* Check for valid dynamic CID range (as per Erratum 3253) */
-	if (scid < L2CAP_CID_DYN_START || scid > L2CAP_CID_DYN_END) {
+	/* Check for valid dynamic CID range (as per Erratum 3253).
+	 * As scid is an unsigned 16bit variable it's maximum
+	 * value is L2CAP_CID_DYN_END (0xffff): there is no need to check
+	 * if scid exceeds that value here.
+	 */
+	if (scid < L2CAP_CID_DYN_START) {
 		result = L2CAP_CR_INVALID_SCID;
 		goto response;
 	}
