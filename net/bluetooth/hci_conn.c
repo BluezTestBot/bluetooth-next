@@ -1815,6 +1815,19 @@ static bool hci_le_set_cig_params(struct hci_conn *conn, struct bt_iso_qos *qos)
 
 		/* Update CIG */
 		qos->ucast.cig = data.cig;
+	} else {
+		/* If CIG is busy, fail early because cmd error closes conns */
+		data.cig = qos->ucast.cig;
+		data.count = 0;
+
+		hci_conn_hash_list_state(hdev, find_cis, ISO_LINK,
+					 BT_CONNECT, &data);
+		if (data.count)
+			return false;
+		hci_conn_hash_list_state(hdev, find_cis, ISO_LINK,
+					 BT_CONNECTED, &data);
+		if (data.count)
+			return false;
 	}
 
 	data.pdu.cp.cig_id = qos->ucast.cig;
