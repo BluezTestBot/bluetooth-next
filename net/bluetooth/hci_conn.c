@@ -788,7 +788,7 @@ struct iso_list_data {
 	int count;
 	struct {
 		struct hci_cp_le_set_cig_params cp;
-		struct hci_cis_params cis[0x11];
+		struct hci_cis_params cis[0x1f];
 	} pdu;
 };
 
@@ -1815,7 +1815,8 @@ static bool hci_le_set_cig_params(struct hci_conn *conn, struct bt_iso_qos *qos)
 	}
 
 	/* Reprogram all CIS(s) with the same CIG */
-	for (data.cig = qos->ucast.cig, data.cis = 0x00; data.cis < 0x11;
+	for (data.cig = qos->ucast.cig, data.cis = 0x00;
+	     data.cis < ARRAY_SIZE(data.pdu.cis);
 	     data.cis++) {
 		data.count = 0;
 
