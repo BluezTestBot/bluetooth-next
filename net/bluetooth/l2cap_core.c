@@ -4694,9 +4694,8 @@ static inline int l2cap_disconnect_rsp(struct l2cap_conn *conn,
 	BT_DBG("dcid 0x%4.4x scid 0x%4.4x", dcid, scid);
 
 	chan = l2cap_get_chan_by_scid(conn, scid);
-	if (!chan) {
+	if (!chan)
 		return 0;
-	}
 
 	if (chan->state != BT_DISCONN) {
 		l2cap_chan_unlock(chan);
