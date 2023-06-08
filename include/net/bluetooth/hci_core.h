@@ -822,6 +822,7 @@ struct hci_conn_params {
 
 	struct hci_conn *conn;
 	bool explicit_connect;
+	bool add_pending;
 	hci_conn_flags_t flags;
 	u8  privacy_mode;
 };
