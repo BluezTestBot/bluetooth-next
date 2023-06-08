@@ -2784,6 +2784,12 @@ static void hci_cs_disconnect(struct hci_dev *hdev, u8 status)
 			hci_enable_advertising(hdev);
 		}
 
+		/* Tell ISO sockets the conn went away, before we delete it,
+		 * because they do not hold reference.
+		 */
+		if (conn->type == ISO_LINK)
+			hci_disconn_cfm(conn, HCI_ERROR_LOCAL_HOST_TERM);
+
 		goto done;
 	}
 
