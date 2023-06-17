@@ -309,6 +309,15 @@ enum {
 	 * to support it.
 	 */
 	HCI_QUIRK_BROKEN_SET_RPA_TIMEOUT,
+
+	/* When this quirk is set, extended monitor tracking by address filter
+	 * (MAF) is supported by the driver since limited tracking device per
+	 * condition, this feature is to support tracking multiple devices
+	 * concurrently, a driver flag is use to convey this support.
+	 *
+	 * This quirk must be set before hci_register_dev is called.
+	 */
+	HCI_QUIRK_MSFT_EXT_MAF_SUPPORTED,
 };
 
 /* HCI device flags */
