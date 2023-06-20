@@ -2463,28 +2463,29 @@ static int btintel_acpi_reset_method(struct hci_dev *hdev)
 
 	status = acpi_evaluate_object(ACPI_HANDLE(GET_HCIDEV_DEV(hdev)), "_PRR", NULL, &buffer);
 	if (ACPI_FAILURE(status)) {
-		bt_dev_err(hdev, "Failed to run _PRR method");
+		bt_dev_err(hdev, "Failed to run _PRR method: %s", acpi_format_exception(status));
 		ret = -ENODEV;
 		return ret;
 	}
 	p = buffer.pointer;
 
 	if (p->package.count != 1 || p->type != ACPI_TYPE_PACKAGE) {
-		bt_dev_err(hdev, "Invalid arguments");
+		bt_dev_err(hdev, "Invalid arguments: count: %u type: 0x%x", p->package.count,
+			   p->type);
 		ret = -EINVAL;
 		goto exit_on_error;
 	}
 
 	ref = &p->package.elements[0];
 	if (ref->type != ACPI_TYPE_LOCAL_REFERENCE) {
-		bt_dev_err(hdev, "Invalid object type: 0x%x", ref->type);
+		bt_dev_err(hdev, "Object type is not ACPI_TYPE_LOCAL_REFERENCE: 0x%x", ref->type);
 		ret = -EINVAL;
 		goto exit_on_error;
 	}
 
 	status = acpi_evaluate_object(ref->reference.handle, "_RST", NULL, NULL);
 	if (ACPI_FAILURE(status)) {
-		bt_dev_err(hdev, "Failed to run_RST method");
+		bt_dev_err(hdev, "Failed to run_RST method: %s", acpi_format_exception(status));
 		ret = -ENODEV;
 		goto exit_on_error;
 	}
