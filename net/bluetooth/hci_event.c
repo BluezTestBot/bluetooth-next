@@ -6847,16 +6847,14 @@ static void hci_le_cis_estabilished_evt(struct hci_dev *hdev, void *data,
 	pending = test_and_clear_bit(HCI_CONN_CREATE_CIS, &conn->flags);
 
 	if (conn->role == HCI_ROLE_SLAVE) {
-		__le32 interval;
+		struct bt_iso_qos *qos = &conn->iso_qos;
 
-		memset(&interval, 0, sizeof(interval));
-
-		memcpy(&interval, ev->c_latency, sizeof(ev->c_latency));
-		conn->iso_qos.ucast.in.interval = le32_to_cpu(interval);
-		memcpy(&interval, ev->p_latency, sizeof(ev->p_latency));
-		conn->iso_qos.ucast.out.interval = le32_to_cpu(interval);
-		conn->iso_qos.ucast.in.latency = le16_to_cpu(ev->interval);
-		conn->iso_qos.ucast.out.latency = le16_to_cpu(ev->interval);
+		qos->ucast.in.interval = get_unaligned_le24(ev->c_latency);
+		qos->ucast.out.interval = get_unaligned_le24(ev->p_latency);
+		/* Convert ISO Interval (1.25 ms slots) to latency (ms) */
+		qos->ucast.in.latency = le16_to_cpu(ev->interval) * 125 / 100;
+		/* Convert ISO Interval (1.25 ms slots) to latency (ms) */
+		qos->ucast.out.latency = le16_to_cpu(ev->interval) * 125 / 100;
 		conn->iso_qos.ucast.in.sdu = le16_to_cpu(ev->c_mtu);
 		conn->iso_qos.ucast.out.sdu = le16_to_cpu(ev->p_mtu);
 		conn->iso_qos.ucast.in.phy = ev->c_phy;
