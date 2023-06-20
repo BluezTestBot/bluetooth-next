@@ -864,7 +864,7 @@ static void btusb_intel_cmd_timeout(struct hci_dev *hdev)
 
 	if (intel_data->acpi_reset_method) {
 		if (test_and_set_bit(INTEL_ACPI_RESET_ACTIVE, intel_data->flags)) {
-			bt_dev_err(hdev, "acpi: last reset failed ? Not resetting again");
+			bt_dev_err(hdev, "acpi: last reset failed? Not resetting again");
 			return;
 		}
 

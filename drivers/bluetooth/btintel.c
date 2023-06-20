@@ -2500,10 +2500,14 @@ static void btintel_set_dsm_reset_method(struct hci_dev *hdev,
 {
 	struct btintel_data *data = hci_get_priv(hdev);
 	acpi_handle handle = ACPI_HANDLE(GET_HCIDEV_DEV(hdev));
-	u8 reset_payload[4] = {0x01, 0x00, 0x01, 0x00};
+	u8 reset_payload[4] = { 0x01, 0x00, 0x01, 0x00 };
 	union acpi_object *obj, argv4;
 	enum {
+		/* supported from TigerLake platform onwards on both discrete
+		 * and integrated solutions
+		 */
 		RESET_TYPE_WDISABLE2,
+		/* supported from MeteorLake platform with GalePeak2 NIC only */
 		RESET_TYPE_VSEC
 	};
 
@@ -2533,7 +2537,7 @@ static void btintel_set_dsm_reset_method(struct hci_dev *hdev,
 			return;
 		}
 		argv4.integer.type = ACPI_TYPE_INTEGER;
-		/* delay required to toggle BT power */
+		/* delay between WDISABLE2 pin assertion and deassertion */
 		argv4.integer.value = 160;
 		obj = acpi_evaluate_dsm(handle, &btintel_guid_dsm, 0,
 					DSM_SET_WDISABLE2_DELAY, &argv4);
