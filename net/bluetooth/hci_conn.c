@@ -1280,6 +1280,9 @@ static void create_le_conn_complete(struct hci_dev *hdev, void *data, int err)
 
 	hci_dev_lock(hdev);
 
+	if (!hci_conn_is_alive(hdev, conn))
+		goto done;
+
 	if (!err) {
 		hci_connect_le_scan_cleanup(conn, 0x00);
 		goto done;
@@ -1295,6 +1298,7 @@ static void create_le_conn_complete(struct hci_dev *hdev, void *data, int err)
 
 done:
 	hci_dev_unlock(hdev);
+	hci_conn_put(conn);
 }
 
 static int hci_connect_le_sync(struct hci_dev *hdev, void *data)
@@ -1302,6 +1306,14 @@ static int hci_connect_le_sync(struct hci_dev *hdev, void *data)
 	struct hci_conn *conn = data;
 
 	bt_dev_dbg(hdev, "conn %p", conn);
+
+	/* TODO: fix conn race conditions in hci_sync, this is not enough */
+	hci_dev_lock(hdev);
+	if (!hci_conn_is_alive(hdev, conn)) {
+		hci_dev_unlock(hdev);
+		return -ECANCELED;
+	}
+	hci_dev_unlock(hdev);
 
 	return hci_le_create_conn_sync(hdev, conn);
 }
@@ -1375,9 +1387,11 @@ struct hci_conn *hci_connect_le(struct hci_dev *hdev, bdaddr_t *dst,
 	conn->state = BT_CONNECT;
 	clear_bit(HCI_CONN_SCANNING, &conn->flags);
 
+	hci_conn_get(conn);
 	err = hci_cmd_sync_queue(hdev, hci_connect_le_sync, conn,
 				 create_le_conn_complete);
 	if (err) {
+		hci_conn_put(conn);
 		hci_conn_del(conn);
 		return ERR_PTR(err);
 	}
