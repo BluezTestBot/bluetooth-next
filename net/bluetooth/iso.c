@@ -626,7 +626,38 @@ static void iso_conn_defer_reject(struct hci_conn *conn)
 	hci_send_cmd(conn->hdev, HCI_OP_LE_REJECT_CIS, sizeof(cp), &cp);
 }
 
-static void __iso_sock_close(struct sock *sk)
+static void iso_conn_del_hci_conn(struct iso_conn *conn, struct hci_conn **del)
+{
+	/* Lock ordering forbids taking hdev->lock, postpone hci_conn_del */
+	iso_conn_lock(conn);
+	if (conn->hcon) {
+		hci_conn_get(conn->hcon);
+		hci_dev_hold(conn->hcon->hdev);
+		*del = conn->hcon;
+		conn->hcon = NULL;
+	}
+	iso_conn_unlock(conn);
+}
+
+static void iso_conn_del_hci_conn_finish(struct hci_conn *hcon)
+{
+	struct hci_dev *hdev;
+
+	if (!hcon)
+		return;
+
+	hdev = hcon->hdev;
+	hci_dev_lock(hdev);
+	if (hci_conn_is_alive(hdev, hcon)) {
+		iso_conn_del(hcon, ECONNRESET);
+		hci_conn_del(hcon);
+	}
+	hci_dev_unlock(hdev);
+	hci_dev_put(hdev);
+	hci_conn_put(hcon);
+}
+
+static void __iso_sock_close(struct sock *sk, struct hci_conn **del_conn)
 {
 	BT_DBG("sk %p state %d socket %p", sk, sk->sk_state, sk->sk_socket);
 
@@ -659,11 +690,8 @@ static void __iso_sock_close(struct sock *sk)
 		 * needs to be removed so just call hci_conn_del so the cleanup
 		 * callback do what is needed.
 		 */
-		if (test_bit(BT_SK_DEFER_SETUP, &bt_sk(sk)->flags) &&
-		    iso_pi(sk)->conn->hcon) {
-			hci_conn_del(iso_pi(sk)->conn->hcon);
-			iso_pi(sk)->conn->hcon = NULL;
-		}
+		if (test_bit(BT_SK_DEFER_SETUP, &bt_sk(sk)->flags))
+			iso_conn_del_hci_conn(iso_pi(sk)->conn, del_conn);
 
 		iso_chan_del(sk, ECONNRESET);
 		break;
@@ -680,11 +708,14 @@ static void __iso_sock_close(struct sock *sk)
 /* Must be called on unlocked socket. */
 static void iso_sock_close(struct sock *sk)
 {
+	struct hci_conn *del_conn = NULL;
+
 	iso_sock_clear_timer(sk);
 	lock_sock(sk);
-	__iso_sock_close(sk);
+	__iso_sock_close(sk, &del_conn);
 	release_sock(sk);
 	iso_sock_kill(sk);
+	iso_conn_del_hci_conn_finish(del_conn);
 }
 
 static void iso_sock_init(struct sock *sk, struct sock *parent)
@@ -1418,6 +1449,7 @@ static int iso_sock_getsockopt(struct socket *sock, int level, int optname,
 static int iso_sock_shutdown(struct socket *sock, int how)
 {
 	struct sock *sk = sock->sk;
+	struct hci_conn *del_conn = NULL;
 	int err = 0;
 
 	BT_DBG("sock %p, sk %p, how %d", sock, sk, how);
@@ -1447,7 +1479,7 @@ static int iso_sock_shutdown(struct socket *sock, int how)
 	}
 
 	iso_sock_clear_timer(sk);
-	__iso_sock_close(sk);
+	__iso_sock_close(sk, &del_conn);
 
 	if (sock_flag(sk, SOCK_LINGER) && sk->sk_lingertime &&
 	    !(current->flags & PF_EXITING))
@@ -1456,6 +1488,8 @@ static int iso_sock_shutdown(struct socket *sock, int how)
 unlock:
 	release_sock(sk);
 	sock_put(sk);
+
+	iso_conn_del_hci_conn_finish(del_conn);
 
 	return err;
 }
