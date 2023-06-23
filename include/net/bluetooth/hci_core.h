@@ -978,6 +978,7 @@ enum {
 	HCI_CONN_PER_ADV,
 	HCI_CONN_BIG_CREATED,
 	HCI_CONN_CREATE_CIS,
+	HCI_CONN_DELETED,
 };
 
 static inline bool hci_conn_ssp_enabled(struct hci_conn *conn)
@@ -997,6 +998,7 @@ static inline bool hci_conn_sc_enabled(struct hci_conn *conn)
 static inline void hci_conn_hash_add(struct hci_dev *hdev, struct hci_conn *c)
 {
 	struct hci_conn_hash *h = &hdev->conn_hash;
+	WARN_ON(test_bit(HCI_CONN_DELETED, &c->flags));
 	list_add_tail_rcu(&c->list, &h->list);
 	switch (c->type) {
 	case ACL_LINK:
@@ -1023,6 +1025,10 @@ static inline void hci_conn_hash_add(struct hci_dev *hdev, struct hci_conn *c)
 static inline void hci_conn_hash_del(struct hci_dev *hdev, struct hci_conn *c)
 {
 	struct hci_conn_hash *h = &hdev->conn_hash;
+	bool deleted;
+
+	deleted = test_and_set_bit(HCI_CONN_DELETED, &c->flags);
+	WARN_ON(deleted);
 
 	list_del_rcu(&c->list);
 	synchronize_rcu();
@@ -1047,6 +1053,18 @@ static inline void hci_conn_hash_del(struct hci_dev *hdev, struct hci_conn *c)
 		h->iso_num--;
 		break;
 	}
+}
+
+/* With hdev->lock: whether hci_conn is in conn_hash.
+ * With RCU: if true, the hci_conn is valid conn_hash iteration cursor and
+ * hci_conn_hash_del has not completed. (Note that if hci_conn was obtained in
+ * this critical section it is always valid, but this may return false!)
+ */
+static inline bool hci_conn_is_alive(struct hci_dev *hdev, struct hci_conn *c)
+{
+	RCU_LOCKDEP_WARN(lockdep_is_held(&hdev->lock) || rcu_read_lock_held(),
+			 "suspicious locking");
+	return !test_bit(HCI_CONN_DELETED, &c->flags);
 }
 
 static inline unsigned int hci_conn_num(struct hci_dev *hdev, __u8 type)
