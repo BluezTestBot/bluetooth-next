@@ -5276,9 +5276,6 @@ static int hci_le_connect_cancel_sync(struct hci_dev *hdev,
 	if (test_bit(HCI_CONN_SCANNING, &conn->flags))
 		return 0;
 
-	if (test_and_set_bit(HCI_CONN_CANCEL, &conn->flags))
-		return 0;
-
 	return __hci_cmd_sync_status(hdev, HCI_OP_LE_CREATE_CONN_CANCEL,
 				     0, NULL, HCI_CMD_TIMEOUT);
 }
@@ -5334,6 +5331,14 @@ int hci_abort_conn_sync(struct hci_dev *hdev, struct hci_conn *conn, u8 reason)
 {
 	int err;
 
+	/* No hdev->lock: but only accessing dst/type (immutable) and
+	 * state/flags here, in worst case we just send some unnecessary
+	 * HCI commands.
+	 */
+
+	if (test_and_set_bit(HCI_CONN_CANCEL, &conn->flags))
+		return 0;
+
 	switch (conn->state) {
 	case BT_CONNECTED:
 	case BT_CONFIG:
@@ -5342,10 +5347,12 @@ int hci_abort_conn_sync(struct hci_dev *hdev, struct hci_conn *conn, u8 reason)
 		err = hci_connect_cancel_sync(hdev, conn);
 		/* Cleanup hci_conn object if it cannot be cancelled as it
 		 * likelly means the controller and host stack are out of sync.
+		 * Watch out for deleted conn in calling conn_failed.
 		 */
 		if (err) {
 			hci_dev_lock(hdev);
-			hci_conn_failed(conn, err);
+			if (hci_conn_is_alive(hdev, conn))
+				hci_conn_failed(conn, err);
 			hci_dev_unlock(hdev);
 		}
 		return err;
@@ -5359,18 +5366,123 @@ int hci_abort_conn_sync(struct hci_dev *hdev, struct hci_conn *conn, u8 reason)
 	return 0;
 }
 
-static int hci_disconnect_all_sync(struct hci_dev *hdev, u8 reason)
-{
-	struct hci_conn *conn, *tmp;
-	int err;
+typedef bool (*hci_conn_iter_func_t)(struct hci_dev *hdev,
+				     struct hci_conn *conn,
+				     void *data);
 
-	list_for_each_entry_safe(conn, tmp, &hdev->conn_hash.list, list) {
-		err = hci_abort_conn_sync(hdev, conn, reason);
-		if (err)
-			return err;
+/* Iterate connections with unlocked loop body, allowing concurrent mutation,
+ * holding references to the cursors. If both the cursor and the next item are
+ * deleted while unlocked, this fails with -EBUSY, or optionally retries
+ * iteration from start. Note that hci_conn_cleanup may be running concurrently
+ * or have already completed for the conn, which you need to deal with.
+ */
+static int hci_conn_hash_list_unlocked(struct hci_dev *hdev,
+				       bool retry,
+				       hci_conn_iter_func_t func,
+				       void *data)
+{
+	struct list_head *head = &hdev->conn_hash.list;
+	struct hci_conn *pos, *prev, *prev_next;
+
+	if (!func)
+		return 0;
+
+again:
+	rcu_read_lock();
+
+	prev = NULL;
+	prev_next = NULL;
+
+	pos = list_first_or_null_rcu(head, struct hci_conn, list);
+	if (pos)
+		hci_conn_get(pos);
+
+	while (pos) {
+		struct list_head *ptr = &pos->list;
+		struct hci_conn *next;
+
+		next = list_next_or_null_rcu(head, ptr, struct hci_conn, list);
+		if (next)
+			hci_conn_get(next);
+
+		rcu_read_unlock();
+
+		/* Can't unref in RCU, so do it here */
+		if (prev) {
+			hci_conn_put(prev);
+			prev = NULL;
+		}
+
+		if (prev_next) {
+			hci_conn_put(prev_next);
+			prev_next = NULL;
+		}
+
+		if (func(hdev, pos, data)) {
+			hci_conn_put(pos);
+			if (next)
+				hci_conn_put(next);
+
+			return 0;
+		}
+
+		rcu_read_lock();
+
+		if (next && !hci_conn_is_alive(hdev, next)) {
+			if (!hci_conn_is_alive(hdev, pos)) {
+				/* Both cursors deleted */
+				rcu_read_unlock();
+				hci_conn_put(pos);
+				hci_conn_put(next);
+
+				if (retry)
+					goto again;
+
+				return -EBUSY;
+			}
+
+			/* Use the other cursor */
+			prev_next = next;
+			next = list_next_or_null_rcu(head, ptr,
+						     struct hci_conn, list);
+			if (next)
+				hci_conn_get(next);
+		}
+
+		prev = pos;
+		pos = next;
 	}
 
+	rcu_read_unlock();
+
+	if (prev)
+		hci_conn_put(prev);
+	if (prev_next)
+		hci_conn_put(prev_next);
+
 	return 0;
+}
+
+struct disconnect_all_info {
+	u8 reason;
+	int err;
+};
+
+static bool disconnect_all_sync(struct hci_dev *hdev, struct hci_conn *conn,
+				void *data)
+{
+	struct disconnect_all_info *info = data;
+
+	info->err = hci_abort_conn_sync(hdev, conn, info->reason);
+	return info->err;
+}
+
+static int hci_disconnect_all_sync(struct hci_dev *hdev, u8 reason)
+{
+	struct disconnect_all_info info = {reason, 0};
+
+	hci_conn_hash_list_unlocked(hdev, true, disconnect_all_sync, &info);
+	return info.err;
 }
 
 /* This function perform power off HCI command sequence as follows:
@@ -6254,8 +6366,10 @@ int hci_le_create_conn_sync(struct hci_dev *hdev, struct hci_conn *conn)
 				       conn->conn_timeout, NULL);
 
 done:
-	if (err == -ETIMEDOUT)
-		hci_le_connect_cancel_sync(hdev, conn);
+	if (err == -ETIMEDOUT) {
+		if (!test_and_set_bit(HCI_CONN_CANCEL, &conn->flags))
+			hci_le_connect_cancel_sync(hdev, conn);
+	}
 
 	/* Re-enable advertising after the connection attempt is finished. */
 	hci_resume_advertising_sync(hdev);
