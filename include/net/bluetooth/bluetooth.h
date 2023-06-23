@@ -292,7 +292,8 @@ enum {
 	BT_CONNECT2,
 	BT_CONFIG,
 	BT_DISCONN,
-	BT_CLOSED
+	BT_CLOSED,
+	BT_BIG_SYNC_FAILED,
 };
 
 /* If unused will be removed by compiler */
@@ -317,6 +318,8 @@ static inline const char *state_to_string(int state)
 		return "BT_DISCONN";
 	case BT_CLOSED:
 		return "BT_CLOSED";
+	case BT_BIG_SYNC_FAILED:
+		return "BT_BIG_SYNC_FAILED";
 	}
 
 	return "invalid state";
