@@ -369,11 +369,9 @@ EXPORT_SYMBOL_GPL(btmtk_register_coredump);
 
 int btmtk_process_coredump(struct hci_dev *hdev, struct sk_buff *skb)
 {
+	int err = 0;
+#ifdef CONFIG_DEV_COREDUMP
 	struct btmediatek_data *data = hci_get_priv(hdev);
-	int err;
-
-	if (!IS_ENABLED(CONFIG_DEV_COREDUMP))
-		return 0;
 
 	switch (data->cd_info.state) {
 	case HCI_DEVCOREDUMP_IDLE:
@@ -407,7 +405,7 @@ int btmtk_process_coredump(struct hci_dev *hdev, struct sk_buff *skb)
 
 	if (err < 0)
 		kfree_skb(skb);
-
+#endif
 	return err;
 }
 EXPORT_SYMBOL_GPL(btmtk_process_coredump);
