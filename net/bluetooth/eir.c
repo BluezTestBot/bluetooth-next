@@ -302,20 +302,25 @@ u8 eir_create_adv_data(struct hci_dev *hdev, u8 instance, u8 *ptr)
 		 * include the "Flags" AD field".
 		 */
 		if (flags) {
-			ptr[0] = 0x02;
-			ptr[1] = EIR_FLAGS;
-			ptr[2] = flags;
+			if (ptr) {
+				ptr[0] = 0x02;
+				ptr[1] = EIR_FLAGS;
+				ptr[2] = flags;
+				ptr += 3;
+			}
 
 			ad_len += 3;
-			ptr += 3;
 		}
 	}
 
 skip_flags:
 	if (adv) {
-		memcpy(ptr, adv->adv_data, adv->adv_data_len);
+		if (ptr) {
+			memcpy(ptr, adv->adv_data, adv->adv_data_len);
+			ptr += adv->adv_data_len;
+		}
+
 		ad_len += adv->adv_data_len;
-		ptr += adv->adv_data_len;
 	}
 
 	if (instance_flags & MGMT_ADV_FLAG_TX_POWER) {
@@ -330,14 +335,18 @@ skip_flags:
 			adv_tx_power = hdev->adv_tx_power;
 		}
 
-		/* Provide Tx Power only if we can provide a valid value for it */
+		/* Provide Tx Power only if we can provide a valid value for
+		 * it.
+		 */
 		if (adv_tx_power != HCI_TX_POWER_INVALID) {
-			ptr[0] = 0x02;
-			ptr[1] = EIR_TX_POWER;
-			ptr[2] = (u8)adv_tx_power;
+			if (ptr) {
+				ptr[0] = 0x02;
+				ptr[1] = EIR_TX_POWER;
+				ptr[2] = (u8)adv_tx_power;
+				ptr += 3;
+			}
 
 			ad_len += 3;
-			ptr += 3;
 		}
 	}
 

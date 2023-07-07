@@ -1113,6 +1113,22 @@ int hci_setup_ext_adv_instance_sync(struct hci_dev *hdev, u8 instance)
 
 	secondary_adv = (flags & MGMT_ADV_FLAG_SEC_MASK);
 
+	/* Force use of EA if advertising data is bigger than maximum allowed
+	 * over Legacy PDUS:
+	 *
+	 * BLUETOOTH CORE SPECIFICATION Version 5.3 | Vol 4, Part E
+	 * page 2449:
+	 *
+	 * 'If legacy advertising PDU types are being used, then the parameter
+	 * value shall be one of those specified in Table 7.2. If the
+	 * advertising set already contains data, the type shall be one that
+	 * supports advertising data and the amount of data shall not exceed
+	 * 31 octets.'
+	 */
+	if (!secondary_adv &&
+	    eir_create_adv_data(hdev, instance, NULL) > HCI_MAX_AD_LENGTH)
+		secondary_adv = true;
+
 	if (connectable) {
 		if (secondary_adv)
 			cp.evt_properties = cpu_to_le16(LE_EXT_ADV_CONN_IND);
