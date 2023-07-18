@@ -4720,6 +4720,12 @@ static void hci_link_key_notify_evt(struct hci_dev *hdev, void *data,
 	bool persistent;
 	u8 pin_len = 0;
 
+	/* Ignore NULL link key against CVE-2020-26555 */
+	if (!memcmp(ev->link_key, ZERO_KEY, HCI_LINK_KEY_SIZE)) {
+		bt_dev_dbg(hdev, "Ignore NULL link key (ZERO KEY) for %pMR", &ev->bdaddr);
+		return;
+	}
+
 	bt_dev_dbg(hdev, "");
 
 	hci_dev_lock(hdev);
