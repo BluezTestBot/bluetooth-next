@@ -5250,6 +5250,8 @@ static int hci_disconnect_sync(struct hci_dev *hdev, struct hci_conn *conn,
 			       u8 reason)
 {
 	struct hci_cp_disconnect cp;
+	unsigned long timeout;
+	int err;
 
 	if (conn->type == AMP_LINK)
 		return hci_disconnect_phy_link_sync(hdev, conn->handle, reason);
@@ -5258,19 +5260,33 @@ static int hci_disconnect_sync(struct hci_dev *hdev, struct hci_conn *conn,
 	cp.handle = cpu_to_le16(conn->handle);
 	cp.reason = reason;
 
-	/* Wait for HCI_EV_DISCONN_COMPLETE, not HCI_EV_CMD_STATUS, when the
-	 * reason is anything but HCI_ERROR_REMOTE_POWER_OFF. This reason is
-	 * used when suspending or powering off, where we don't want to wait
-	 * for the peer's response.
+	/* The HCI_ERROR_REMOTE_POWER_OFF is used when suspending or powering off,
+	 * so we don't want to waste time waiting for the reply of the peer.
+	 * However, if the configuration specified, we'll wait some time to give the
+	 * controller chance to actually send the disconnect command.
 	 */
-	if (reason != HCI_ERROR_REMOTE_POWER_OFF)
-		return __hci_cmd_sync_status_sk(hdev, HCI_OP_DISCONNECT,
-						sizeof(cp), &cp,
-						HCI_EV_DISCONN_COMPLETE,
-						HCI_CMD_TIMEOUT, NULL);
+	if (reason == HCI_ERROR_REMOTE_POWER_OFF && !hdev->discon_on_poweroff_timeout) {
+		return __hci_cmd_sync_status(hdev, HCI_OP_DISCONNECT,
+					     sizeof(cp), &cp, HCI_CMD_TIMEOUT);
+	}
 
-	return __hci_cmd_sync_status(hdev, HCI_OP_DISCONNECT, sizeof(cp), &cp,
-				     HCI_CMD_TIMEOUT);
+	if (reason == HCI_ERROR_REMOTE_POWER_OFF)
+		timeout = msecs_to_jiffies(hdev->discon_on_poweroff_timeout);
+	else
+		timeout = HCI_CMD_TIMEOUT;
+
+	err = __hci_cmd_sync_status_sk(hdev, HCI_OP_DISCONNECT,
+				       sizeof(cp), &cp,
+				       HCI_EV_DISCONN_COMPLETE,
+				       timeout, NULL);
+
+	/* Ignore the error in suspending or powering off case to avoid the procedure being
+	 * aborted.
+	 */
+	if (reason == HCI_ERROR_REMOTE_POWER_OFF)
+		return 0;
+
+	return err;
 }
 
 static int hci_le_connect_cancel_sync(struct hci_dev *hdev,
