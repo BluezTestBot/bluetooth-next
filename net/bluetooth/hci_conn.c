@@ -2889,3 +2889,63 @@ int hci_abort_conn(struct hci_conn *conn, u8 reason)
 	return hci_cmd_sync_queue(hdev, abort_conn_sync, ERR_PTR(conn->handle),
 				  NULL);
 }
+
+struct hci_conn_sync_work_entry {
+	struct hci_conn *conn;
+	hci_cmd_sync_work_func_t func;
+	void *data;
+	hci_cmd_sync_work_destroy_t destroy;
+};
+
+static int hci_conn_sync_work_run(struct hci_dev *hdev, void *data)
+{
+	struct hci_conn_sync_work_entry *entry = data;
+	int err;
+
+	hci_cmd_sync_dev_lock(hdev);
+	hdev->cmd_sync_conn = entry->conn;
+
+	if (hci_conn_is_alive(hdev, entry->conn))
+		err = entry->func(hdev, entry->data);
+	else
+		err = -ENODEV;
+
+	hdev->cmd_sync_conn = NULL;
+	hci_cmd_sync_dev_unlock(hdev);
+
+	return err;
+}
+
+static void hci_conn_sync_work_destroy(struct hci_dev *hdev, void *data,
+				       int err)
+{
+	struct hci_conn_sync_work_entry *entry = data;
+
+	if (entry->destroy)
+		entry->destroy(hdev, entry->data, err);
+	hci_conn_put(entry->conn);
+	kfree(entry);
+}
+
+int hci_conn_sync_queue(struct hci_conn *conn, hci_cmd_sync_work_func_t func,
+			void *data, hci_cmd_sync_work_destroy_t destroy)
+{
+	struct hci_conn_sync_work_entry *entry;
+	int err;
+
+	entry = kmalloc(sizeof(*entry), GFP_KERNEL);
+	if (!entry)
+		return -ENOMEM;
+
+	entry->func = func;
+	entry->data = data;
+	entry->destroy = destroy;
+	entry->conn = hci_conn_get(conn);
+
+	err = hci_cmd_sync_queue(conn->hdev, hci_conn_sync_work_run, entry,
+				 hci_conn_sync_work_destroy);
+	if (err)
+		kfree(entry);
+
+	return err;
+}

@@ -519,6 +519,9 @@ struct hci_dev {
 	struct work_struct	cmd_sync_cancel_work;
 	struct work_struct	reenable_adv_work;
 
+	bool			cmd_sync_locked;
+	struct hci_conn		*cmd_sync_conn;
+
 	__u16			discov_timeout;
 	struct delayed_work	discov_off;
 
@@ -1399,6 +1402,10 @@ struct hci_conn *hci_conn_add(struct hci_dev *hdev, int type, bdaddr_t *dst,
 void hci_conn_del(struct hci_conn *conn);
 void hci_conn_hash_flush(struct hci_dev *hdev);
 void hci_conn_check_pending(struct hci_dev *hdev);
+
+void hci_conn_sync_set_conn(struct hci_dev *hdev, struct hci_conn *conn);
+int hci_conn_sync_queue(struct hci_conn *conn, hci_cmd_sync_work_func_t func,
+			void *data, hci_cmd_sync_work_destroy_t destroy);
 
 struct hci_chan *hci_chan_create(struct hci_conn *conn);
 void hci_chan_del(struct hci_chan *chan);

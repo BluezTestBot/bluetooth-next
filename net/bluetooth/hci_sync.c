@@ -164,9 +164,15 @@ struct sk_buff *__hci_cmd_sync_sk(struct hci_dev *hdev, u16 opcode, u32 plen,
 	if (err < 0)
 		return ERR_PTR(err);
 
+	if (hdev->cmd_sync_locked)
+		hci_dev_unlock(hdev);
+
 	err = wait_event_interruptible_timeout(hdev->req_wait_q,
 					       hdev->req_status != HCI_REQ_PEND,
 					       timeout);
+
+	if (hdev->cmd_sync_locked)
+		hci_dev_lock(hdev);
 
 	if (err == -ERESTARTSYS)
 		return ERR_PTR(-EINTR);
@@ -183,6 +189,11 @@ struct sk_buff *__hci_cmd_sync_sk(struct hci_dev *hdev, u16 opcode, u32 plen,
 	default:
 		err = -ETIMEDOUT;
 		break;
+	}
+
+	if (hdev->cmd_sync_conn) {
+		if (!hci_conn_is_alive(hdev, hdev->cmd_sync_conn))
+			err = -ENODEV;
 	}
 
 	hdev->req_status = 0;
@@ -739,6 +750,26 @@ int hci_cmd_sync_queue(struct hci_dev *hdev, hci_cmd_sync_work_func_t func,
 	return hci_cmd_sync_submit(hdev, func, data, destroy);
 }
 EXPORT_SYMBOL(hci_cmd_sync_queue);
+
+void hci_cmd_sync_dev_lock(struct hci_dev *hdev)
+{
+	lockdep_assert_held(&hdev->req_lock);
+
+	hci_dev_lock(hdev);
+
+	WARN_ON_ONCE(hdev->cmd_sync_locked);
+	hdev->cmd_sync_locked = true;
+}
+
+void hci_cmd_sync_dev_unlock(struct hci_dev *hdev)
+{
+	lockdep_assert_held(&hdev->req_lock);
+
+	WARN_ON_ONCE(!hdev->cmd_sync_locked);
+	hdev->cmd_sync_locked = false;
+
+	hci_dev_unlock(hdev);
+}
 
 int hci_update_eir_sync(struct hci_dev *hdev)
 {
