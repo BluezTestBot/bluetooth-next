@@ -5339,6 +5339,10 @@ static int hci_connect_cancel_sync(struct hci_dev *hdev, struct hci_conn *conn,
 		if (test_bit(HCI_CONN_CREATE_CIS, &conn->flags))
 			return hci_disconnect_sync(hdev, conn, reason);
 
+		/* CIS with no Create CIS sent have nothing to cancel */
+		if (bacmp(&conn->dst, BDADDR_ANY))
+			return HCI_ERROR_LOCAL_HOST_TERM;
+
 		/* There is no way to cancel a BIS without terminating the BIG
 		 * which is done later on connection cleanup.
 		 */
@@ -5426,9 +5430,17 @@ int hci_abort_conn_sync(struct hci_dev *hdev, struct hci_conn *conn, u8 reason)
 	case BT_CONNECT2:
 		return hci_reject_conn_sync(hdev, conn, reason);
 	case BT_OPEN:
-		/* Cleanup bises that failed to be established */
-		if (test_and_clear_bit(HCI_CONN_BIG_SYNC_FAILED, &conn->flags))
+		/* Cleanup failed CIS, and BIS that failed to be established */
+		if (bacmp(&conn->dst, BDADDR_ANY) ||
+		    test_and_clear_bit(HCI_CONN_BIG_SYNC_FAILED, &conn->flags))
 			hci_conn_failed(conn, reason);
+		break;
+	case BT_BOUND:
+		/* Bound CIS should be cleaned up */
+		if (conn->type == ISO_LINK && bacmp(&conn->dst, BDADDR_ANY))
+			hci_conn_failed(conn, reason);
+		else
+			conn->state = BT_CLOSED;
 		break;
 	default:
 		conn->state = BT_CLOSED;
