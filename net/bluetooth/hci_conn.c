@@ -139,45 +139,6 @@ static void hci_connect_le_scan_cleanup(struct hci_conn *conn, u8 status)
 	hci_update_passive_scan(hdev);
 }
 
-static void hci_conn_cleanup(struct hci_conn *conn)
-{
-	struct hci_dev *hdev = conn->hdev;
-
-	if (test_bit(HCI_CONN_PARAM_REMOVAL_PEND, &conn->flags))
-		hci_conn_params_del(conn->hdev, &conn->dst, conn->dst_type);
-
-	if (test_and_clear_bit(HCI_CONN_FLUSH_KEY, &conn->flags))
-		hci_remove_link_key(hdev, &conn->dst);
-
-	hci_chan_list_flush(conn);
-
-	hci_conn_hash_del(hdev, conn);
-
-	if (conn->cleanup)
-		conn->cleanup(conn);
-
-	if (conn->type == SCO_LINK || conn->type == ESCO_LINK) {
-		switch (conn->setting & SCO_AIRMODE_MASK) {
-		case SCO_AIRMODE_CVSD:
-		case SCO_AIRMODE_TRANSP:
-			if (hdev->notify)
-				hdev->notify(hdev, HCI_NOTIFY_DISABLE_SCO);
-			break;
-		}
-	} else {
-		if (hdev->notify)
-			hdev->notify(hdev, HCI_NOTIFY_CONN_DEL);
-	}
-
-	hci_conn_del_sysfs(conn);
-
-	debugfs_remove_recursive(conn->debugfs);
-
-	hci_dev_put(hdev);
-
-	hci_conn_put(conn);
-}
-
 static void hci_acl_create_connection(struct hci_conn *conn)
 {
 	struct hci_dev *hdev = conn->hdev;
@@ -1127,12 +1088,39 @@ void hci_conn_del(struct hci_conn *conn)
 
 	skb_queue_purge(&conn->data_q);
 
-	/* Remove the connection from the list and cleanup its remaining
-	 * state. This is a separate function since for some cases like
-	 * BT_CONNECT_SCAN we *only* want the cleanup part without the
-	 * rest of hci_conn_del.
-	 */
-	hci_conn_cleanup(conn);
+	if (test_bit(HCI_CONN_PARAM_REMOVAL_PEND, &conn->flags))
+		hci_conn_params_del(conn->hdev, &conn->dst, conn->dst_type);
+
+	if (test_and_clear_bit(HCI_CONN_FLUSH_KEY, &conn->flags))
+		hci_remove_link_key(hdev, &conn->dst);
+
+	hci_chan_list_flush(conn);
+
+	hci_conn_hash_del(hdev, conn);
+
+	if (conn->cleanup)
+		conn->cleanup(conn);
+
+	if (conn->type == SCO_LINK || conn->type == ESCO_LINK) {
+		switch (conn->setting & SCO_AIRMODE_MASK) {
+		case SCO_AIRMODE_CVSD:
+		case SCO_AIRMODE_TRANSP:
+			if (hdev->notify)
+				hdev->notify(hdev, HCI_NOTIFY_DISABLE_SCO);
+			break;
+		}
+	} else {
+		if (hdev->notify)
+			hdev->notify(hdev, HCI_NOTIFY_CONN_DEL);
+	}
+
+	hci_conn_del_sysfs(conn);
+
+	debugfs_remove_recursive(conn->debugfs);
+
+	hci_dev_put(hdev);
+
+	hci_conn_put(conn);
 }
 
 struct hci_dev *hci_get_route(bdaddr_t *dst, bdaddr_t *src, uint8_t src_type)
