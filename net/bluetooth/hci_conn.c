@@ -1052,8 +1052,12 @@ static void hci_conn_unlink(struct hci_conn *conn)
 void hci_conn_del(struct hci_conn *conn)
 {
 	struct hci_dev *hdev = conn->hdev;
+	bool deleted;
 
 	BT_DBG("%s hcon %p handle %d", hdev->name, conn, conn->handle);
+
+	deleted = test_and_set_bit(HCI_CONN_DELETED, &conn->flags);
+	WARN_ON(deleted);
 
 	hci_conn_unlink(conn);
 
