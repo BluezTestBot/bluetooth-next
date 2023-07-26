@@ -2845,12 +2845,7 @@ u32 hci_conn_get_phy(struct hci_conn *conn)
 
 static int abort_conn_sync(struct hci_dev *hdev, void *data)
 {
-	struct hci_conn *conn;
-	u16 handle = PTR_ERR(data);
-
-	conn = hci_conn_hash_lookup_handle(hdev, handle);
-	if (!conn)
-		return 0;
+	struct hci_conn *conn = data;
 
 	return hci_abort_conn_sync(hdev, conn, conn->abort_reason);
 }
@@ -2886,8 +2881,7 @@ int hci_abort_conn(struct hci_conn *conn, u8 reason)
 		}
 	}
 
-	return hci_cmd_sync_queue(hdev, abort_conn_sync, ERR_PTR(conn->handle),
-				  NULL);
+	return hci_conn_sync_queue(conn, abort_conn_sync, conn, NULL);
 }
 
 struct hci_conn_sync_work_entry {

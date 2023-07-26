@@ -5407,6 +5407,8 @@ int hci_abort_conn_sync(struct hci_dev *hdev, struct hci_conn *conn, u8 reason)
 {
 	int err;
 
+	lockdep_assert_held(&hdev->lock);
+
 	switch (conn->state) {
 	case BT_CONNECTED:
 	case BT_CONFIG:
@@ -5418,21 +5420,15 @@ int hci_abort_conn_sync(struct hci_dev *hdev, struct hci_conn *conn, u8 reason)
 		 * or in case of LE it was still scanning so it can be cleanup
 		 * safely.
 		 */
-		if (err) {
-			hci_dev_lock(hdev);
+		if (err && hci_conn_is_alive(hdev, conn))
 			hci_conn_failed(conn, err);
-			hci_dev_unlock(hdev);
-		}
 		return err;
 	case BT_CONNECT2:
 		return hci_reject_conn_sync(hdev, conn, reason);
 	case BT_OPEN:
 		/* Cleanup bises that failed to be established */
-		if (test_and_clear_bit(HCI_CONN_BIG_SYNC_FAILED, &conn->flags)) {
-			hci_dev_lock(hdev);
+		if (test_and_clear_bit(HCI_CONN_BIG_SYNC_FAILED, &conn->flags))
 			hci_conn_failed(conn, reason);
-			hci_dev_unlock(hdev);
-		}
 		break;
 	default:
 		conn->state = BT_CLOSED;
@@ -5444,16 +5440,42 @@ int hci_abort_conn_sync(struct hci_dev *hdev, struct hci_conn *conn, u8 reason)
 
 static int hci_disconnect_all_sync(struct hci_dev *hdev, u8 reason)
 {
-	struct hci_conn *conn, *tmp;
-	int err;
+	struct hci_conn *conn;
+	struct hci_conn **conns;
+	int err = 0;
+	size_t i, n;
 
-	list_for_each_entry_safe(conn, tmp, &hdev->conn_hash.list, list) {
-		err = hci_abort_conn_sync(hdev, conn, reason);
-		if (err)
-			return err;
+	hci_cmd_sync_dev_lock(hdev);
+
+	/* Make a copy of conn_hash, because hci_abort_conn_sync may release the
+	 * lock and wait for events, during which the list may be mutated
+	 * arbitrarily.
+	 */
+	n = 0;
+	list_for_each_entry(conn, &hdev->conn_hash.list, list)
+		++n;
+
+	conns = kvcalloc(n, sizeof(*conns), GFP_KERNEL);
+	if (!conns) {
+		err = -ENOMEM;
+		goto unlock;
 	}
 
-	return 0;
+	i = 0;
+	list_for_each_entry(conn, &hdev->conn_hash.list, list)
+		conns[i++] = hci_conn_get(conn);
+
+	for (i = 0; i < n; ++i) {
+		if (!err)
+			err = hci_abort_conn_sync(hdev, conns[i], reason);
+		hci_conn_put(conns[i]);
+	}
+
+	kvfree(conns);
+
+unlock:
+	hci_cmd_sync_dev_unlock(hdev);
+	return err;
 }
 
 /* This function perform power off HCI command sequence as follows:
