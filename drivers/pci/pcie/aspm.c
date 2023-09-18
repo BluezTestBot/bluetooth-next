@@ -1102,8 +1102,8 @@ int pci_disable_link_state(struct pci_dev *pdev, int state)
 EXPORT_SYMBOL(pci_disable_link_state);
 
 /**
- * pci_enable_link_state - Clear and set the default device link state so that
- * the link may be allowed to enter the specified states. Note that if the
+ * pci_set_default_link_state - Clear and set the default device link state so
+ * that the link may be allowed to enter the specified states. Note that if the
  * BIOS didn't grant ASPM control to the OS, this does nothing because we can't
  * touch the LNKCTL register. Also note that this does not enable states
  * disabled by pci_disable_link_state(). Return 0 or a negative errno.
@@ -1111,7 +1111,7 @@ EXPORT_SYMBOL(pci_disable_link_state);
  * @pdev: PCI device
  * @state: Mask of ASPM link states to enable
  */
-int pci_enable_link_state(struct pci_dev *pdev, int state)
+int pci_set_default_link_state(struct pci_dev *pdev, int state)
 {
 	struct pcie_link_state *link = pcie_aspm_get_link(pdev);
 
@@ -1153,7 +1153,7 @@ int pci_enable_link_state(struct pci_dev *pdev, int state)
 
 	return 0;
 }
-EXPORT_SYMBOL(pci_enable_link_state);
+EXPORT_SYMBOL(pci_set_default_link_state);
 
 static int pcie_aspm_set_policy(const char *val,
 				const struct kernel_param *kp)
