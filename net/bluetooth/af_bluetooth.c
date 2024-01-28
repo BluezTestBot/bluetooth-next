@@ -159,10 +159,8 @@ struct sock *bt_sock_alloc(struct net *net, struct socket *sock,
 
 	/* Init peer information so it can be properly monitored */
 	if (!kern) {
-		spin_lock(&sk->sk_peer_lock);
 		sk->sk_peer_pid  = get_pid(task_tgid(current));
 		sk->sk_peer_cred = get_current_cred();
-		spin_unlock(&sk->sk_peer_lock);
 	}
 
 	return sk;
