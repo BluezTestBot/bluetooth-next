@@ -3330,6 +3330,7 @@ static void hci_queue_iso(struct hci_conn *conn, struct sk_buff_head *queue,
 {
 	struct hci_dev *hdev = conn->hdev;
 	struct sk_buff *list;
+	ktime_t now = ktime_get();
 	__u16 flags;
 
 	skb->len = skb_headlen(skb);
@@ -3346,6 +3347,7 @@ static void hci_queue_iso(struct hci_conn *conn, struct sk_buff_head *queue,
 		/* Non fragmented */
 		BT_DBG("%s nonfrag skb %p len %d", hdev->name, skb, skb->len);
 
+		skb_set_delivery_time(skb, now, true);
 		skb_queue_tail(queue, skb);
 	} else {
 		/* Fragmented */
@@ -3353,6 +3355,7 @@ static void hci_queue_iso(struct hci_conn *conn, struct sk_buff_head *queue,
 
 		skb_shinfo(skb)->frag_list = NULL;
 
+		skb_set_delivery_time(skb, now, true);
 		__skb_queue_tail(queue, skb);
 
 		do {
@@ -3365,6 +3368,7 @@ static void hci_queue_iso(struct hci_conn *conn, struct sk_buff_head *queue,
 
 			BT_DBG("%s frag %p len %d", hdev->name, skb, skb->len);
 
+			skb_set_delivery_time(skb, now, true);
 			__skb_queue_tail(queue, skb);
 		} while (list);
 	}
@@ -3458,6 +3462,237 @@ static struct hci_conn *hci_low_sent(struct hci_dev *hdev, __u8 type,
 	hci_quote_sent(conn, num, quote);
 
 	BT_DBG("conn %p quote %d", conn, *quote);
+	return conn;
+}
+
+static unsigned int iso_group_id(struct hci_conn *conn)
+{
+	if (!conn)
+		return 0xff;
+
+	if (bacmp(&conn->dst, BDADDR_ANY))
+		return (u8)conn->iso_qos.ucast.cig;
+	else
+		return (u8)conn->iso_qos.bcast.big + 0x100;
+}
+
+static int iso_seq_cmp(u16 a, u16 b)
+{
+	u16 diff = a - b;
+
+	return (diff == 0) ? 0 : (diff < U16_MAX / 2) ? 1 : -1;
+}
+
+static struct hci_conn *hci_low_iso_group(struct hci_dev *hdev, u16 group_id,
+					  int pkt, int max_pkt,
+					  ktime_t *res_time)
+{
+	struct hci_conn_hash *h = &hdev->conn_hash;
+	struct hci_conn *c;
+	bool ready = true;
+	bool same_sent = true;
+	struct hci_conn *early_c = NULL;
+	ktime_t early_time = KTIME_MAX;
+	struct hci_conn *seq_c = NULL;
+	u16 seq = 0;
+	unsigned int sent = ~0;
+	int group_size = 0;
+
+	/* The controller may use packet arrival times to assign timestamps
+	 * (Core v5.4 Vol 6 Part G Sec 3.3). We should try to send packets that
+	 * correspond to same interval in ISO group at the same time, so that
+	 * streams in the group stay in sync with each other.
+	 *
+	 * User may attach a sequence number (seq) to each skb via cmsg.  We try
+	 * to send, within a group, the skb that have the same seq at the same
+	 * time.
+	 *
+	 * skb seq and ktime (when we received it from user) are used for
+	 * scheduling. The seq of a stream is the one of its first skb.
+	 *
+	 * First:
+	 *
+	 * - For each stream in a group, clear seq that are earlier than other
+	 *   seq in the group.
+	 *
+	 * - If all streams in a group have same seq, those streams are
+	 *   "ready".
+	 *
+	 * - If a stream in a group has no seq, that stream is "ready".
+	 *
+	 * Then:
+	 *
+	 * Select the "ready" stream that has earliest ktime, of those in all
+	 * groups.
+	 *
+	 * If the stream has seq (= its group as a whole is "ready"):
+	 *
+	 * - If controller does not have enough free packet slots to receive
+	 *   the whole group at once, but in principle can have enough slots,
+	 *   don't send anything and wait for queue to clear.
+	 *
+	 * - If conn->sent in the group are not equal, don't send anything
+	 *   and wait for queue to clear.
+	 *
+	 * The conn->sent one is important, and is what recovers synchronization
+	 * when the controller loses it. It appears that e.g. with Intel AX210
+	 * sometimes one of packets of a group, even when submitted immediately
+	 * after each other to all streams in a group, fails to be sent but is
+	 * left in the queue instead of being discarded. It gets postponed for
+	 * later, but this destroys synchronization between streams, and we have
+	 * to compensate for this if we see it.
+	 *
+	 * Core v5.4 Vol 6 Part G does not give much tools to do things properly
+	 * when HCI_LE_Read_ISO_TX_Sync does not work and we can't set
+	 * timestamps, hence the contortions here.
+	 */
+
+	/* called with rcu lock held */
+	list_for_each_entry_rcu(c, &h->list, list) {
+		struct sk_buff *skb;
+
+		if (c->type != ISO_LINK || c->state != BT_CONNECTED)
+			continue;
+		if (iso_group_id(c) != group_id)
+			continue;
+
+		++group_size;
+
+		if (sent == ~0)
+			sent = c->sent;
+		if (c->sent != sent)
+			same_sent = false;
+
+		if (skb_queue_empty(&c->data_q)) {
+			ready = false;
+			continue;
+		}
+
+		skb = skb_peek(&c->data_q);
+
+		/* Earliest skb */
+		if (!early_c || skb_get_ktime(skb) < early_time) {
+			early_c = c;
+			early_time = skb_get_ktime(skb);
+		}
+
+		if (bt_cb(skb)->iso.have_seq) {
+			u16 cseq = bt_cb(skb)->iso.seq;
+			int diff = iso_seq_cmp(cseq, seq);
+
+			if (seq_c && diff != 0)
+				ready = false;
+
+			/* Largest seq */
+			if (!seq_c || diff > 0) {
+				seq = cseq;
+				seq_c = c;
+			}
+		} else {
+			ready = false;
+		}
+	}
+
+	if (!early_c) {
+		*res_time = KTIME_MAX;
+		return NULL;
+	}
+
+	/* Group has seq and is ready? */
+	if (ready) {
+		*res_time = early_time;
+
+		/* Need to wait for queue to clear? */
+		if (!same_sent && pkt < max_pkt) {
+			BT_DBG("group %u !same_sent", group_id);
+			return NULL;
+		}
+		if (group_size <= max_pkt && group_size > pkt) {
+			BT_DBG("group %u wait queue", group_id);
+			return NULL;
+		}
+
+		BT_DBG("group %u ready %u", group_id, seq);
+	} else {
+		early_c = NULL;
+		early_time = KTIME_MAX;
+
+		if (seq_c)
+			BT_DBG("group %u seq %u", group_id, seq);
+	}
+
+	list_for_each_entry_rcu(c, &h->list, list) {
+		struct sk_buff *skb;
+
+		if (c->type != ISO_LINK || c->state != BT_CONNECTED)
+			continue;
+		if (iso_group_id(c) != group_id || skb_queue_empty(&c->data_q))
+			continue;
+
+		skb = skb_peek(&c->data_q);
+
+		/* Clear seq */
+		if (ready) {
+			bt_cb(skb)->iso.have_seq = false;
+			skb_set_delivery_time(skb, early_time, true);
+		} else if (bt_cb(skb)->iso.have_seq && seq_c) {
+			u16 cseq = bt_cb(skb)->iso.seq;
+
+			if (cseq != seq)
+				bt_cb(skb)->iso.have_seq = false;
+		}
+
+		/* Conn with earliest non-seq skb */
+		if (!bt_cb(skb)->iso.have_seq) {
+			if (!early_c || skb_get_ktime(skb) < early_time) {
+				early_c = c;
+				early_time = skb_get_ktime(skb);
+			}
+		}
+	}
+
+	*res_time = early_time;
+	return early_c;
+}
+
+static struct hci_conn *hci_low_iso(struct hci_dev *hdev, int pkt, int max_pkt)
+{
+	struct hci_conn_hash *h = &hdev->conn_hash;
+	struct hci_conn *c;
+	unsigned long group_done[BITS_TO_LONGS(0x200)];
+	ktime_t min = KTIME_MAX;
+	struct hci_conn *conn = NULL;
+
+	/* See hci_low_iso_group() for explanation */
+
+	bitmap_zero(group_done, 0x200);
+
+	rcu_read_lock();
+
+	list_for_each_entry_rcu(c, &h->list, list) {
+		struct hci_conn *c2;
+		ktime_t t;
+
+		if (c->type != ISO_LINK || c->state != BT_CONNECTED)
+			continue;
+		if (test_bit(iso_group_id(c), group_done))
+			continue;
+
+		c2 = hci_low_iso_group(hdev, iso_group_id(c), pkt, max_pkt, &t);
+		if (t < min) {
+			conn = c2;
+			min = t;
+		}
+
+		BT_DBG("group %u conn %p", iso_group_id(c), c2);
+
+		set_bit(iso_group_id(c), group_done);
+	}
+
+	rcu_read_unlock();
+
+	BT_DBG("conn %p", conn);
+
 	return conn;
 }
 
@@ -3846,12 +4081,11 @@ static void hci_sched_le(struct hci_dev *hdev)
 		hci_prio_recalculate(hdev, LE_LINK);
 }
 
-/* Schedule CIS */
+/* Schedule CIS/BIS */
 static void hci_sched_iso(struct hci_dev *hdev)
 {
 	struct hci_conn *conn;
-	struct sk_buff *skb;
-	int quote, *cnt;
+	unsigned int max, *cnt;
 
 	BT_DBG("%s", hdev->name);
 
@@ -3860,16 +4094,20 @@ static void hci_sched_iso(struct hci_dev *hdev)
 
 	cnt = hdev->iso_pkts ? &hdev->iso_cnt :
 		hdev->le_pkts ? &hdev->le_cnt : &hdev->acl_cnt;
-	while (*cnt && (conn = hci_low_sent(hdev, ISO_LINK, &quote))) {
-		while (quote-- && (skb = skb_dequeue(&conn->data_q))) {
-			BT_DBG("skb %p len %d", skb, skb->len);
-			hci_send_frame(hdev, skb);
+	max = (cnt == &hdev->iso_cnt) ? hdev->iso_pkts : 0;
 
-			conn->sent++;
-			if (conn->sent == ~0)
-				conn->sent = 0;
-			(*cnt)--;
-		}
+	while (*cnt && (conn = hci_low_iso(hdev, *cnt, max))) {
+		struct sk_buff *skb;
+
+		skb = skb_dequeue(&conn->data_q);
+
+		BT_DBG("skb %p len %d", skb, skb->len);
+		hci_send_frame(hdev, skb);
+
+		conn->sent++;
+		if (conn->sent == ~0)
+			conn->sent = 0;
+		(*cnt)--;
 	}
 }
 

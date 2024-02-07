@@ -1240,12 +1240,48 @@ static int iso_sock_getname(struct socket *sock, struct sockaddr *addr,
 	return sizeof(struct sockaddr_iso);
 }
 
+static int iso_cmsg_parse_one(struct cmsghdr *cmsg, struct iso_ctrl *ctrl)
+{
+	switch (cmsg->cmsg_type) {
+	case ISO_CMSG_SEQ:
+		if (cmsg->cmsg_len != CMSG_LEN(sizeof(ctrl->seq)))
+			return -EINVAL;
+
+		memcpy(&ctrl->seq, CMSG_DATA(cmsg), sizeof(ctrl->seq));
+		ctrl->have_seq = true;
+		return 0;
+	}
+
+	return -EINVAL;
+}
+
+static int iso_cmsg_parse(struct sock *sk, struct msghdr *msg, struct iso_ctrl *ctrl)
+{
+	struct cmsghdr *cmsg;
+	int err;
+
+	for_each_cmsghdr(cmsg, msg) {
+		if (!CMSG_OK(msg, cmsg))
+			return -EINVAL;
+
+		if (cmsg->cmsg_level != SOL_BLUETOOTH)
+			continue;
+
+		err = iso_cmsg_parse_one(cmsg, ctrl);
+		if (err < 0)
+			return err;
+	}
+
+	return 0;
+}
+
 static int iso_sock_sendmsg(struct socket *sock, struct msghdr *msg,
 			    size_t len)
 {
 	struct sock *sk = sock->sk;
 	struct sk_buff *skb, **frag;
 	size_t mtu;
+	struct iso_ctrl ctrl = {};
 	int err;
 
 	BT_DBG("sock %p, sk %p", sock, sk);
@@ -1256,6 +1292,12 @@ static int iso_sock_sendmsg(struct socket *sock, struct msghdr *msg,
 
 	if (msg->msg_flags & MSG_OOB)
 		return -EOPNOTSUPP;
+
+	if (msg->msg_controllen) {
+		err = iso_cmsg_parse(sk, msg, &ctrl);
+		if (err < 0)
+			return err;
+	}
 
 	lock_sock(sk);
 
@@ -1273,6 +1315,8 @@ static int iso_sock_sendmsg(struct socket *sock, struct msghdr *msg,
 		return PTR_ERR(skb);
 
 	len -= skb->len;
+
+	bt_cb(skb)->iso = ctrl;
 
 	BT_DBG("skb %p len %d", sk, skb->len);
 
@@ -1293,6 +1337,8 @@ static int iso_sock_sendmsg(struct socket *sock, struct msghdr *msg,
 
 		skb->len += tmp->len;
 		skb->data_len += tmp->len;
+
+		bt_cb(tmp)->iso.have_seq = false;
 
 		BT_DBG("frag %p len %d", *frag, tmp->len);
 

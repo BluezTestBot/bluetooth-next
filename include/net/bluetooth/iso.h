@@ -29,4 +29,7 @@ struct sockaddr_iso {
 	struct sockaddr_iso_bc iso_bc[];
 };
 
+/* ISO socket CMSG */
+#define ISO_CMSG_SEQ			0x01	/* u16 data */
+
 #endif /* __ISO_H */

@@ -458,6 +458,11 @@ struct mgmt_ctrl {
 	u16 opcode;
 };
 
+struct iso_ctrl {
+	u16 seq;
+	u8 have_seq:1;
+};
+
 struct bt_skb_cb {
 	u8 pkt_type;
 	u8 force_active;
@@ -469,6 +474,7 @@ struct bt_skb_cb {
 		struct hci_ctrl hci;
 		struct mgmt_ctrl mgmt;
 		struct scm_creds creds;
+		struct iso_ctrl iso;
 	};
 };
 #define bt_cb(skb) ((struct bt_skb_cb *)((skb)->cb))
