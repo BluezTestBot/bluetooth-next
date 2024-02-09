@@ -4114,6 +4114,14 @@ static int l2cap_connect_create_rsp(struct l2cap_conn *conn,
 
 	l2cap_chan_lock(chan);
 
+	switch (chan->state) {
+	case BT_CLOSED:
+	case BT_DISCONN:
+		l2cap_chan_unlock(chan);
+		l2cap_chan_put(chan);
+		goto unlock;
+	}
+
 	switch (result) {
 	case L2CAP_CR_SUCCESS:
 		if (__l2cap_get_chan_by_dcid(conn, dcid)) {
@@ -4323,6 +4331,14 @@ static inline int l2cap_config_rsp(struct l2cap_conn *conn,
 	chan = l2cap_get_chan_by_scid(conn, scid);
 	if (!chan)
 		return 0;
+
+	switch (chan->state) {
+	case BT_CLOSED:
+	case BT_CONNECT:
+	case BT_CONNECT2:
+	case BT_DISCONN:
+		goto done;
+	}
 
 	switch (result) {
 	case L2CAP_CONF_SUCCESS:
