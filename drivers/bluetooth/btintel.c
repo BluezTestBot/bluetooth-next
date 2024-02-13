@@ -2670,6 +2670,111 @@ static void btintel_set_msft_opcode(struct hci_dev *hdev, u8 hw_variant)
 	}
 }
 
+static void btintel_print_fseq_info(struct hci_dev *hdev)
+{
+	struct sk_buff *skb;
+	u8 *p;
+	const char *str;
+
+	skb = __hci_cmd_sync(hdev, 0xfcb3, 0, NULL, HCI_CMD_TIMEOUT);
+	if (IS_ERR(skb)) {
+		bt_dev_dbg(hdev, "Reading fseq status command failed (%ld)",
+			   PTR_ERR(skb));
+		return;
+	}
+
+	if (skb->len < (sizeof(u32) * 16 + 2)) {
+		bt_dev_dbg(hdev, "Malformed packet");
+		kfree_skb(skb);
+		return;
+	}
+
+	if (skb->data[0]) {
+		bt_dev_dbg(hdev, "Failed to get fseq status (0x%2.2x)",
+			   skb->data[0]);
+		kfree_skb(skb);
+		return;
+	}
+
+	p = skb->data;
+	/* skip status */
+	p = p + 1;
+
+	switch (*p) {
+	case 0:
+		str = "Success";
+		break;
+	case 1:
+		str = "Fatal error";
+		break;
+	case 2:
+		str = "Sem acq error";
+		break;
+	default:
+		str = "Unknown error";
+		break;
+	}
+
+	bt_dev_info(hdev, "Fseq status: %s (0x%2.2x)", str, *p);
+	if (*p)
+		return;
+	p = p + 1;
+	bt_dev_dbg(hdev, "Reason: 0x%8.8x", get_unaligned_le32(p));
+
+	p = p + 4;
+	bt_dev_dbg(hdev, "Global version: 0x%8.8x", get_unaligned_le32(p));
+
+	p = p + 4;
+	bt_dev_dbg(hdev, "Installed version: 0x%8.8x", get_unaligned_le32(p));
+
+	p = p + 4;
+	bt_dev_info(hdev, "Fseq executed: %2.2u.%2.2u.%2.2u.%2.2u", p[0], p[1],
+		    p[2], p[3]);
+
+	p = p + 4;
+	bt_dev_info(hdev, "Fseq BT Top: %2.2u.%2.2u.%2.2u.%2.2u", p[0], p[1],
+		    p[2], p[3]);
+
+	p = p + 4;
+	bt_dev_dbg(hdev, "Fseq Top init version: 0x%8.8x", get_unaligned_le32(p));
+
+	p = p + 4;
+	bt_dev_dbg(hdev, "Fseq Cnvio init version: 0x%8.8x", get_unaligned_le32(p));
+
+	p = p + 4;
+	bt_dev_dbg(hdev, "Fseq MBX Wifi file version: 0x%8.8x", get_unaligned_le32(p));
+
+	p = p + 4;
+	bt_dev_dbg(hdev, "Fseq BT version: 0x%8.8x", get_unaligned_le32(p));
+
+	p = p + 4;
+	bt_dev_dbg(hdev, "Fseq Top reset address: 0x%8.8x", get_unaligned_le32(p));
+
+	p = p + 4;
+	bt_dev_dbg(hdev, "Fseq MBX timeout: 0x%8.8x", get_unaligned_le32(p));
+
+	p = p + 4;
+	bt_dev_dbg(hdev, "Fseq MBX ack: 0x%8.8x", get_unaligned_le32(p));
+
+	p = p + 4;
+	bt_dev_dbg(hdev, "Fseq CNVi id: 0x%8.8x", get_unaligned_le32(p));
+
+	p = p + 4;
+	bt_dev_dbg(hdev, "Fseq CNVr id: 0x%8.8x", get_unaligned_le32(p));
+
+	p = p + 4;
+	bt_dev_dbg(hdev, "Fseq Error handle: 0x%8.8x", get_unaligned_le32(p));
+
+	p = p + 4;
+	bt_dev_dbg(hdev, "Fseq Magic noalive indication: 0x%8.8x", get_unaligned_le32(p));
+
+	p = p + 4;
+	bt_dev_dbg(hdev, "Fseq OTP version: 0x%8.8x", get_unaligned_le32(p));
+
+	p = p + 4;
+	bt_dev_dbg(hdev, "Fseq MBX otp version: 0x%8.8x", get_unaligned_le32(p));
+}
+
 static int btintel_setup_combined(struct hci_dev *hdev)
 {
 	const u8 param[1] = { 0xFF };
@@ -2902,6 +3007,7 @@ static int btintel_setup_combined(struct hci_dev *hdev)
 
 		err = btintel_bootloader_setup_tlv(hdev, &ver_tlv);
 		btintel_register_devcoredump_support(hdev);
+		btintel_print_fseq_info(hdev);
 		break;
 	default:
 		bt_dev_err(hdev, "Unsupported Intel hw variant (%u)",
