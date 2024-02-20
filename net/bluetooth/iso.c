@@ -3,7 +3,7 @@
  * BlueZ - Bluetooth protocol stack for Linux
  *
  * Copyright (C) 2022 Intel Corporation
- * Copyright 2023 NXP
+ * Copyright 2023-2024 NXP
  */
 
 #include <linux/module.h>
@@ -70,8 +70,15 @@ struct iso_pinfo {
 	unsigned long		flags;
 	struct bt_iso_qos	qos;
 	bool			qos_user_set;
-	__u8			base_len;
-	__u8			base[BASE_MAX_LENGTH];
+	union {
+		__u8		base_len;
+		__u16		pa_data_len;
+	};
+	union {
+		__u8		base[BASE_MAX_LENGTH];
+		__u8		pa_data[HCI_MAX_PER_AD_TOT_LENGTH];
+	};
+	__u16			pa_data_offset;
 	struct iso_conn		*conn;
 };
 
@@ -1573,7 +1580,7 @@ static int iso_sock_getsockopt(struct socket *sock, int level, int optname,
 	struct sock *sk = sock->sk;
 	int len, err = 0;
 	struct bt_iso_qos *qos;
-	u8 base_len;
+	size_t base_len;
 	u8 *base;
 
 	BT_DBG("sk %p", sk);
@@ -1612,13 +1619,20 @@ static int iso_sock_getsockopt(struct socket *sock, int level, int optname,
 		break;
 
 	case BT_ISO_BASE:
-		if (sk->sk_state == BT_CONNECTED &&
-		    !bacmp(&iso_pi(sk)->dst, BDADDR_ANY)) {
-			base_len = iso_pi(sk)->conn->hcon->le_per_adv_data_len;
-			base = iso_pi(sk)->conn->hcon->le_per_adv_data;
-		} else {
+		if (!bacmp(&iso_pi(sk)->dst, BDADDR_ANY)) {
+			/* For a Broadcast Source, the BASE was stored
+			 * in iso_pi(sk)->base.
+			 */
 			base_len = iso_pi(sk)->base_len;
 			base = iso_pi(sk)->base;
+		} else {
+			/* For a Broadcast Sink, the complete data received in
+			 * PA reports is stored. Extract BASE from there.
+			 */
+			base = eir_get_service_data(iso_pi(sk)->pa_data,
+						    iso_pi(sk)->pa_data_len,
+						    EIR_BAA_SERVICE_UUID,
+						    &base_len);
 		}
 
 		len = min_t(unsigned int, len, base_len);
@@ -1834,8 +1848,9 @@ static void iso_conn_ready(struct iso_conn *conn)
 		bacpy(&iso_pi(sk)->dst, &hcon->dst);
 		iso_pi(sk)->dst_type = hcon->dst_type;
 		iso_pi(sk)->sync_handle = iso_pi(parent)->sync_handle;
-		memcpy(iso_pi(sk)->base, iso_pi(parent)->base, iso_pi(parent)->base_len);
-		iso_pi(sk)->base_len = iso_pi(parent)->base_len;
+		memcpy(iso_pi(sk)->pa_data, iso_pi(parent)->pa_data,
+		       iso_pi(parent)->pa_data_len);
+		iso_pi(sk)->pa_data_len = iso_pi(parent)->pa_data_len;
 
 		hci_conn_hold(hcon);
 		iso_chan_add(conn, sk, parent);
@@ -1904,8 +1919,8 @@ int iso_connect_ind(struct hci_dev *hdev, bdaddr_t *bdaddr, __u8 *flags)
 	 * a BIG Info it attempts to check if there any listening socket with
 	 * the same sync_handle and if it does then attempt to create a sync.
 	 * 3. HCI_EV_LE_PER_ADV_REPORT: When a PA report is received, it is stored
-	 * in iso_pi(sk)->base so it can be passed up to user, in the case of a
-	 * broadcast sink.
+	 * in iso_pi(sk)->pa_data so the BASE can later be passed up to user, in
+	 * the case of a broadcast sink.
 	 */
 	ev1 = hci_recv_event_data(hdev, HCI_EV_LE_PA_SYNC_ESTABLISHED);
 	if (ev1) {
@@ -1961,16 +1976,38 @@ int iso_connect_ind(struct hci_dev *hdev, bdaddr_t *bdaddr, __u8 *flags)
 
 	ev3 = hci_recv_event_data(hdev, HCI_EV_LE_PER_ADV_REPORT);
 	if (ev3) {
-		size_t base_len = ev3->length;
-		u8 *base;
-
 		sk = iso_get_sock_listen(&hdev->bdaddr, bdaddr,
 					 iso_match_sync_handle_pa_report, ev3);
-		base = eir_get_service_data(ev3->data, ev3->length,
-					    EIR_BAA_SERVICE_UUID, &base_len);
-		if (base && sk && base_len <= sizeof(iso_pi(sk)->base)) {
-			memcpy(iso_pi(sk)->base, base, base_len);
-			iso_pi(sk)->base_len = base_len;
+
+		if (!sk)
+			goto done;
+
+		if (ev3->data_status == LE_PA_DATA_TRUNCATED) {
+			/* The controller was unable to retrieve PA data. */
+			memset(iso_pi(sk)->pa_data, 0,
+			       HCI_MAX_PER_AD_TOT_LENGTH);
+			iso_pi(sk)->pa_data_len = 0;
+			iso_pi(sk)->pa_data_offset = 0;
+			return lm;
+		}
+
+		if (iso_pi(sk)->pa_data_offset + ev3->length >
+		    HCI_MAX_PER_AD_TOT_LENGTH)
+			goto done;
+
+		memcpy(iso_pi(sk)->pa_data + iso_pi(sk)->pa_data_offset,
+		       ev3->data, ev3->length);
+		iso_pi(sk)->pa_data_offset += ev3->length;
+
+		if (ev3->data_status == LE_PA_DATA_COMPLETE) {
+			/* All PA data has been received. */
+			iso_pi(sk)->pa_data_len = iso_pi(sk)->pa_data_offset;
+			iso_pi(sk)->pa_data_offset = 0;
+		} else {
+			/* This is a PA data fragment. Keep pa_data_len set to 0
+			 * until all data has been reassembled.
+			 */
+			iso_pi(sk)->pa_data_len  = 0;
 		}
 	} else {
 		sk = iso_get_sock_listen(&hdev->bdaddr, BDADDR_ANY, NULL, NULL);
