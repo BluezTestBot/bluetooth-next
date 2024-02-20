@@ -2893,7 +2893,7 @@ int hci_abort_conn(struct hci_conn *conn, u8 reason)
 	 * connection can be in BT_CONNECT at time.
 	 */
 	if (conn->state == BT_CONNECT && hdev->req_status == HCI_REQ_PEND) {
-		switch (hci_skb_event(hdev->sent_cmd)) {
+		switch (hci_skb_event(hdev->req_skb)) {
 		case HCI_EV_CONN_COMPLETE:
 		case HCI_EV_LE_CONN_COMPLETE:
 		case HCI_EV_LE_ENHANCED_CONN_COMPLETE:
