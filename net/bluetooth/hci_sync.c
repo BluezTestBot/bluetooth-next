@@ -2786,7 +2786,7 @@ static int hci_le_set_ext_scan_param_sync(struct hci_dev *hdev, u8 type,
 		phy++;
 	}
 
-	if (scan_coded(hdev)) {
+	if (scan_coded(hdev) && !hci_dev_test_flag(hdev, HCI_PA_SYNC)) {
 		cp->scanning_phys |= LE_SCAN_PHY_CODED;
 
 		phy->type = type;
