@@ -34,9 +34,9 @@
 
 void hci_req_init(struct hci_request *req, struct hci_dev *hdev)
 {
+	memset(req, 0, sizeof(*req));
 	skb_queue_head_init(&req->cmd_q);
 	req->hdev = hdev;
-	req->err = 0;
 }
 
 void hci_req_purge(struct hci_request *req)
