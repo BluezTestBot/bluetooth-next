@@ -29,6 +29,7 @@
 #include <linux/idr.h>
 #include <linux/leds.h>
 #include <linux/rculist.h>
+#include <linux/seqlock.h>
 
 #include <net/bluetooth/hci.h>
 #include <net/bluetooth/hci_sync.h>
@@ -265,6 +266,26 @@ struct adv_info {
 	bdaddr_t	random_addr;
 	bool 		rpa_expired;
 	struct delayed_work	rpa_expired_cb;
+};
+
+struct tx_latency {
+	seqcount_t	seq;
+	struct {
+		ktime_t		time;
+		__s64		offset;
+		unsigned int	queue;
+	} now;
+	__u16		sn;
+};
+
+struct tx_info_queue {
+	struct {
+		__u16	sn;
+		void	*data;
+	} *info;
+	unsigned int	size;
+	unsigned int	head;
+	unsigned int	num;
 };
 
 #define HCI_MAX_ADV_INSTANCES		5
@@ -746,6 +767,9 @@ struct hci_conn {
 	struct bt_iso_qos iso_qos;
 	unsigned long	flags;
 
+	struct tx_latency tx_latency;
+	struct tx_info_queue tx_info_queue;
+
 	enum conn_reasons conn_reason;
 	__u8		abort_reason;
 
@@ -803,6 +827,7 @@ struct hci_chan {
 	unsigned int	sent;
 	__u8		state;
 	bool		amp;
+	struct tx_latency tx_latency;
 };
 
 struct hci_conn_params {
@@ -1545,6 +1570,11 @@ void hci_conn_enter_active_mode(struct hci_conn *conn, __u8 force_active);
 
 void hci_conn_failed(struct hci_conn *conn, u8 status);
 u8 hci_conn_set_handle(struct hci_conn *conn, u16 handle);
+
+void hci_conn_tx_info_push(struct hci_conn *conn, void *ptr, __u16 sn);
+void *hci_conn_tx_info_pop(struct hci_conn *conn, __u16 *sn);
+void hci_mark_tx_latency(struct tx_latency *tx, struct sk_buff *skb);
+void hci_copy_tx_latency(struct tx_latency *dst, struct tx_latency *src);
 
 /*
  * hci_conn_get() and hci_conn_put() are used to control the life-time of an

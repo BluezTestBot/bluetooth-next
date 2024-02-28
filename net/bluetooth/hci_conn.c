@@ -138,6 +138,12 @@ void hci_connect_le_scan_cleanup(struct hci_conn *conn, u8 status)
 	hci_update_passive_scan(hdev);
 }
 
+static void hci_conn_tx_info_cleanup(struct hci_conn *conn)
+{
+	kfree(conn->tx_info_queue.info);
+	conn->tx_info_queue.info = NULL;
+}
+
 static void hci_conn_cleanup(struct hci_conn *conn)
 {
 	struct hci_dev *hdev = conn->hdev;
@@ -157,6 +163,8 @@ static void hci_conn_cleanup(struct hci_conn *conn)
 
 	if (conn->cleanup)
 		conn->cleanup(conn);
+
+	hci_conn_tx_info_cleanup(conn);
 
 	if (conn->type == SCO_LINK || conn->type == ESCO_LINK) {
 		switch (conn->setting & SCO_AIRMODE_MASK) {
@@ -904,6 +912,39 @@ static int hci_conn_hash_alloc_unset(struct hci_dev *hdev)
 			       U16_MAX, GFP_ATOMIC);
 }
 
+static int hci_conn_tx_info_init(struct hci_conn *conn)
+{
+	struct tx_info_queue *txq = &conn->tx_info_queue;
+	size_t size = 0;
+
+	switch (conn->type) {
+	case ISO_LINK:
+		size = conn->hdev->iso_pkts;
+		if (!size)
+			size = conn->hdev->le_pkts;
+		if (!size)
+			size = conn->hdev->acl_pkts;
+		break;
+	case ACL_LINK:
+		size = conn->hdev->acl_pkts;
+		break;
+	}
+
+	if (size) {
+		txq->info = kcalloc(size, sizeof(txq->info[0]), GFP_KERNEL);
+		if (!txq->info)
+			return -ENOMEM;
+	} else {
+		txq->info = NULL;
+	}
+
+	txq->size = size;
+	txq->head = 0;
+	txq->num = 0;
+
+	return 0;
+}
+
 struct hci_conn *hci_conn_add(struct hci_dev *hdev, int type, bdaddr_t *dst,
 			      u8 role, u16 handle)
 {
@@ -931,6 +972,12 @@ struct hci_conn *hci_conn_add(struct hci_dev *hdev, int type, bdaddr_t *dst,
 	conn->tx_power = HCI_TX_POWER_INVALID;
 	conn->max_tx_power = HCI_TX_POWER_INVALID;
 	conn->sync_handle = HCI_SYNC_HANDLE_INVALID;
+
+	seqcount_init(&conn->tx_latency.seq);
+	if (hci_conn_tx_info_init(conn) < 0) {
+		kfree(conn);
+		return NULL;
+	}
 
 	set_bit(HCI_CONN_POWER_SAVE, &conn->flags);
 	conn->disc_timeout = HCI_DISCONN_TIMEOUT;
@@ -1005,6 +1052,7 @@ struct hci_conn *hci_conn_add(struct hci_dev *hdev, int type, bdaddr_t *dst,
 struct hci_conn *hci_conn_add_unset(struct hci_dev *hdev, int type,
 				    bdaddr_t *dst, u8 role)
 {
+	struct hci_conn *conn;
 	int handle;
 
 	bt_dev_dbg(hdev, "dst %pMR", dst);
@@ -1013,7 +1061,11 @@ struct hci_conn *hci_conn_add_unset(struct hci_dev *hdev, int type,
 	if (unlikely(handle < 0))
 		return NULL;
 
-	return hci_conn_add(hdev, type, dst, role, handle);
+	conn = hci_conn_add(hdev, type, dst, role, handle);
+	if (!conn)
+		ida_free(&hdev->unset_handle_ida, handle);
+
+	return conn;
 }
 
 static void hci_conn_cleanup_child(struct hci_conn *conn, u8 reason)
@@ -2711,6 +2763,8 @@ struct hci_chan *hci_chan_create(struct hci_conn *conn)
 	skb_queue_head_init(&chan->data_q);
 	chan->state = BT_CONNECTED;
 
+	seqcount_init(&chan->tx_latency.seq);
+
 	list_add_rcu(&chan->list, &conn->chan_list);
 
 	return chan;
@@ -2927,4 +2981,58 @@ int hci_abort_conn(struct hci_conn *conn, u8 reason)
 	}
 
 	return hci_cmd_sync_queue_once(hdev, abort_conn_sync, conn, NULL);
+}
+
+void hci_conn_tx_info_push(struct hci_conn *conn, void *ptr, __u16 sn)
+{
+	struct tx_info_queue *txq = &conn->tx_info_queue;
+	unsigned int tail;
+
+	if (!txq->num && !ptr)
+		return;
+	if (txq->num >= txq->size || !txq->info)
+		return;
+
+	tail = (txq->head + txq->num) % txq->size;
+	txq->info[tail].data = ptr;
+	txq->info[tail].sn = sn;
+	txq->num++;
+}
+
+void *hci_conn_tx_info_pop(struct hci_conn *conn, __u16 *sn)
+{
+	struct tx_info_queue *txq = &conn->tx_info_queue;
+	void *ptr;
+
+	if (!txq->num || !txq->info || !txq->size)
+		return NULL;
+
+	ptr = txq->info[txq->head].data;
+	*sn = txq->info[txq->head].sn;
+	txq->head = (txq->head + 1) % txq->size;
+	txq->num--;
+
+	return ptr;
+}
+
+void hci_mark_tx_latency(struct tx_latency *tx, struct sk_buff *skb)
+{
+	if (!skb)
+		return;
+
+	/* Reads may be concurrent */
+	WRITE_ONCE(tx->sn, tx->sn + 1u);
+
+	bt_cb(skb)->user_sn = tx->sn;
+	bt_cb(skb)->have_user_sn = true;
+}
+
+void hci_copy_tx_latency(struct tx_latency *dst, struct tx_latency *src)
+{
+	unsigned int seq;
+
+	do {
+		seq = read_seqcount_begin(&src->seq);
+		dst->now = src->now;
+	} while (read_seqcount_retry(&src->seq, seq));
 }

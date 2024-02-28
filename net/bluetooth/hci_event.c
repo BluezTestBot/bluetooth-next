@@ -4417,10 +4417,72 @@ static void hci_role_change_evt(struct hci_dev *hdev, void *data,
 	hci_dev_unlock(hdev);
 }
 
+static void update_acl_tx_latency(struct hci_conn *conn, int count, ktime_t now)
+{
+	unsigned int i;
+
+	rcu_read_lock();
+
+	for (i = 0; i < count; ++i) {
+		struct hci_chan *chan;
+		void *ptr;
+		u16 sn;
+
+		ptr = hci_conn_tx_info_pop(conn, &sn);
+		if (!ptr)
+			continue;
+
+		list_for_each_entry_rcu(chan, &conn->chan_list, list) {
+			struct tx_latency *tx = &chan->tx_latency;
+
+			if (chan != ptr)
+				continue;
+
+			preempt_disable();
+			write_seqcount_begin(&tx->seq);
+			tx->now.time = now;
+			tx->now.queue = (u16)(READ_ONCE(tx->sn) - sn);
+			tx->now.offset = 0;
+			write_seqcount_end(&tx->seq);
+			preempt_enable();
+		}
+	}
+
+	rcu_read_unlock();
+}
+
+static void update_iso_tx_latency(struct hci_conn *conn, int count, ktime_t now)
+{
+	struct tx_latency *tx = NULL;
+	u16 sn;
+	unsigned int i;
+
+	for (i = 0; i < count; ++i) {
+		u16 tx_sn;
+
+		if (hci_conn_tx_info_pop(conn, &tx_sn)) {
+			tx = &conn->tx_latency;
+			sn = tx_sn;
+		}
+	}
+
+	if (!tx)
+		return;
+
+	preempt_disable();
+	write_seqcount_begin(&tx->seq);
+	tx->now.time = now;
+	tx->now.queue = (u16)(READ_ONCE(tx->sn) - sn);
+	tx->now.offset = 0;
+	write_seqcount_end(&tx->seq);
+	preempt_enable();
+}
+
 static void hci_num_comp_pkts_evt(struct hci_dev *hdev, void *data,
 				  struct sk_buff *skb)
 {
 	struct hci_ev_num_comp_pkts *ev = data;
+	ktime_t now = ktime_get();
 	int i;
 
 	if (!hci_ev_skb_pull(hdev, skb, HCI_EV_NUM_COMP_PKTS,
@@ -4450,6 +4512,8 @@ static void hci_num_comp_pkts_evt(struct hci_dev *hdev, void *data,
 
 		switch (conn->type) {
 		case ACL_LINK:
+			update_acl_tx_latency(conn, count, now);
+
 			hdev->acl_cnt += count;
 			if (hdev->acl_cnt > hdev->acl_pkts)
 				hdev->acl_cnt = hdev->acl_pkts;
@@ -4474,6 +4538,8 @@ static void hci_num_comp_pkts_evt(struct hci_dev *hdev, void *data,
 			break;
 
 		case ISO_LINK:
+			update_iso_tx_latency(conn, count, now);
+
 			if (hdev->iso_pkts) {
 				hdev->iso_cnt += count;
 				if (hdev->iso_cnt > hdev->iso_pkts)

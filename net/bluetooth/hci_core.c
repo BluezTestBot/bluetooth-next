@@ -3703,6 +3703,9 @@ static void hci_sched_acl_pkt(struct hci_dev *hdev)
 	       (chan = hci_chan_sent(hdev, ACL_LINK, &quote))) {
 		u32 priority = (skb_peek(&chan->data_q))->priority;
 		while (quote-- && (skb = skb_peek(&chan->data_q))) {
+			u16 sn = bt_cb(skb)->user_sn;
+			bool have_sn = bt_cb(skb)->have_user_sn;
+
 			BT_DBG("chan %p skb %p len %d priority %u", chan, skb,
 			       skb->len, skb->priority);
 
@@ -3721,6 +3724,11 @@ static void hci_sched_acl_pkt(struct hci_dev *hdev)
 			hdev->acl_cnt--;
 			chan->sent++;
 			chan->conn->sent++;
+
+			if (have_sn)
+				hci_conn_tx_info_push(chan->conn, chan, sn);
+			else
+				hci_conn_tx_info_push(chan->conn, NULL, 0);
 
 			/* Send pending SCO packets right away */
 			hci_sched_sco(hdev);
@@ -3875,8 +3883,14 @@ static void hci_sched_iso(struct hci_dev *hdev)
 		hdev->le_pkts ? &hdev->le_cnt : &hdev->acl_cnt;
 	while (*cnt && (conn = hci_low_sent(hdev, ISO_LINK, &quote))) {
 		while (quote-- && (skb = skb_dequeue(&conn->data_q))) {
+			u16 sn = bt_cb(skb)->user_sn;
+			bool have_sn = bt_cb(skb)->have_user_sn;
+
 			BT_DBG("skb %p len %d", skb, skb->len);
+
 			hci_send_frame(hdev, skb);
+
+			hci_conn_tx_info_push(conn, UINT_PTR(have_sn), sn);
 
 			conn->sent++;
 			if (conn->sent == ~0)

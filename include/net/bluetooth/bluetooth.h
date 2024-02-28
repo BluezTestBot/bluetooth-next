@@ -462,6 +462,8 @@ struct bt_skb_cb {
 	u8 pkt_type;
 	u8 force_active;
 	u16 expect;
+	u16 user_sn;
+	u8 have_user_sn:1;
 	u8 incoming:1;
 	u8 pkt_status:2;
 	union {
