@@ -239,6 +239,43 @@ struct bt_codecs {
 
 #define BT_ISO_BASE		20
 
+/* BTGETTXINFO: Transmission latency information.
+ *
+ * Produces information of a previous event when a packet was sent, and the
+ * length of packet queue at that time.
+ *
+ * Applicable to: Bluetooth ISO sockets.
+ *
+ * Input: Zero-initialize reserved flag bits and other fields.
+ *
+ * Output:
+ *
+ * Fails with ENOENT if no packet has been sent.
+ *
+ * - flags: currently always 0, all bits reserved for extensions.
+ *
+ * - queue: total number of packets in queue (controller and socket buffers)
+ *   at the time of the event.
+ *
+ * - time: reference event timestamp (nsec, in system monotonic clock).
+ *
+ * - offset: offset (nsec) of actual packet timing from the reference timestamp.
+ *   Currently always 0.
+ *
+ * For packet latencies in nanoseconds, the application can track timestamps
+ * t[j] when it sent packet j. Then, given t[k] < tx_info.time < t[k + 1],
+ * event packet j = k - tx.queue and ref_latency_nsec = tx_info.time - t[j].
+ */
+
+#define BTGETTXINFO	_IOWR('B', 100, struct bt_tx_info)
+
+struct bt_tx_info {
+	__u32	flags;
+	__u32	queue;
+	__s64	time;
+	__s64	offset;
+} __packed;
+
 __printf(1, 2)
 void bt_info(const char *fmt, ...);
 __printf(1, 2)
