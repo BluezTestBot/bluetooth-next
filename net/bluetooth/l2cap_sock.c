@@ -1207,6 +1207,54 @@ done:
 	return err;
 }
 
+static int l2cap_sock_ioctl(struct socket *sock, unsigned int cmd,
+			    unsigned long arg)
+{
+	struct sock *sk = sock->sk;
+	struct l2cap_chan *chan = l2cap_pi(sk)->chan;
+	struct tx_latency latency;
+	struct bt_tx_info info;
+
+	BT_DBG("sk %p cmd %x arg %lx", sk, cmd, arg);
+
+	switch (cmd) {
+	case BTGETTXINFO:
+		/* Require zero-initialized, to allow later extensions */
+		if (copy_from_user(&info, (void __user *)arg, sizeof(info)))
+			return -EFAULT;
+		if (info.flags || info.queue || info.time || info.offset)
+			return -EINVAL;
+
+		memset(&info, 0, sizeof(info));
+
+		lock_sock(sk);
+
+		if (sk->sk_state != BT_CONNECTED || !chan->conn ||
+		    !chan->conn->hchan) {
+			release_sock(sk);
+			return -EINVAL;
+		}
+
+		hci_copy_tx_latency(&latency, &chan->conn->hchan->tx_latency);
+
+		release_sock(sk);
+
+		if (!latency.now.time)
+			return -ENOENT;
+
+		info.queue = latency.now.queue;
+		info.time = ktime_to_ns(latency.now.time);
+		info.offset = latency.now.offset;
+
+		if (copy_to_user((void __user *)arg, &info, sizeof(info)))
+			return -EFAULT;
+
+		return 0;
+	}
+
+	return bt_sock_ioctl(sock, cmd, arg);
+}
+
 /* Kill socket (only if zapped and orphan)
  * Must be called on unlocked socket, with l2cap channel lock.
  */
@@ -1883,7 +1931,7 @@ static const struct proto_ops l2cap_sock_ops = {
 	.sendmsg	= l2cap_sock_sendmsg,
 	.recvmsg	= l2cap_sock_recvmsg,
 	.poll		= bt_sock_poll,
-	.ioctl		= bt_sock_ioctl,
+	.ioctl		= l2cap_sock_ioctl,
 	.gettstamp	= sock_gettstamp,
 	.mmap		= sock_no_mmap,
 	.socketpair	= sock_no_socketpair,

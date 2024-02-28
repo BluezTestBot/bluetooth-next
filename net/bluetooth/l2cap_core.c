@@ -2488,6 +2488,13 @@ static void l2cap_le_flowctl_send(struct l2cap_chan *chan)
 	       skb_queue_len(&chan->tx_q));
 }
 
+static void mark_tx_latency(struct l2cap_chan *chan, struct sk_buff *skb)
+{
+	struct hci_chan *hchan = chan->conn->hchan;
+
+	hci_mark_tx_latency(&hchan->tx_latency, skb);
+}
+
 int l2cap_chan_send(struct l2cap_chan *chan, struct msghdr *msg, size_t len)
 {
 	struct sk_buff *skb;
@@ -2526,6 +2533,8 @@ int l2cap_chan_send(struct l2cap_chan *chan, struct msghdr *msg, size_t len)
 		if (err)
 			return err;
 
+		mark_tx_latency(chan, skb_peek(&seg_queue));
+
 		skb_queue_splice_tail_init(&seg_queue, &chan->tx_q);
 
 		l2cap_le_flowctl_send(chan);
@@ -2547,6 +2556,7 @@ int l2cap_chan_send(struct l2cap_chan *chan, struct msghdr *msg, size_t len)
 		if (IS_ERR(skb))
 			return PTR_ERR(skb);
 
+		mark_tx_latency(chan, skb);
 		l2cap_do_send(chan, skb);
 		err = len;
 		break;
@@ -2569,6 +2579,8 @@ int l2cap_chan_send(struct l2cap_chan *chan, struct msghdr *msg, size_t len)
 
 		if (err)
 			break;
+
+		mark_tx_latency(chan, skb_peek(&seg_queue));
 
 		if (chan->mode == L2CAP_MODE_ERTM)
 			l2cap_tx(chan, NULL, &seg_queue, L2CAP_EV_DATA_REQUEST);

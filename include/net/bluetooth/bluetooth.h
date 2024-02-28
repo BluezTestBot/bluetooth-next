@@ -244,7 +244,7 @@ struct bt_codecs {
  * Produces information of a previous event when a packet was sent, and the
  * length of packet queue at that time.
  *
- * Applicable to: Bluetooth ISO sockets.
+ * Applicable to: Bluetooth ISO and L2CAP sockets.
  *
  * Input: Zero-initialize reserved flag bits and other fields.
  *
