@@ -3715,6 +3715,8 @@ static void hci_sched_acl_pkt(struct hci_dev *hdev)
 			hci_conn_enter_active_mode(chan->conn,
 						   bt_cb(skb)->force_active);
 
+			hci_conn_tx_comp_queue(chan->conn, skb);
+
 			hci_send_frame(hdev, skb);
 			hdev->acl_last_tx = jiffies;
 
@@ -3876,6 +3878,9 @@ static void hci_sched_iso(struct hci_dev *hdev)
 	while (*cnt && (conn = hci_low_sent(hdev, ISO_LINK, &quote))) {
 		while (quote-- && (skb = skb_dequeue(&conn->data_q))) {
 			BT_DBG("skb %p len %d", skb, skb->len);
+
+			hci_conn_tx_comp_queue(conn, skb);
+
 			hci_send_frame(hdev, skb);
 
 			conn->sent++;
