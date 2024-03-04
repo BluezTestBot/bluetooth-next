@@ -1131,13 +1131,13 @@ static int iso_listen_bis(struct sock *sk)
 		goto unlock;
 	}
 
-	hci_dev_put(hdev);
-
 unlock:
 	/* Unlock order should be in reverse from lock order. */
 	release_sock(sk);
 	hci_dev_unlock(hdev);
 	lock_sock(sk);
+
+	hci_dev_put(hdev);
 	return err;
 }
 
