@@ -521,6 +521,9 @@ static int btintel_version_info_tlv(struct hci_dev *hdev,
 			    version->min_fw_build_nn, version->min_fw_build_cw,
 			    2000 + version->min_fw_build_yy);
 		break;
+	case 0x02:
+		variant = "IML";
+		break;
 	case 0x03:
 		variant = "Firmware";
 		break;
@@ -2194,10 +2197,26 @@ static void btintel_get_fw_name_tlv(const struct intel_version_tlv *ver,
 				    char *fw_name, size_t len,
 				    const char *suffix)
 {
+	const char *format;
 	/* The firmware file name for new generation controllers will be
 	 * ibt-<cnvi_top type+cnvi_top step>-<cnvr_top type+cnvr_top step>
 	 */
-	snprintf(fw_name, len, "intel/ibt-%04x-%04x.%s",
+	switch (INTEL_HW_VARIANT(ver->cnvi_bt)) {
+	/* Only Blazar(0x1e) product supports downloading of secondary boot
+	 * loader image
+	 */
+	case 0x1e:
+		if (ver->img_type == 1)
+			format = "intel/ibt-%04x-%04x-02.%s";
+		else
+			format = "intel/ibt-%04x-%04x.%s";
+		break;
+	default:
+			format = "intel/ibt-%04x-%04x.%s";
+		break;
+	}
+
+	snprintf(fw_name, len, format,
 		 INTEL_CNVX_TOP_PACK_SWAB(INTEL_CNVX_TOP_TYPE(ver->cnvi_top),
 					  INTEL_CNVX_TOP_STEP(ver->cnvi_top)),
 		 INTEL_CNVX_TOP_PACK_SWAB(INTEL_CNVX_TOP_TYPE(ver->cnvr_top),
@@ -2606,6 +2625,23 @@ static int btintel_bootloader_setup_tlv(struct hci_dev *hdev,
 	err = btintel_boot(hdev, boot_param);
 	if (err)
 		return err;
+
+	err = btintel_read_version_tlv(hdev, ver);
+	if (err)
+		return err;
+
+    /* If image type returned is 0x02, then controller supports secondary
+     * boot loader image
+     */
+	if (ver->img_type == 0x02) {
+		err = btintel_prepare_fw_download_tlv(hdev, ver, &boot_param);
+		if (err)
+			return err;
+
+		err = btintel_boot(hdev, boot_param);
+		if (err)
+			return err;
+	}
 
 	btintel_clear_flag(hdev, INTEL_BOOTLOADER);
 
