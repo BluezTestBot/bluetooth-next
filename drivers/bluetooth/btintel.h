@@ -51,7 +51,10 @@ struct intel_tlv {
 	u8 val[];
 } __packed;
 
+#define CNVI_BLAZARI		0x900
+
 #define IMG_BOOTLOADER		0x01	/* Bootloader image */
+#define IMG_IML			0x02	/* Intermediate image */
 #define IMG_OP			0x03	/* Operational image */
 
 struct intel_version_tlv {
