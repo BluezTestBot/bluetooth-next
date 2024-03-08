@@ -275,6 +275,7 @@ static inline int bfusb_recv_block(struct bfusb_data *data, int hdr, unsigned ch
 		case HCI_EVENT_PKT:
 			if (len >= HCI_EVENT_HDR_SIZE) {
 				struct hci_event_hdr *hdr = (struct hci_event_hdr *) buf;
+
 				pkt_len = HCI_EVENT_HDR_SIZE + hdr->plen;
 			} else {
 				bt_dev_err(data->hdev, "event block is too short");
@@ -285,6 +286,7 @@ static inline int bfusb_recv_block(struct bfusb_data *data, int hdr, unsigned ch
 		case HCI_ACLDATA_PKT:
 			if (len >= HCI_ACL_HDR_SIZE) {
 				struct hci_acl_hdr *hdr = (struct hci_acl_hdr *) buf;
+
 				pkt_len = HCI_ACL_HDR_SIZE + __le16_to_cpu(hdr->dlen);
 			} else {
 				bt_dev_err(data->hdev, "data block is too short");
@@ -295,6 +297,7 @@ static inline int bfusb_recv_block(struct bfusb_data *data, int hdr, unsigned ch
 		case HCI_SCODATA_PKT:
 			if (len >= HCI_SCO_HDR_SIZE) {
 				struct hci_sco_hdr *hdr = (struct hci_sco_hdr *) buf;
+
 				pkt_len = HCI_SCO_HDR_SIZE + hdr->dlen;
 			} else {
 				bt_dev_err(data->hdev, "audio block is too short");
@@ -365,9 +368,8 @@ static void bfusb_rx_complete(struct urb *urb)
 			buf   += 3;
 		}
 
-		if (count < len) {
+		if (count < len)
 			bt_dev_err(data->hdev, "block extends over URB buffer ranges");
-		}
 
 		if ((hdr & 0xe1) == 0xc1)
 			bfusb_recv_block(data, hdr, buf, len);
