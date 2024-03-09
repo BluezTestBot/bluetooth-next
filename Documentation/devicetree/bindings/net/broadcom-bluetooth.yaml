@@ -27,6 +27,7 @@ properties:
       - brcm,bcm4335a0
       - brcm,bcm4349-bt
       - cypress,cyw4373a0-bt
+      - infineon,cyw43439-bt
       - infineon,cyw55572-bt
 
   shutdown-gpios:
