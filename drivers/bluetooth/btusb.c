@@ -900,7 +900,8 @@ static void btusb_intel_cmd_timeout(struct hci_dev *hdev)
 		return;
 
 	if (intel_data->acpi_reset_method) {
-		if (test_and_set_bit(INTEL_ACPI_RESET_ACTIVE, intel_data->flags)) {
+		if (test_and_set_bit(BTINTEL_ACPI_RESET_ACTIVE,
+				     intel_data->flags)) {
 			bt_dev_err(hdev, "acpi: last reset failed ? Not resetting again");
 			return;
 		}
@@ -2504,7 +2505,7 @@ static int btusb_recv_bulk_intel(struct btusb_data *data, void *buffer,
 	 * events via the bulk endpoint. These events are treated the
 	 * same way as the ones received from the interrupt endpoint.
 	 */
-	if (btintel_test_flag(hdev, INTEL_BOOTLOADER))
+	if (btintel_test_flag(hdev, BTINTEL_BOOTLOADER))
 		return btusb_recv_intr(data, buffer, count);
 
 	return btusb_recv_bulk(data, buffer, count);
@@ -2518,7 +2519,7 @@ static int btusb_send_frame_intel(struct hci_dev *hdev, struct sk_buff *skb)
 
 	switch (hci_skb_pkt_type(skb)) {
 	case HCI_COMMAND_PKT:
-		if (btintel_test_flag(hdev, INTEL_BOOTLOADER)) {
+		if (btintel_test_flag(hdev, BTINTEL_BOOTLOADER)) {
 			struct hci_command_hdr *cmd = (void *)skb->data;
 			__u16 opcode = le16_to_cpu(cmd->opcode);
 
@@ -4408,13 +4409,14 @@ static int btusb_probe(struct usb_interface *intf,
 		hdev->cmd_timeout = btusb_intel_cmd_timeout;
 
 		if (id->driver_info & BTUSB_INTEL_NO_WBS_SUPPORT)
-			btintel_set_flag(hdev, INTEL_ROM_LEGACY_NO_WBS_SUPPORT);
+			btintel_set_flag(hdev,
+					 BTINTEL_ROM_LEGACY_NO_WBS_SUPPORT);
 
 		if (id->driver_info & BTUSB_INTEL_BROKEN_INITIAL_NCMD)
-			btintel_set_flag(hdev, INTEL_BROKEN_INITIAL_NCMD);
+			btintel_set_flag(hdev, BTINTEL_BROKEN_INITIAL_NCMD);
 
 		if (id->driver_info & BTUSB_INTEL_BROKEN_SHUTDOWN_LED)
-			btintel_set_flag(hdev, INTEL_BROKEN_SHUTDOWN_LED);
+			btintel_set_flag(hdev, BTINTEL_BROKEN_SHUTDOWN_LED);
 	}
 
 	if (id->driver_info & BTUSB_MARVELL)
