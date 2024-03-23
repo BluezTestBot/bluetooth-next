@@ -581,9 +581,6 @@ static int sco_sock_connect(struct socket *sock, struct sockaddr *addr, int alen
 	if (sk->sk_state != BT_OPEN && sk->sk_state != BT_BOUND)
 		return -EBADFD;
 
-	if (sk->sk_type != SOCK_SEQPACKET)
-		err = -EINVAL;
-
 	lock_sock(sk);
 	/* Set destination address and psm */
 	bacpy(&sco_pi(sk)->dst, &sa->sco_bdaddr);
