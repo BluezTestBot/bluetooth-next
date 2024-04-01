@@ -3119,6 +3119,7 @@ EXPORT_SYMBOL_GPL(btintel_configure_setup);
 static int btintel_diagnostics(struct hci_dev *hdev, struct sk_buff *skb)
 {
 	struct intel_tlv *tlv = (void *)&skb->data[5];
+	char prefix[64];
 
 	/* The first event is always an event type TLV */
 	if (tlv->type != INTEL_TLV_TYPE_ID)
@@ -3129,6 +3130,12 @@ static int btintel_diagnostics(struct hci_dev *hdev, struct sk_buff *skb)
 	case INTEL_TLV_FATAL_EXCEPTION:
 	case INTEL_TLV_DEBUG_EXCEPTION:
 	case INTEL_TLV_TEST_EXCEPTION:
+		bt_dev_err(hdev, "Exception occurred - type: 0x%2.2x",
+			   tlv->val[0]);
+		snprintf(prefix, sizeof(prefix), "Bluetooth: %s: ",
+			 bt_dev_name(hdev));
+		print_hex_dump(KERN_ERR, prefix, DUMP_PREFIX_NONE, 16, 1,
+			       skb->data, skb->len, false);
 		/* Generate devcoredump from exception */
 		if (!hci_devcd_init(hdev, skb->len)) {
 			hci_devcd_append(hdev, skb);
