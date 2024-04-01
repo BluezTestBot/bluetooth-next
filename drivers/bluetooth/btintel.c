@@ -655,9 +655,6 @@ static int btintel_read_version_tlv(struct hci_dev *hdev,
 	struct sk_buff *skb;
 	const u8 param[1] = { 0xFF };
 
-	if (!version)
-		return -EINVAL;
-
 	skb = __hci_cmd_sync(hdev, 0xfc05, 1, param, HCI_CMD_TIMEOUT);
 	if (IS_ERR(skb)) {
 		bt_dev_err(hdev, "Reading Intel version information failed (%ld)",
@@ -672,10 +669,36 @@ static int btintel_read_version_tlv(struct hci_dev *hdev,
 		return -EIO;
 	}
 
-	btintel_parse_version_tlv(hdev, version, skb);
+	if (version)
+		btintel_parse_version_tlv(hdev, version, skb);
 
 	kfree_skb(skb);
 	return 0;
+}
+
+static int btintel_read_version_setup(struct hci_dev *hdev)
+{
+	int err;
+	struct sk_buff *skb;
+
+	err = btintel_read_version_tlv(hdev, NULL);
+	if (!err)
+		return 0;
+
+	/* Attempt to reset if the command times out since this could be
+	 * because the ncmd is set to 0 therefore no command will be able to be
+	 * sent.
+	 */
+	skb = __hci_cmd_sync(hdev, HCI_OP_RESET, 0, NULL, HCI_INIT_TIMEOUT);
+	if (IS_ERR(skb)) {
+		bt_dev_err(hdev, "sending initial HCI reset failed (%ld)",
+			   PTR_ERR(skb));
+		return PTR_ERR(skb);
+	}
+
+	kfree_skb(skb);
+
+	return btintel_read_version_tlv(hdev, NULL);
 }
 
 /* ------- REGMAP IBT SUPPORT ------- */
@@ -2821,7 +2844,6 @@ static void btintel_print_fseq_info(struct hci_dev *hdev)
 
 static int btintel_setup_combined(struct hci_dev *hdev)
 {
-	const u8 param[1] = { 0xFF };
 	struct intel_version ver;
 	struct intel_version_tlv ver_tlv;
 	struct sk_buff *skb;
@@ -2862,18 +2884,9 @@ static int btintel_setup_combined(struct hci_dev *hdev)
 	 * command has a parameter and returns a correct version information.
 	 * So, it uses new format to support both legacy and new format.
 	 */
-	skb = __hci_cmd_sync(hdev, 0xfc05, 1, param, HCI_CMD_TIMEOUT);
-	if (IS_ERR(skb)) {
-		bt_dev_err(hdev, "Reading Intel version command failed (%ld)",
-			   PTR_ERR(skb));
-		return PTR_ERR(skb);
-	}
-
-	/* Check the status */
-	if (skb->data[0]) {
-		bt_dev_err(hdev, "Intel Read Version command failed (%02x)",
-			   skb->data[0]);
-		err = -EIO;
+	err = btintel_read_version_setup(hdev);
+	if (err) {
+		bt_dev_err(hdev, "Intel Read Version command failed (%d)", err);
 		goto exit_error;
 	}
 
