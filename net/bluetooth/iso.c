@@ -1602,8 +1602,8 @@ static int iso_sock_setsockopt(struct socket *sock, int level, int optname,
 		break;
 
 	default:
-		err = -ENOPROTOOPT;
-		break;
+		release_sock(sk);
+		return bt_sock_setsockopt(sock, level, optname, optval, optlen);
 	}
 
 	release_sock(sk);
@@ -1673,8 +1673,8 @@ static int iso_sock_getsockopt(struct socket *sock, int level, int optname,
 		break;
 
 	default:
-		err = -ENOPROTOOPT;
-		break;
+		release_sock(sk);
+		return bt_sock_getsockopt(sock, level, optname, optval, optlen);
 	}
 
 	release_sock(sk);
