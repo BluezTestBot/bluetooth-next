@@ -858,6 +858,10 @@ static int sco_sock_setsockopt(struct socket *sock, int level, int optname,
 			break;
 		}
 
+		if (optlen < sizeof(u32)) {
+			err = -EINVAL;
+			break;
+		}
 		if (copy_from_sockptr(&opt, optval, sizeof(u32))) {
 			err = -EFAULT;
 			break;
@@ -905,6 +909,10 @@ static int sco_sock_setsockopt(struct socket *sock, int level, int optname,
 		break;
 
 	case BT_PKT_STATUS:
+		if (optlen < sizeof(u32)) {
+			err = -EINVAL;
+			break;
+		}
 		if (copy_from_sockptr(&opt, optval, sizeof(u32))) {
 			err = -EFAULT;
 			break;
