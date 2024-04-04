@@ -629,6 +629,10 @@ static int rfcomm_sock_setsockopt_old(struct socket *sock, int optname,
 
 	switch (optname) {
 	case RFCOMM_LM:
+		if (optlen < sizeof(u32)) {
+			err = -EINVAL;
+			break;
+		}
 		if (copy_from_sockptr(&opt, optval, sizeof(u32))) {
 			err = -EFAULT;
 			break;
