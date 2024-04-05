@@ -63,6 +63,8 @@ static void l2cap_retrans_timeout(struct work_struct *work);
 static void l2cap_monitor_timeout(struct work_struct *work);
 static void l2cap_ack_timeout(struct work_struct *work);
 
+static void l2cap_chan_le_send_credits(struct l2cap_chan *chan);
+
 static inline u8 bdaddr_type(u8 link_type, u8 bdaddr_type)
 {
 	if (link_type == LE_LINK) {
@@ -5722,15 +5724,32 @@ static int l2cap_resegment(struct l2cap_chan *chan)
 	return 0;
 }
 
-void l2cap_chan_busy(struct l2cap_chan *chan, int busy)
+static void l2cap_chan_busy_ertm(struct l2cap_chan *chan, int busy)
 {
 	u8 event;
 
-	if (chan->mode != L2CAP_MODE_ERTM)
-		return;
-
 	event = busy ? L2CAP_EV_LOCAL_BUSY_DETECTED : L2CAP_EV_LOCAL_BUSY_CLEAR;
 	l2cap_tx(chan, NULL, NULL, event);
+}
+
+static void l2cap_chan_busy_le(struct l2cap_chan *chan, int busy)
+{
+	if (busy) {
+		set_bit(CONN_LOCAL_BUSY, &chan->conn_state);
+	} else {
+		clear_bit(CONN_LOCAL_BUSY, &chan->conn_state);
+		l2cap_chan_le_send_credits(chan);
+	}
+}
+
+void l2cap_chan_busy(struct l2cap_chan *chan, int busy)
+{
+	if (chan->mode == L2CAP_MODE_ERTM) {
+		l2cap_chan_busy_ertm(chan, busy);
+	} else if (chan->mode == L2CAP_MODE_LE_FLOWCTL ||
+		   chan->mode == L2CAP_MODE_EXT_FLOWCTL) {
+		l2cap_chan_busy_le(chan, busy);
+	}
 }
 
 static int l2cap_rx_queued_iframes(struct l2cap_chan *chan)
@@ -6522,6 +6541,11 @@ static void l2cap_chan_le_send_credits(struct l2cap_chan *chan)
 	struct l2cap_le_credits pkt;
 	u16 return_credits;
 
+	if (test_bit(CONN_LOCAL_BUSY, &chan->conn_state)) {
+		BT_DBG("busy chan %p not returning credits to sender", chan);
+		return;
+	}
+
 	return_credits = (chan->imtu / chan->mps) + 1;
 
 	if (chan->rx_credits >= return_credits)
@@ -6549,6 +6573,12 @@ static int l2cap_ecred_recv(struct l2cap_chan *chan, struct sk_buff *skb)
 
 	/* Wait recv to confirm reception before updating the credits */
 	err = chan->ops->recv(chan, skb);
+
+	if (err < 0) {
+		BT_ERR("Queueing received LE L2CAP data failed");
+		l2cap_send_disconn_req(chan, ECONNRESET);
+		return err;
+	}
 
 	/* Update credits whenever an SDU is received */
 	l2cap_chan_le_send_credits(chan);
