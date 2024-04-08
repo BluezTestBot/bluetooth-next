@@ -181,6 +181,7 @@ int __hci_req_sync(struct hci_dev *hdev, int (*func)(struct hci_request *req,
 		break;
 	}
 
+	cancel_delayed_work_sync(&hdev->cmd_timer);
 	kfree_skb(hdev->req_skb);
 	hdev->req_skb = NULL;
 	hdev->req_status = hdev->req_result = 0;
