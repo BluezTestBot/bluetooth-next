@@ -430,18 +430,18 @@ int btintel_set_event_mask_mfg(struct hci_dev *hdev, bool debug)
 }
 EXPORT_SYMBOL_GPL(btintel_set_event_mask_mfg);
 
+static struct sk_buff *btintel_read_version_skb(struct hci_dev *hdev,
+						u32 plen, const char *param)
+{
+	return __hci_cmd_sync(hdev, 0xfc05, plen, param, HCI_CMD_TIMEOUT);
+}
+
 int btintel_read_version(struct hci_dev *hdev, struct intel_version *ver)
 {
 	struct sk_buff *skb;
 
-	skb = __hci_cmd_sync(hdev, 0xfc05, 0, NULL, HCI_CMD_TIMEOUT);
-	if (IS_ERR(skb)) {
-		bt_dev_err(hdev, "Reading Intel version information failed (%ld)",
-			   PTR_ERR(skb));
-		return PTR_ERR(skb);
-	}
-
-	if (!skb || skb->len != sizeof(*ver)) {
+	skb = btintel_read_version_skb(hdev, 0, NULL);
+	if (IS_ERR(skb) || skb->len != sizeof(*ver)) {
 		bt_dev_err(hdev, "Intel version event size mismatch");
 		kfree_skb(skb);
 		return -EILSEQ;
@@ -655,12 +655,9 @@ static int btintel_read_version_tlv(struct hci_dev *hdev,
 	struct sk_buff *skb;
 	const u8 param[1] = { 0xFF };
 
-	if (!version)
-		return -EINVAL;
-
-	skb = __hci_cmd_sync(hdev, 0xfc05, 1, param, HCI_CMD_TIMEOUT);
+	skb = btintel_read_version_skb(hdev, sizeof(param), param);
 	if (IS_ERR(skb)) {
-		bt_dev_err(hdev, "Reading Intel version information failed (%ld)",
+		bt_dev_err(hdev, "Intel Read Version command failed (%ld)",
 			   PTR_ERR(skb));
 		return PTR_ERR(skb);
 	}
@@ -672,10 +669,42 @@ static int btintel_read_version_tlv(struct hci_dev *hdev,
 		return -EIO;
 	}
 
-	btintel_parse_version_tlv(hdev, version, skb);
+	if (version)
+		btintel_parse_version_tlv(hdev, version, skb);
 
 	kfree_skb(skb);
 	return 0;
+}
+
+static struct sk_buff *btintel_read_version_setup(struct hci_dev *hdev)
+{
+	int err;
+	struct sk_buff *skb;
+	const u8 param[1] = { 0xFF };
+
+	skb = btintel_read_version_skb(hdev, sizeof(param), param);
+	if (!IS_ERR(skb))
+		goto done;
+
+	/* Attempt to reset if the command times out since this could be
+	 * because the ncmd is set to 0 therefore no command will be able to be
+	 * sent.
+	 */
+	err = hci_reset_sync(hdev);
+	if (err)
+		return ERR_PTR(err);
+
+	skb = btintel_read_version_skb(hdev, sizeof(param), param);
+	if (IS_ERR(skb))
+		return skb;
+
+done:
+	if (skb->data[0]) {
+		kfree_skb(skb);
+		return ERR_PTR(-EIO);
+	}
+
+	return skb;
 }
 
 /* ------- REGMAP IBT SUPPORT ------- */
@@ -2821,7 +2850,6 @@ static void btintel_print_fseq_info(struct hci_dev *hdev)
 
 static int btintel_setup_combined(struct hci_dev *hdev)
 {
-	const u8 param[1] = { 0xFF };
 	struct intel_version ver;
 	struct intel_version_tlv ver_tlv;
 	struct sk_buff *skb;
@@ -2862,18 +2890,10 @@ static int btintel_setup_combined(struct hci_dev *hdev)
 	 * command has a parameter and returns a correct version information.
 	 * So, it uses new format to support both legacy and new format.
 	 */
-	skb = __hci_cmd_sync(hdev, 0xfc05, 1, param, HCI_CMD_TIMEOUT);
+	skb = btintel_read_version_setup(hdev);
 	if (IS_ERR(skb)) {
-		bt_dev_err(hdev, "Reading Intel version command failed (%ld)",
+		bt_dev_err(hdev, "Intel Read Version command failed (%ld)",
 			   PTR_ERR(skb));
-		return PTR_ERR(skb);
-	}
-
-	/* Check the status */
-	if (skb->data[0]) {
-		bt_dev_err(hdev, "Intel Read Version command failed (%02x)",
-			   skb->data[0]);
-		err = -EIO;
 		goto exit_error;
 	}
 
