@@ -176,6 +176,7 @@ int __hci_req_sync(struct hci_dev *hdev, int (*func)(struct hci_request *req,
 
 	default:
 		err = -ETIMEDOUT;
+		cancel_delayed_work_sync(&hdev->cmd_timer);
 		if (hci_status)
 			*hci_status = HCI_ERROR_UNSPECIFIED;
 		break;
