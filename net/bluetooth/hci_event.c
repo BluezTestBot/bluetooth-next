@@ -2988,6 +2988,7 @@ static void hci_cs_le_start_enc(struct hci_dev *hdev, u8 status)
 
 	hci_disconnect(conn, HCI_ERROR_AUTH_FAILURE);
 	hci_conn_drop(conn);
+	conn->state = BT_DISCONN;
 
 unlock:
 	hci_dev_unlock(hdev);
@@ -3654,6 +3655,7 @@ static void hci_encrypt_change_evt(struct hci_dev *hdev, void *data,
 		hci_encrypt_cfm(conn, ev->status);
 		hci_disconnect(conn, HCI_ERROR_AUTH_FAILURE);
 		hci_conn_drop(conn);
+		conn->state = BT_DISCONN;
 		goto unlock;
 	}
 
@@ -5259,6 +5261,7 @@ static void hci_key_refresh_complete_evt(struct hci_dev *hdev, void *data,
 	if (ev->status && conn->state == BT_CONNECTED) {
 		hci_disconnect(conn, HCI_ERROR_AUTH_FAILURE);
 		hci_conn_drop(conn);
+		conn->state = BT_DISCONN;
 		goto unlock;
 	}
 
