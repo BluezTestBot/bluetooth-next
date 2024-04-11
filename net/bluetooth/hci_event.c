@@ -3528,7 +3528,6 @@ static void hci_auth_complete_evt(struct hci_dev *hdev, void *data,
 		} else {
 			conn->state = BT_CONNECTED;
 			hci_connect_cfm(conn, ev->status);
-			hci_conn_drop(conn);
 		}
 	} else {
 		hci_auth_cfm(conn, ev->status);
@@ -3775,7 +3774,6 @@ static void hci_remote_features_evt(struct hci_dev *hdev, void *data,
 	if (!hci_outgoing_auth_needed(hdev, conn)) {
 		conn->state = BT_CONNECTED;
 		hci_connect_cfm(conn, ev->status);
-		hci_conn_drop(conn);
 	}
 
 unlock:
@@ -5038,7 +5036,6 @@ static void hci_remote_ext_features_evt(struct hci_dev *hdev, void *data,
 	if (!hci_outgoing_auth_needed(hdev, conn)) {
 		conn->state = BT_CONNECTED;
 		hci_connect_cfm(conn, ev->status);
-		hci_conn_drop(conn);
 	}
 
 unlock:
@@ -6596,7 +6593,6 @@ static void hci_le_remote_feat_complete_evt(struct hci_dev *hdev, void *data,
 
 			conn->state = BT_CONNECTED;
 			hci_connect_cfm(conn, status);
-			hci_conn_drop(conn);
 		}
 	}
 
