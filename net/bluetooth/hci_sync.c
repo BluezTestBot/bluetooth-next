@@ -3486,6 +3486,7 @@ int hci_reset_sync(struct hci_dev *hdev)
 
 	return 0;
 }
+EXPORT_SYMBOL(hci_reset_sync);
 
 static int hci_init0_sync(struct hci_dev *hdev)
 {
