@@ -3032,7 +3032,16 @@ static int btusb_mtk_reset(struct hci_dev *hdev, void *rst_data)
 	usb_kill_anchored_urbs(&data->tx_anchor);
 	mediatek = hci_get_priv(hdev);
 
-	if (mediatek->dev_id == 0x7925) {
+	if (mediatek->dev_id == 0x7922) {
+		btusb_mtk_uhw_reg_read(data, MTK_BT_SUBSYS_RST, &val);
+		val |= 0x00002020;
+		btusb_mtk_uhw_reg_write(data, MTK_BT_SUBSYS_RST, val);
+		btusb_mtk_uhw_reg_write(data, MTK_EP_RST_OPT, 0x00010001);
+		btusb_mtk_uhw_reg_read(data, MTK_BT_SUBSYS_RST, &val);
+		val |= BIT(0);
+		btusb_mtk_uhw_reg_write(data, MTK_BT_SUBSYS_RST, val);
+		msleep(100);
+	} else if (mediatek->dev_id == 0x7925) {
 		btusb_mtk_uhw_reg_read(data, MTK_BT_RESET_REG_CONNV3, &val);
 		val |= (1 << 5);
 		btusb_mtk_uhw_reg_write(data, MTK_BT_RESET_REG_CONNV3, val);
@@ -3071,6 +3080,9 @@ static int btusb_mtk_reset(struct hci_dev *hdev, void *rst_data)
 				 val & MTK_BT_RST_DONE, 20000, 1000000);
 	if (err < 0)
 		bt_dev_err(hdev, "Reset timeout");
+
+	if (mediatek->dev_id == 0x7922)
+		btusb_mtk_uhw_reg_write(data, MTK_UDMA_INT_STA_BT, 0x000000FF);
 
 	btusb_mtk_id_get(data, 0x70010200, &val);
 	if (!val)
