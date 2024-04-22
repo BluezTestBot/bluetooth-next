@@ -873,6 +873,9 @@ struct btusb_data {
 	unsigned cmd_timeout_cnt;
 
 	struct qca_dump_info qca_dump;
+
+	bool force_enable_remote_wake;
+	bool force_disable_remote_wake;
 };
 
 static void btusb_reset(struct hci_dev *hdev)
@@ -4596,6 +4599,10 @@ static int btusb_probe(struct usb_interface *intf,
 
 	debugfs_create_file("force_poll_sync", 0644, hdev->debugfs, data,
 			    &force_poll_sync_fops);
+	debugfs_create_bool("force_enable_remote_wake", 0644, hdev->debugfs,
+			    &data->force_enable_remote_wake);
+	debugfs_create_bool("force_disable_remote_wake", 0644, hdev->debugfs,
+			    &data->force_disable_remote_wake);
 
 	return 0;
 
@@ -4699,6 +4706,18 @@ static int btusb_suspend(struct usb_interface *intf, pm_message_t message)
 			 !device_may_wakeup(&data->udev->dev)) {
 			data->udev->do_remote_wakeup = 0;
 			data->udev->reset_resume = 1;
+		}
+	}
+
+	if (!PMSG_IS_AUTO(message)) {
+		if (data->force_enable_remote_wake) {
+			data->udev->do_remote_wakeup = 1;
+			if (test_bit(BTUSB_WAKEUP_AUTOSUSPEND, &data->flags))
+				data->udev->reset_resume = 0;
+		} else if (data->force_disable_remote_wake) {
+			data->udev->do_remote_wakeup = 0;
+			if (test_bit(BTUSB_WAKEUP_AUTOSUSPEND, &data->flags))
+				data->udev->reset_resume = 1;
 		}
 	}
 
