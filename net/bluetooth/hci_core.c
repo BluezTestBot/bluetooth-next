@@ -2771,8 +2771,6 @@ void hci_unregister_dev(struct hci_dev *hdev)
 
 	cancel_work_sync(&hdev->power_on);
 
-	hci_cmd_sync_clear(hdev);
-
 	hci_unregister_suspend_notifier(hdev);
 
 	msft_unregister(hdev);

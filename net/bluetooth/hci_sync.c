@@ -5181,8 +5181,11 @@ int hci_dev_close_sync(struct hci_dev *hdev)
 		clear_bit(HCI_INIT, &hdev->flags);
 	}
 
-	/* flush cmd  work */
+	/* flush cmd work */
 	flush_work(&hdev->cmd_work);
+
+	/* flush cmd sync work */
+	hci_cmd_sync_clear(hdev);
 
 	/* Drop queues */
 	skb_queue_purge(&hdev->rx_q);
