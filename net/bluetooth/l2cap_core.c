@@ -3964,6 +3964,9 @@ static struct l2cap_chan *l2cap_connect(struct l2cap_conn *conn,
 	if (!chan)
 		goto response;
 
+	l2cap_chan_hold(chan);
+	l2cap_chan_lock(chan);
+
 	/* For certain devices (ex: HID mouse), support for authentication,
 	 * pairing and bonding is optional. For such devices, inorder to avoid
 	 * the ACL alive for too long after L2CAP disconnection, reset the ACL
@@ -4050,6 +4053,11 @@ sendresp:
 		l2cap_send_cmd(conn, l2cap_get_ident(conn), L2CAP_CONF_REQ,
 			       l2cap_build_conf_req(chan, buf, sizeof(buf)), buf);
 		chan->num_conf_req++;
+	}
+
+	if (chan) {
+		l2cap_chan_unlock(chan);
+		l2cap_chan_put(chan);
 	}
 
 	return chan;
