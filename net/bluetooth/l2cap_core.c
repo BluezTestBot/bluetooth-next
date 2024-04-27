@@ -3913,7 +3913,7 @@ static inline int l2cap_command_rej(struct l2cap_conn *conn,
 	return 0;
 }
 
-static struct l2cap_chan *l2cap_connect(struct l2cap_conn *conn,
+static void l2cap_connect(struct l2cap_conn *conn,
 					struct l2cap_cmd_hdr *cmd,
 					u8 *data, u8 rsp_code, u8 amp_id)
 {
@@ -3963,6 +3963,9 @@ static struct l2cap_chan *l2cap_connect(struct l2cap_conn *conn,
 	chan = pchan->ops->new_connection(pchan);
 	if (!chan)
 		goto response;
+
+	l2cap_chan_hold(chan);
+	l2cap_chan_lock(chan);
 
 	/* For certain devices (ex: HID mouse), support for authentication,
 	 * pairing and bonding is optional. For such devices, inorder to avoid
@@ -4052,7 +4055,10 @@ sendresp:
 		chan->num_conf_req++;
 	}
 
-	return chan;
+	if (chan) {
+		l2cap_chan_unlock(chan);
+		l2cap_chan_put(chan);
+	}
 }
 
 static int l2cap_connect_req(struct l2cap_conn *conn,
