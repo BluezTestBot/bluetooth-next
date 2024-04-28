@@ -132,10 +132,45 @@ struct msft_data {
 	__u8 filter_enabled;
 	/* To synchronize add/remove address filter and monitor device event.*/
 	struct mutex filter_lock;
+	struct kref	kref;
 };
+
+static void msft_data_free(struct kref *kref);
+
+static struct msft_data *msft_data_hold_unless_zero(struct msft_data *msft)
+{
+	if (!msft)
+		return NULL;
+
+	BT_DBG("msft %p orig refcnt %u", msft, kref_read(&msft->kref));
+	
+	if (!kref_get_unless_zero(&msft->kref))
+		return NULL;
+
+	return msft;
+}
+
+static void msft_data_put(struct msft_data *msft)
+{
+	BT_DBG("msft %p orig refcnt %u", msft, kref_read(&msft->kref));
+
+	kref_put(&msft->kref, msft_data_free);
+}
+
+static void msft_data_free(struct kref *kref)
+{
+	struct msft_data *msft = container_of(kref, struct msft_data, kref);
+
+	BT_DBG("msft %p", msft);
+
+	kfree(msft->evt_prefix);
+	mutex_destroy(&msft->filter_lock);
+	kfree(msft);
+}
 
 bool msft_monitor_supported(struct hci_dev *hdev)
 {
+	/* msft_get_features() holds and put hdev->msft_data */
 	return !!(msft_get_features(hdev) & MSFT_FEATURE_MASK_LE_ADV_MONITOR);
 }
 
@@ -449,12 +484,17 @@ static int msft_remove_monitor_sync(struct hci_dev *hdev,
 /* This function requires the caller holds hci_req_sync_lock */
 int msft_suspend_sync(struct hci_dev *hdev)
 {
-	struct msft_data *msft = hdev->msft_data;
+	struct msft_data *msft;
 	struct adv_monitor *monitor;
 	int handle = 0;
 
-	if (!msft || !msft_monitor_supported(hdev))
+	msft = msft_data_hold_unless_zero(hdev->msft_data);
+	if (!msft)
 		return 0;
+	if (!msft_monitor_supported(hdev)) {
+		msft_data_put(msft);
+		return 0;
+	}
 
 	msft->suspending = true;
 
@@ -471,6 +511,7 @@ int msft_suspend_sync(struct hci_dev *hdev)
 	/* All monitors have been removed */
 	msft->suspending = false;
 
+	msft_data_put(msft);
 	return 0;
 }
 
@@ -608,10 +649,16 @@ static void reregister_monitor(struct hci_dev *hdev)
 /* This function requires the caller holds hci_req_sync_lock */
 int msft_resume_sync(struct hci_dev *hdev)
 {
-	struct msft_data *msft = hdev->msft_data;
+	struct msft_data *msft;
 
-	if (!msft || !msft_monitor_supported(hdev))
+	msft = msft_data_hold_unless_zero(hdev->msft_data);
+	if (!msft)
 		return 0;
+
+	if (!msft_monitor_supported(hdev)) {
+		msft_data_put(msft);
+		return 0;
+	}
 
 	hci_dev_lock(hdev);
 
@@ -625,17 +672,19 @@ int msft_resume_sync(struct hci_dev *hdev)
 
 	reregister_monitor(hdev);
 
+	msft_data_put(msft);
 	return 0;
 }
 
 /* This function requires the caller holds hci_req_sync_lock */
 void msft_do_open(struct hci_dev *hdev)
 {
-	struct msft_data *msft = hdev->msft_data;
+	struct msft_data *msft;
 
 	if (hdev->msft_opcode == HCI_OP_NOP)
 		return;
 
+	msft = msft_data_hold_unless_zero(hdev->msft_data);
 	if (!msft) {
 		bt_dev_err(hdev, "MSFT extension not registered");
 		return;
@@ -650,8 +699,7 @@ void msft_do_open(struct hci_dev *hdev)
 	msft->features = 0;
 
 	if (!read_supported_features(hdev, msft)) {
-		hdev->msft_data = NULL;
-		kfree(msft);
+		msft_data_put(msft);
 		return;
 	}
 
@@ -663,15 +711,17 @@ void msft_do_open(struct hci_dev *hdev)
 		 */
 		reregister_monitor(hdev);
 	}
+	msft_data_put(msft);
 }
 
 void msft_do_close(struct hci_dev *hdev)
 {
-	struct msft_data *msft = hdev->msft_data;
+	struct msft_data *msft;
 	struct msft_monitor_advertisement_handle_data *handle_data, *tmp;
 	struct msft_monitor_addr_filter_data *address_filter, *n;
 	struct adv_monitor *monitor;
 
+	msft = msft_data_hold_unless_zero(hdev->msft_data);
 	if (!msft)
 		return;
 
@@ -704,6 +754,8 @@ void msft_do_close(struct hci_dev *hdev)
 	/* Clear any devices that are being monitored and notify device lost */
 	hdev->advmon_pend_notify = false;
 	msft_monitor_device_del(hdev, 0, NULL, 0, true);
+
+	msft_data_put(msft);
 
 	hci_dev_unlock(hdev);
 }
@@ -767,6 +819,7 @@ void msft_register(struct hci_dev *hdev)
 	INIT_LIST_HEAD(&msft->address_filters);
 	hdev->msft_data = msft;
 	mutex_init(&msft->filter_lock);
+	kref_init(&msft->kref);
 }
 
 void msft_unregister(struct hci_dev *hdev)
@@ -779,10 +832,7 @@ void msft_unregister(struct hci_dev *hdev)
 	bt_dev_dbg(hdev, "Unregister MSFT extension");
 
 	hdev->msft_data = NULL;
-
-	kfree(msft->evt_prefix);
-	mutex_destroy(&msft->filter_lock);
-	kfree(msft);
+	msft_data_put(msft);
 }
 
 /* This function requires the caller holds hdev->lock */
@@ -1068,10 +1118,11 @@ report_state:
 
 void msft_vendor_evt(struct hci_dev *hdev, void *data, struct sk_buff *skb)
 {
-	struct msft_data *msft = hdev->msft_data;
+	struct msft_data *msft;
 	u8 *evt_prefix;
 	u8 *evt;
 
+	msft = msft_data_hold_unless_zero(hdev->msft_data);
 	if (!msft)
 		return;
 
@@ -1081,21 +1132,21 @@ void msft_vendor_evt(struct hci_dev *hdev, void *data, struct sk_buff *skb)
 	if (msft->evt_prefix_len > 0) {
 		evt_prefix = msft_skb_pull(hdev, skb, 0, msft->evt_prefix_len);
 		if (!evt_prefix)
-			return;
+			goto done;
 
 		if (memcmp(evt_prefix, msft->evt_prefix, msft->evt_prefix_len))
-			return;
+			goto done;
 	}
 
 	/* Every event starts at least with an event code and the rest of
 	 * the data is variable and depends on the event code.
 	 */
 	if (skb->len < 1)
-		return;
+		goto done;
 
 	evt = msft_skb_pull(hdev, skb, 0, sizeof(*evt));
 	if (!evt)
-		return;
+		goto done;
 
 	hci_dev_lock(hdev);
 
@@ -1112,13 +1163,24 @@ void msft_vendor_evt(struct hci_dev *hdev, void *data, struct sk_buff *skb)
 	}
 
 	hci_dev_unlock(hdev);
+
+done:
+	msft_data_put(msft);
 }
 
 __u64 msft_get_features(struct hci_dev *hdev)
 {
-	struct msft_data *msft = hdev->msft_data;
+	struct msft_data *msft;
+	unsigned long long features;
 
-	return msft ? msft->features : 0;
+	msft = msft_data_hold_unless_zero(hdev->msft_data);
+	if (!msft)
+		return 0;
+
+	features = msft->features;
+
+	msft_data_put(msft);
+	return features;
 }
 
 static void msft_le_set_advertisement_filter_enable_cb(struct hci_dev *hdev,
@@ -1152,37 +1214,48 @@ static void msft_le_set_advertisement_filter_enable_cb(struct hci_dev *hdev,
 /* This function requires the caller holds hci_req_sync_lock */
 int msft_add_monitor_pattern(struct hci_dev *hdev, struct adv_monitor *monitor)
 {
-	struct msft_data *msft = hdev->msft_data;
+	struct msft_data *msft;
+	int err;
 
+	msft = msft_data_hold_unless_zero(hdev->msft_data);
 	if (!msft)
 		return -EOPNOTSUPP;
 
-	if (msft->resuming || msft->suspending)
+	if (msft->resuming || msft->suspending) {
+		msft_data_put(msft);
 		return -EBUSY;
+	}
 
-	return msft_add_monitor_sync(hdev, monitor);
+	err = msft_add_monitor_sync(hdev, monitor);
+	msft_data_put(msft);
+	return err;
 }
 
 /* This function requires the caller holds hci_req_sync_lock */
 int msft_remove_monitor(struct hci_dev *hdev, struct adv_monitor *monitor)
 {
-	struct msft_data *msft = hdev->msft_data;
+	struct msft_data *msft;
+	int err;
 
+	msft = msft_data_hold_unless_zero(hdev->msft_data);
 	if (!msft)
 		return -EOPNOTSUPP;
 
 	if (msft->resuming || msft->suspending)
 		return -EBUSY;
 
-	return msft_remove_monitor_sync(hdev, monitor);
+	err = msft_remove_monitor_sync(hdev, monitor);
+	msft_data_put(msft);
+	return err;
 }
 
 int msft_set_filter_enable(struct hci_dev *hdev, bool enable)
 {
 	struct msft_cp_le_set_advertisement_filter_enable cp;
-	struct msft_data *msft = hdev->msft_data;
+	struct msft_data *msft;
 	int err;
 
+	msft = msft_data_hold_unless_zero(hdev->msft_data);
 	if (!msft)
 		return -EOPNOTSUPP;
 
@@ -1193,6 +1266,7 @@ int msft_set_filter_enable(struct hci_dev *hdev, bool enable)
 
 	msft_le_set_advertisement_filter_enable_cb(hdev, &cp, err);
 
+	msft_data_put(msft);
 	return 0;
 }
 
