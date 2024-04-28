@@ -541,10 +541,17 @@ static void l2cap_le_flowctl_init(struct l2cap_chan *chan, u16 tx_credits)
 	chan->sdu_last_frag = NULL;
 	chan->sdu_len = 0;
 	chan->tx_credits = tx_credits;
-	/* Derive MPS from connection MTU to stop HCI fragmentation */
-	chan->mps = min_t(u16, chan->imtu, chan->conn->mtu - L2CAP_HDR_SIZE);
-	/* Give enough credits for a full packet */
-	chan->rx_credits = (chan->imtu / chan->mps) + 1;
+
+	if (chan->conn->mtu < L2CAP_HDR_SIZE) {
+		BT_WARN("mtu is too small (mtu %d < %d)", chan->conn->mtu, L2CAP_HDR_SIZE);
+		chan->mps = 0;
+		chan->rx_credits = 0;
+	} else {
+		/* Derive MPS from connection MTU to stop HCI fragmentation */
+		chan->mps = min_t(u16, chan->imtu, chan->conn->mtu - L2CAP_HDR_SIZE);
+		/* Give enough credits for a full packet */
+		chan->rx_credits = (chan->imtu / chan->mps) + 1;
+	}
 
 	skb_queue_head_init(&chan->tx_q);
 }
@@ -2222,7 +2229,12 @@ static struct sk_buff *l2cap_create_connless_pdu(struct l2cap_chan *chan,
 	BT_DBG("chan %p psm 0x%2.2x len %zu", chan,
 	       __le16_to_cpu(chan->psm), len);
 
-	count = min_t(unsigned int, (conn->mtu - hlen), len);
+	if (conn->mtu < hlen) {
+		count = 0;
+		BT_WARN("mtu is too small (mtu %d < len %d)", conn->mtu, hlen);
+	} else {
+		count = min_t(unsigned int, (conn->mtu - hlen), len);
+	}
 
 	skb = chan->ops->alloc_skb(chan, hlen, count,
 				   msg->msg_flags & MSG_DONTWAIT);
@@ -2253,7 +2265,12 @@ static struct sk_buff *l2cap_create_basic_pdu(struct l2cap_chan *chan,
 
 	BT_DBG("chan %p len %zu", chan, len);
 
-	count = min_t(unsigned int, (conn->mtu - L2CAP_HDR_SIZE), len);
+	if (conn->mtu < L2CAP_HDR_SIZE) {
+		BT_WARN("mtu is too small (mtu %d < %d)", conn->mtu, L2CAP_HDR_SIZE);
+		count = 0;
+	} else {
+		count = min_t(unsigned int, (conn->mtu - L2CAP_HDR_SIZE), len);
+	}
 
 	skb = chan->ops->alloc_skb(chan, L2CAP_HDR_SIZE, count,
 				   msg->msg_flags & MSG_DONTWAIT);
@@ -2295,7 +2312,12 @@ static struct sk_buff *l2cap_create_iframe_pdu(struct l2cap_chan *chan,
 	if (chan->fcs == L2CAP_FCS_CRC16)
 		hlen += L2CAP_FCS_SIZE;
 
-	count = min_t(unsigned int, (conn->mtu - hlen), len);
+	if (conn->mtu < hlen) {
+		BT_WARN("mtu is too small (mtu %d < len %d)", conn->mtu, hlen);
+		count = 0;
+	} else {
+		count = min_t(unsigned int, (conn->mtu - hlen), len);
+	}
 
 	skb = chan->ops->alloc_skb(chan, hlen, count,
 				   msg->msg_flags & MSG_DONTWAIT);
@@ -2412,7 +2434,12 @@ static struct sk_buff *l2cap_create_le_flowctl_pdu(struct l2cap_chan *chan,
 	if (sdulen)
 		hlen += L2CAP_SDULEN_SIZE;
 
-	count = min_t(unsigned int, (conn->mtu - hlen), len);
+	if (conn->mtu < hlen) {
+		BT_WARN("mtu is too small (mtu %d < len %d)", conn->mtu, hlen);
+		count = 0;
+	} else {
+		count = min_t(unsigned int, (conn->mtu - hlen), len);
+	}
 
 	skb = chan->ops->alloc_skb(chan, hlen, count,
 				   msg->msg_flags & MSG_DONTWAIT);
@@ -3234,6 +3261,7 @@ static int l2cap_build_conf_req(struct l2cap_chan *chan, void *data, size_t data
 	void *ptr = req->data;
 	void *endptr = data + data_size;
 	u16 size;
+	int hlen;
 
 	BT_DBG("chan %p", chan);
 
@@ -3284,14 +3312,19 @@ done:
 		break;
 
 	case L2CAP_MODE_ERTM:
+		hlen = L2CAP_EXT_HDR_SIZE + L2CAP_SDULEN_SIZE + L2CAP_FCS_SIZE;
 		rfc.mode            = L2CAP_MODE_ERTM;
 		rfc.max_transmit    = chan->max_tx;
 
 		__l2cap_set_ertm_timeouts(chan, &rfc);
 
-		size = min_t(u16, L2CAP_DEFAULT_MAX_PDU_SIZE, chan->conn->mtu -
-			     L2CAP_EXT_HDR_SIZE - L2CAP_SDULEN_SIZE -
-			     L2CAP_FCS_SIZE);
+		if (chan->conn->mtu < hlen) {
+			BT_WARN("mtu is too small (mtu %d < len %d)", chan->conn->mtu, hlen);
+			size = 0;
+		} else {
+			size = min_t(u16, L2CAP_DEFAULT_MAX_PDU_SIZE, chan->conn->mtu - hlen);
+		}
+
 		rfc.max_pdu_size = cpu_to_le16(size);
 
 		l2cap_txwin_setup(chan);
@@ -3319,6 +3352,7 @@ done:
 		break;
 
 	case L2CAP_MODE_STREAMING:
+		hlen = L2CAP_EXT_HDR_SIZE + L2CAP_SDULEN_SIZE + L2CAP_FCS_SIZE;
 		l2cap_txwin_setup(chan);
 		rfc.mode            = L2CAP_MODE_STREAMING;
 		rfc.txwin_size      = 0;
@@ -3326,9 +3360,12 @@ done:
 		rfc.retrans_timeout = 0;
 		rfc.monitor_timeout = 0;
 
-		size = min_t(u16, L2CAP_DEFAULT_MAX_PDU_SIZE, chan->conn->mtu -
-			     L2CAP_EXT_HDR_SIZE - L2CAP_SDULEN_SIZE -
-			     L2CAP_FCS_SIZE);
+		if (chan->conn->mtu < hlen) {
+			BT_WARN("mtu is too small (mtu %d < len %d)", chan->conn->mtu, hlen);
+			size = 0;
+		} else {
+			size = min_t(u16, L2CAP_DEFAULT_MAX_PDU_SIZE, chan->conn->mtu - hlen);
+		}
 		rfc.max_pdu_size = cpu_to_le16(size);
 
 		l2cap_add_conf_opt(&ptr, L2CAP_CONF_RFC, sizeof(rfc),
@@ -3360,7 +3397,7 @@ static int l2cap_parse_conf_req(struct l2cap_chan *chan, void *data, size_t data
 	void *endptr = data + data_size;
 	void *req = chan->conf_req;
 	int len = chan->conf_len;
-	int type, hint, olen;
+	int type, hint, olen, hlen;
 	unsigned long val;
 	struct l2cap_conf_rfc rfc = { .mode = L2CAP_MODE_BASIC };
 	struct l2cap_conf_efs efs;
@@ -3505,6 +3542,7 @@ done:
 			break;
 
 		case L2CAP_MODE_ERTM:
+			hlen = L2CAP_EXT_HDR_SIZE + L2CAP_SDULEN_SIZE + L2CAP_FCS_SIZE;
 			if (!test_bit(CONF_EWS_RECV, &chan->conf_state))
 				chan->remote_tx_win = rfc.txwin_size;
 			else
@@ -3512,9 +3550,15 @@ done:
 
 			chan->remote_max_tx = rfc.max_transmit;
 
-			size = min_t(u16, le16_to_cpu(rfc.max_pdu_size),
-				     chan->conn->mtu - L2CAP_EXT_HDR_SIZE -
-				     L2CAP_SDULEN_SIZE - L2CAP_FCS_SIZE);
+			if (chan->conn->mtu < hlen) {
+				BT_WARN("mtu is too small (mtu %d < len %d)",
+					chan->conn->mtu, hlen);
+				size = 0;
+			} else {
+				size = min_t(u16, le16_to_cpu(rfc.max_pdu_size),
+					     chan->conn->mtu - hlen);
+			}
+
 			rfc.max_pdu_size = cpu_to_le16(size);
 			chan->remote_mps = size;
 
@@ -3543,9 +3587,17 @@ done:
 			break;
 
 		case L2CAP_MODE_STREAMING:
-			size = min_t(u16, le16_to_cpu(rfc.max_pdu_size),
-				     chan->conn->mtu - L2CAP_EXT_HDR_SIZE -
-				     L2CAP_SDULEN_SIZE - L2CAP_FCS_SIZE);
+			hlen = L2CAP_EXT_HDR_SIZE + L2CAP_SDULEN_SIZE + L2CAP_FCS_SIZE;
+
+			if (chan->conn->mtu < hlen) {
+				BT_WARN("mtu is too small (mtu %d < len %d)",
+					chan->conn->mtu, hlen);
+				size = 0;
+			} else {
+				size = min_t(u16, le16_to_cpu(rfc.max_pdu_size),
+					     chan->conn->mtu - hlen);
+			}
+
 			rfc.max_pdu_size = cpu_to_le16(size);
 			chan->remote_mps = size;
 
