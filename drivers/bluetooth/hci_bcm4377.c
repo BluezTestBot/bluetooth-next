@@ -2140,44 +2140,46 @@ static int bcm4377_init_cfg(struct bcm4377_data *bcm4377)
 				     BCM4377_PCIECFG_BAR0_WINDOW1,
 				     bcm4377->hw->bar0_window1);
 	if (ret)
-		return ret;
+		goto fail;
 
 	ret = pci_write_config_dword(bcm4377->pdev,
 				     BCM4377_PCIECFG_BAR0_WINDOW2,
 				     bcm4377->hw->bar0_window2);
 	if (ret)
-		return ret;
+		goto fail;
 
 	ret = pci_write_config_dword(
 		bcm4377->pdev, BCM4377_PCIECFG_BAR0_CORE2_WINDOW1,
 		BCM4377_PCIECFG_BAR0_CORE2_WINDOW1_DEFAULT);
 	if (ret)
-		return ret;
+		goto fail;
 
 	if (bcm4377->hw->has_bar0_core2_window2) {
 		ret = pci_write_config_dword(bcm4377->pdev,
 					     BCM4377_PCIECFG_BAR0_CORE2_WINDOW2,
 					     bcm4377->hw->bar0_core2_window2);
 		if (ret)
-			return ret;
+			goto fail;
 	}
 
 	ret = pci_write_config_dword(bcm4377->pdev, BCM4377_PCIECFG_BAR2_WINDOW,
 				     BCM4377_PCIECFG_BAR2_WINDOW_DEFAULT);
 	if (ret)
-		return ret;
+		goto fail;
 
 	ret = pci_read_config_dword(bcm4377->pdev,
 				    BCM4377_PCIECFG_SUBSYSTEM_CTRL, &ctrl);
 	if (ret)
-		return ret;
+		goto fail;
 
 	if (bcm4377->hw->clear_pciecfg_subsystem_ctrl_bit19)
 		ctrl &= ~BIT(19);
 	ctrl |= BIT(16);
 
-	return pci_write_config_dword(bcm4377->pdev,
-				      BCM4377_PCIECFG_SUBSYSTEM_CTRL, ctrl);
+	ret = pci_write_config_dword(bcm4377->pdev,
+				     BCM4377_PCIECFG_SUBSYSTEM_CTRL, ctrl);
+fail:
+	return pcibios_err_to_errno(ret);
 }
 
 static int bcm4377_probe_dmi(struct bcm4377_data *bcm4377)
