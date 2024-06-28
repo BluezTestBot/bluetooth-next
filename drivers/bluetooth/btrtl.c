@@ -1300,6 +1300,11 @@ void btrtl_set_quirks(struct hci_dev *hdev, struct btrtl_device_info *btrtl_dev)
 		    btrtl_dev->project_id == CHIP_ID_8852C)
 			set_bit(HCI_QUIRK_USE_MSFT_EXT_ADDRESS_FILTER, &hdev->quirks);
 
+		if (btrtl_dev->project_id == CHIP_ID_8822C ||
+		    btrtl_dev->project_id == CHIP_ID_8852A ||
+		    btrtl_dev->project_id == CHIP_ID_8852B)
+			btrealtek_set_flag(hdev, REALTEK_SCO_CLEAN_DUPLICATE_DATA);
+
 		hci_set_aosp_capable(hdev);
 		break;
 	default:
@@ -1478,6 +1483,50 @@ int btrtl_get_uart_settings(struct hci_dev *hdev,
 	return 0;
 }
 EXPORT_SYMBOL_GPL(btrtl_get_uart_settings);
+
+int btrtl_validate_isoc_data(u16 mps, struct sk_buff *skb)
+{
+	u8 *prev;
+	u8 tmp[8];
+	u32 *a;
+	u32 *b;
+	u16 i;
+	u8 *next;
+	u8 *start = skb->data;
+
+	for (i = 0; i < 2; i++) {
+		prev = start + i * mps;
+		next = prev + mps;
+
+		if (!memcmp(prev + 4, next + 2, 8))
+			continue;
+
+		/* Check the current fragment with the previous one.
+		 * If the current fragment is redundant but it is a little bit
+		 * different from the previous, drop it.
+		 * For example,
+		 * 04 00 48 55 4E CB 55 52 80 95 55 07 XX XX ...
+		 * 04 00 55 52 4E CB 55 07 80 95 XX XX XX XX ...
+		 */
+		memcpy(tmp, prev + 4, 8);
+		a = (u32 *)(tmp);
+		b = (u32 *)(tmp + 4);
+		*a = swahw32(*a);
+		*b = swahw32(*b);
+
+		if (next[0] == prev[0] && next[1] == prev[1] &&
+		    !memcmp(next + 2, tmp, 8)) {
+			if (i == 0)
+				memcpy(start + mps, start + 2 * mps, mps);
+			skb_trim(skb, 2 * mps);
+			hci_skb_expect(skb) = mps;
+			return -EILSEQ;
+		}
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(btrtl_validate_isoc_data);
 
 MODULE_AUTHOR("Daniel Drake <drake@endlessm.com>");
 MODULE_DESCRIPTION("Bluetooth support for Realtek devices ver " VERSION);

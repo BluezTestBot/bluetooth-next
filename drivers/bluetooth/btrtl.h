@@ -105,6 +105,7 @@ struct rtl_vendor_cmd {
 
 enum {
 	REALTEK_ALT6_CONTINUOUS_TX_CHIP,
+	REALTEK_SCO_CLEAN_DUPLICATE_DATA,
 
 	__REALTEK_NUM_FLAGS,
 };
@@ -148,6 +149,7 @@ int btrtl_get_uart_settings(struct hci_dev *hdev,
 			    unsigned int *controller_baudrate,
 			    u32 *device_baudrate, bool *flow_control);
 void btrtl_set_driver_name(struct hci_dev *hdev, const char *driver_name);
+int btrtl_validate_isoc_data(u16 mps, struct sk_buff *skb);
 
 #else
 
@@ -193,6 +195,11 @@ static inline int btrtl_get_uart_settings(struct hci_dev *hdev,
 
 static inline void btrtl_set_driver_name(struct hci_dev *hdev, const char *driver_name)
 {
+}
+
+static inline int btrtl_validate_isoc_data(u16 mps, struct sk_buff *skb)
+{
+	return -EILSEQ;
 }
 
 #endif
