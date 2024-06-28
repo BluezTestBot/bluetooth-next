@@ -1319,6 +1319,14 @@ static int btusb_recv_isoc(struct btusb_data *data, void *buffer, int count)
 		}
 
 		if (!hci_skb_expect(skb)) {
+			if (btrealtek_test_flag(data->hdev, REALTEK_SCO_CLEAN_DUPLICATE_DATA) &&
+			    data->air_mode == HCI_NOTIFY_ENABLE_SCO_TRANSP &&
+			    test_bit(BTUSB_USE_ALT3_FOR_WBS, &data->flags) &&
+			    data->isoc_altsetting == 3 &&
+			    skb->len == 3 * data->isoc_rx_ep->wMaxPacketSize &&
+			    btrtl_validate_isoc_data(data->isoc_rx_ep->wMaxPacketSize, skb))
+				continue;
+
 			/* Complete frame */
 			hci_recv_frame(data->hdev, skb);
 			skb = NULL;
