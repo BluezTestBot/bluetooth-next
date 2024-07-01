@@ -516,6 +516,7 @@ struct hci_dev {
 	struct sk_buff		*recv_event;
 
 	struct mutex		req_lock;
+	spinlock_t		req_skb_lock;
 	wait_queue_head_t	req_wait_q;
 	__u32			req_status;
 	__u32			req_result;

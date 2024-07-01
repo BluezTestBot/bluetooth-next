@@ -28,6 +28,15 @@
 
 #define hci_req_sync_lock(hdev)   mutex_lock(&hdev->req_lock)
 #define hci_req_sync_unlock(hdev) mutex_unlock(&hdev->req_lock)
+#define hci_req_skb_release_and_set(hdev, val)		\
+({							\
+	if (hdev->req_skb) {				\
+		spin_lock(&hdev->req_skb_lock);		\
+		kfree_skb(hdev->req_skb);		\
+		hdev->req_skb = val;			\
+		spin_unlock(&hdev->req_skb_lock);	\
+	}						\
+})
 
 struct hci_request {
 	struct hci_dev		*hdev;
