@@ -106,8 +106,7 @@ void hci_req_sync_complete(struct hci_dev *hdev, u8 result, u16 opcode,
 		hdev->req_result = result;
 		hdev->req_status = HCI_REQ_DONE;
 		if (skb) {
-			kfree_skb(hdev->req_skb);
-			hdev->req_skb = skb_get(skb);
+			hci_req_skb_release_and_set(hdev, skb_get(skb));
 		}
 		wake_up_interruptible(&hdev->req_wait_q);
 	}
@@ -181,8 +180,7 @@ int __hci_req_sync(struct hci_dev *hdev, int (*func)(struct hci_request *req,
 		break;
 	}
 
-	kfree_skb(hdev->req_skb);
-	hdev->req_skb = NULL;
+	hci_req_skb_release_and_set(hdev, NULL);
 	hdev->req_status = hdev->req_result = 0;
 
 	bt_dev_dbg(hdev, "end: err %d", err);
