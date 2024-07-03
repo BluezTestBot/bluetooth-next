@@ -74,6 +74,9 @@ static void hci_read_codec_capabilities(struct hci_dev *hdev, __u8 transport,
 
 			skb = __hci_cmd_sync_sk(hdev, HCI_OP_READ_LOCAL_CODEC_CAPS,
 						sizeof(*cmd), cmd, 0, HCI_CMD_TIMEOUT, NULL);
+
+			if (!skb)
+				skb = ERR_PTR(-EINVAL);
 			if (IS_ERR(skb)) {
 				bt_dev_err(hdev, "Failed to read codec capabilities (%ld)",
 					   PTR_ERR(skb));
@@ -129,6 +132,8 @@ void hci_read_supported_codecs(struct hci_dev *hdev)
 	skb = __hci_cmd_sync_sk(hdev, HCI_OP_READ_LOCAL_CODECS, 0, NULL,
 				0, HCI_CMD_TIMEOUT, NULL);
 
+	if (!skb)
+		skb = ERR_PTR(-EINVAL);
 	if (IS_ERR(skb)) {
 		bt_dev_err(hdev, "Failed to read local supported codecs (%ld)",
 			   PTR_ERR(skb));
@@ -198,6 +203,8 @@ void hci_read_supported_codecs_v2(struct hci_dev *hdev)
 	skb = __hci_cmd_sync_sk(hdev, HCI_OP_READ_LOCAL_CODECS_V2, 0, NULL,
 				0, HCI_CMD_TIMEOUT, NULL);
 
+	if (!skb)
+		skb = ERR_PTR(-EINVAL);
 	if (IS_ERR(skb)) {
 		bt_dev_err(hdev, "Failed to read local supported codecs (%ld)",
 			   PTR_ERR(skb));
