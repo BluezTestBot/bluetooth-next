@@ -105,6 +105,7 @@ struct rtl_vendor_cmd {
 
 enum {
 	REALTEK_ALT6_CONTINUOUS_TX_CHIP,
+	REALTEK_SCO_HDR_FIXUP,
 
 	__REALTEK_NUM_FLAGS,
 };

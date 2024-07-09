@@ -1248,14 +1248,26 @@ static int btusb_recv_bulk(struct btusb_data *data, void *buffer, int count)
 	return err;
 }
 
-static bool btusb_validate_sco_handle(struct hci_dev *hdev,
+static bool btusb_validate_sco_hdr(struct hci_dev *hdev,
 				      struct hci_sco_hdr *hdr)
 {
 	__u16 handle;
 
-	if (hci_dev_test_flag(hdev, HCI_USER_CHANNEL))
-		// Can't validate, userspace controls everything.
+	struct btusb_data *data = hci_get_drvdata(hdev);
+	/* According to core spec Vol 4, Part B, 2.1.1 Controller descriptors,
+	 * there are payload sizes recommened below.
+	 */
+	u8 lens[7] = { 0, 24, 48, 72, 96, 144, 60 };
+
+	if (hci_dev_test_flag(hdev, HCI_USER_CHANNEL)) {
+		handle = hci_handle(__le16_to_cpu(hdr->handle));
+		/* check if the packet payload size and handle are valid */
+		if (btrealtek_test_flag(data->hdev, REALTEK_SCO_HDR_FIXUP) &&
+		    data->isoc_altsetting <= 6 &&
+		    (lens[data->isoc_altsetting] != hdr->dlen || handle > 12))
+			return false;
 		return true;
+	}
 
 	/*
 	 * USB isochronous transfers are not designed to be reliable and may
@@ -1270,6 +1282,11 @@ static bool btusb_validate_sco_handle(struct hci_dev *hdev,
 	switch (hci_conn_lookup_type(hdev, handle)) {
 	case SCO_LINK:
 	case ESCO_LINK:
+		/* check if the packet payload size is valid */
+		if (btrealtek_test_flag(data->hdev, REALTEK_SCO_HDR_FIXUP) &&
+		    data->isoc_altsetting <= 6 &&
+		    lens[data->isoc_altsetting] != hdr->dlen)
+			return false;
 		return true;
 	default:
 		return false;
@@ -1313,7 +1330,7 @@ static int btusb_recv_isoc(struct btusb_data *data, void *buffer, int count)
 			hci_skb_expect(skb) = hdr->dlen;
 
 			if (skb_tailroom(skb) < hci_skb_expect(skb) ||
-			    !btusb_validate_sco_handle(data->hdev, hdr)) {
+			    !btusb_validate_sco_hdr(data->hdev, hdr)) {
 				kfree_skb(skb);
 				skb = NULL;
 
