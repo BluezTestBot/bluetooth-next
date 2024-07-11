@@ -2498,7 +2498,6 @@ static void qca_serdev_remove(struct serdev_device *serdev)
 		if (power->vregs_on)
 			qca_power_shutdown(&qcadev->serdev_hu);
 		break;
-	default:
 	}
 
 	hci_uart_unregister_device(&qcadev->serdev_hu);
