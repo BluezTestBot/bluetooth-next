@@ -21,6 +21,7 @@ config BT_QCA
 
 config BT_MTK
 	tristate
+	depends on USB
 	select FW_LOADER
 
 config BT_HCIBTUSB
@@ -413,6 +414,7 @@ config BT_ATH3K
 config BT_MTKSDIO
 	tristate "MediaTek HCI SDIO driver"
 	depends on MMC
+	depends on USB
 	select BT_MTK
 	help
 	  MediaTek Bluetooth HCI SDIO driver.
@@ -425,6 +427,7 @@ config BT_MTKSDIO
 config BT_MTKUART
 	tristate "MediaTek HCI UART driver"
 	depends on SERIAL_DEV_BUS
+	depends on USB
 	select BT_MTK
 	help
 	  MediaTek Bluetooth HCI UART driver.
