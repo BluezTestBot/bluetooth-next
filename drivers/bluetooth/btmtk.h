@@ -201,23 +201,6 @@ int btmtk_process_coredump(struct hci_dev *hdev, struct sk_buff *skb);
 
 void btmtk_fw_get_filename(char *buf, size_t size, u32 dev_id, u32 fw_ver,
 			   u32 fw_flavor);
-
-#if IS_ENABLED(CONFIG_BT_HCIBTUSB_MTK)
-int btmtk_usb_subsys_reset(struct hci_dev *hdev, u32 dev_id);
-
-int btmtk_usb_recv_acl(struct hci_dev *hdev, struct sk_buff *skb);
-
-struct urb *alloc_mtk_intr_urb(struct hci_dev *hdev, struct sk_buff *skb,
-			       usb_complete_t tx_complete);
-
-int btmtk_usb_resume(struct hci_dev *hdev);
-
-int btmtk_usb_suspend(struct hci_dev *hdev);
-
-int btmtk_usb_setup(struct hci_dev *hdev);
-
-int btmtk_usb_shutdown(struct hci_dev *hdev);
-#endif
 #else
 
 static inline int btmtk_set_bdaddr(struct hci_dev *hdev,
@@ -259,7 +242,25 @@ static inline void btmtk_fw_get_filename(char *buf, size_t size, u32 dev_id,
 					 u32 fw_ver, u32 fw_flavor)
 {
 }
+#endif
 
+/* USB interface related functions */
+#if IS_ENABLED(CONFIG_BT_HCIBTUSB_MTK)
+int btmtk_usb_subsys_reset(struct hci_dev *hdev, u32 dev_id);
+
+int btmtk_usb_recv_acl(struct hci_dev *hdev, struct sk_buff *skb);
+
+struct urb *alloc_mtk_intr_urb(struct hci_dev *hdev, struct sk_buff *skb,
+			       usb_complete_t tx_complete);
+
+int btmtk_usb_resume(struct hci_dev *hdev);
+
+int btmtk_usb_suspend(struct hci_dev *hdev);
+
+int btmtk_usb_setup(struct hci_dev *hdev);
+
+int btmtk_usb_shutdown(struct hci_dev *hdev);
+#else
 static inline int btmtk_usb_subsys_reset(struct hci_dev *hdev, u32 dev_id)
 {
 	return -EOPNOTSUPP;
