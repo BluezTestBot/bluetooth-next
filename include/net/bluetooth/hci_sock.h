@@ -101,6 +101,8 @@ struct hci_dev_stats {
 	__u32 acl_rx;
 	__u32 sco_tx;
 	__u32 sco_rx;
+	__u32 iso_tx;
+	__u32 iso_rx;
 	__u32 byte_rx;
 	__u32 byte_tx;
 };
