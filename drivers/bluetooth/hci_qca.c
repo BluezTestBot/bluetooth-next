@@ -2187,9 +2187,12 @@ static void qca_power_shutdown(struct hci_uart *hu)
 		}
 		break;
 
+		/* what to do ? */
+#if 0
 	case QCA_QCA6390:
 		pwrseq_power_off(qcadev->bt_power->pwrseq);
 		break;
+#endif
 
 	default:
 		gpiod_set_value_cansleep(qcadev->bt_en, 0);
@@ -2418,11 +2421,25 @@ static int qca_serdev_probe(struct serdev_device *serdev)
 	case QCA_QCA6390:
 		qcadev->bt_power->pwrseq = devm_pwrseq_get(&serdev->dev,
 							   "bluetooth");
+
+		{
+			long x_err = 0;
+			if (IS_ERR(qcadev->bt_power->pwrseq))
+				x_err = PTR_ERR(qcadev->bt_power->pwrseq);
+			dev_info(&serdev->dev, "x_err(%lu)\n", x_err);
+			if (x_err == -ENOSYS ||
+			    (x_err == -ENODEV || x_err == -ENOENT)) {
+				qcadev->bt_power->pwrseq = NULL;
+				goto do_default;
+			}
+		}
+
 		if (IS_ERR(qcadev->bt_power->pwrseq))
 			return PTR_ERR(qcadev->bt_power->pwrseq);
 		break;
 
 	default:
+do_default:
 		qcadev->bt_en = devm_gpiod_get_optional(&serdev->dev, "enable",
 					       GPIOD_OUT_LOW);
 		if (IS_ERR(qcadev->bt_en)) {
