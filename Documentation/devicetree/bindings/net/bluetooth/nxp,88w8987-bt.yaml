@@ -25,11 +25,12 @@ properties:
 
   fw-init-baudrate:
     $ref: /schemas/types.yaml#/definitions/uint32
+    maxItems: 8
     default: 115200
     description:
-      Chip baudrate after FW is downloaded and initialized.
-      This property depends on the module vendor's
-      configuration.
+      List of chip baudrates after FW is downloaded and initialized.
+      The driver goes through the list until it founds a working baudrate.
+      This property depends on the module vendor's configuration.
 
   firmware-name:
     maxItems: 1
