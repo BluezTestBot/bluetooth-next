@@ -180,7 +180,8 @@ struct btnxpuart_dev {
 
 	u32 new_baudrate;
 	u32 current_baudrate;
-	u32 fw_init_baudrate;
+	u32 fw_primary_baudrate;
+	u32 fw_init_baudrate[8];
 	bool timeout_changed;
 	bool baudrate_changed;
 	bool helper_downloaded;
@@ -1159,7 +1160,7 @@ static int nxp_set_ind_reset(struct hci_dev *hdev, void *data)
 static int nxp_setup(struct hci_dev *hdev)
 {
 	struct btnxpuart_dev *nxpdev = hci_get_drvdata(hdev);
-	int err = 0;
+	int i, err = 0;
 
 	if (nxp_check_boot_sign(nxpdev)) {
 		bt_dev_dbg(hdev, "Need FW Download.");
@@ -1171,12 +1172,20 @@ static int nxp_setup(struct hci_dev *hdev)
 		clear_bit(BTNXPUART_FW_DOWNLOADING, &nxpdev->tx_state);
 	}
 
-	serdev_device_set_baudrate(nxpdev->serdev, nxpdev->fw_init_baudrate);
-	nxpdev->current_baudrate = nxpdev->fw_init_baudrate;
+	for (i = 0; i < ARRAY_SIZE(nxpdev->fw_init_baudrate); i++) {
+		serdev_device_set_baudrate(nxpdev->serdev, nxpdev->fw_init_baudrate[i]);
+		nxpdev->current_baudrate = nxpdev->fw_init_baudrate[i];
 
-	if (nxpdev->current_baudrate != HCI_NXP_SEC_BAUDRATE) {
-		nxpdev->new_baudrate = HCI_NXP_SEC_BAUDRATE;
-		hci_cmd_sync_queue(hdev, nxp_set_baudrate_cmd, NULL, NULL);
+		if (nxpdev->current_baudrate != HCI_NXP_SEC_BAUDRATE) {
+			nxpdev->new_baudrate = HCI_NXP_SEC_BAUDRATE;
+			err = nxp_set_baudrate_cmd(hdev, NULL);
+			if (err)
+				continue;
+		}
+
+		nxpdev->fw_primary_baudrate = nxpdev->fw_init_baudrate[i];
+		bt_dev_dbg(hdev, "Using primary baudrate %d", nxpdev->fw_primary_baudrate);
+		break;
 	}
 
 	ps_init(hdev);
@@ -1454,6 +1463,10 @@ static int nxp_serdev_probe(struct serdev_device *serdev)
 {
 	struct hci_dev *hdev;
 	struct btnxpuart_dev *nxpdev;
+	struct property *prop;
+	const __be32 *cur;
+	u32 value;
+	int i = 0;
 
 	nxpdev = devm_kzalloc(&serdev->dev, sizeof(*nxpdev), GFP_KERNEL);
 	if (!nxpdev)
@@ -1472,10 +1485,13 @@ static int nxp_serdev_probe(struct serdev_device *serdev)
 	init_waitqueue_head(&nxpdev->fw_dnld_done_wait_q);
 	init_waitqueue_head(&nxpdev->check_boot_sign_wait_q);
 
-	device_property_read_u32(&nxpdev->serdev->dev, "fw-init-baudrate",
-				 &nxpdev->fw_init_baudrate);
-	if (!nxpdev->fw_init_baudrate)
-		nxpdev->fw_init_baudrate = FW_INIT_BAUDRATE;
+	nxpdev->fw_init_baudrate[0] = FW_INIT_BAUDRATE;
+	of_property_for_each_u32(dev_of_node(&nxpdev->serdev->dev),
+				 "fw-init-baudrate", prop, cur, value) {
+		nxpdev->fw_init_baudrate[i] = value;
+		if (++i == ARRAY_SIZE(nxpdev->fw_init_baudrate))
+			break;
+	}
 
 	set_bit(BTNXPUART_FW_DOWNLOADING, &nxpdev->tx_state);
 
@@ -1525,12 +1541,13 @@ static void nxp_serdev_remove(struct serdev_device *serdev)
 		wake_up_interruptible(&nxpdev->check_boot_sign_wait_q);
 		wake_up_interruptible(&nxpdev->fw_dnld_done_wait_q);
 	} else {
-		/* Restore FW baudrate to fw_init_baudrate if changed.
+		/* Restore FW baudrate to fw_primary_baudrate if changed.
 		 * This will ensure FW baudrate is in sync with
 		 * driver baudrate in case this driver is re-inserted.
 		 */
-		if (nxpdev->current_baudrate != nxpdev->fw_init_baudrate) {
-			nxpdev->new_baudrate = nxpdev->fw_init_baudrate;
+		if (nxpdev->fw_primary_baudrate &&
+		    (nxpdev->current_baudrate != nxpdev->fw_primary_baudrate)) {
+			nxpdev->new_baudrate = nxpdev->fw_primary_baudrate;
 			nxp_set_baudrate_cmd(hdev, NULL);
 		}
 	}
