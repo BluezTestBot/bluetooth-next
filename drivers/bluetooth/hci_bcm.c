@@ -327,7 +327,7 @@ static irqreturn_t bcm_host_wake(int irq, void *data)
 
 	pm_runtime_get(bdev->dev);
 	pm_runtime_mark_last_busy(bdev->dev);
-	pm_runtime_put_autosuspend(bdev->dev);
+	__pm_runtime_put_autosuspend(bdev->dev);
 
 	return IRQ_HANDLED;
 }
@@ -711,7 +711,7 @@ static int bcm_recv(struct hci_uart *hu, const void *data, int count)
 		if (bcm->dev && bcm_device_exists(bcm->dev)) {
 			pm_runtime_get(bcm->dev->dev);
 			pm_runtime_mark_last_busy(bcm->dev->dev);
-			pm_runtime_put_autosuspend(bcm->dev->dev);
+			__pm_runtime_put_autosuspend(bcm->dev->dev);
 		}
 		mutex_unlock(&bcm_device_lock);
 	}
@@ -750,7 +750,7 @@ static struct sk_buff *bcm_dequeue(struct hci_uart *hu)
 
 	if (bdev) {
 		pm_runtime_mark_last_busy(bdev->dev);
-		pm_runtime_put_autosuspend(bdev->dev);
+		__pm_runtime_put_autosuspend(bdev->dev);
 	}
 
 	mutex_unlock(&bcm_device_lock);
