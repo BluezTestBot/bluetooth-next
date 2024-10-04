@@ -615,7 +615,7 @@ static void btmtksdio_txrx_work(struct work_struct *work)
 	sdio_release_host(bdev->func);
 
 	pm_runtime_mark_last_busy(bdev->dev);
-	pm_runtime_put_autosuspend(bdev->dev);
+	__pm_runtime_put_autosuspend(bdev->dev);
 }
 
 static void btmtksdio_interrupt(struct sdio_func *func)
