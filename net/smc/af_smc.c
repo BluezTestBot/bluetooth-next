@@ -2751,7 +2751,7 @@ out:
 	return rc;
 }
 
-int smc_getname(struct socket *sock, struct sockaddr *addr,
+int smc_getname(struct socket *sock, struct sockaddr_storage *addr,
 		int peer)
 {
 	struct smc_sock *smc;

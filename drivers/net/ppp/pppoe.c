@@ -717,8 +717,8 @@ err_put:
 	goto end;
 }
 
-static int pppoe_getname(struct socket *sock, struct sockaddr *uaddr,
-		  int peer)
+static int pppoe_getname(struct socket *sock, struct sockaddr_storage *uaddr,
+			 int peer)
 {
 	int len = sizeof(struct sockaddr_pppox);
 	struct sockaddr_pppox sp;

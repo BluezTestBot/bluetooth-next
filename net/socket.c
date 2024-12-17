@@ -1956,7 +1956,7 @@ struct file *do_accept(struct file *file, struct proto_accept_arg *arg,
 		goto out_fd;
 
 	if (upeer_sockaddr) {
-		len = ops->getname(newsock, (struct sockaddr *)&address, 2);
+		len = ops->getname(newsock, &address, 2);
 		if (len < 0) {
 			err = -ECONNABORTED;
 			goto out_fd;
@@ -2116,7 +2116,7 @@ int __sys_getsockname(int fd, struct sockaddr __user *usockaddr,
 	if (err)
 		return err;
 
-	err = READ_ONCE(sock->ops)->getname(sock, (struct sockaddr *)&address, 0);
+	err = READ_ONCE(sock->ops)->getname(sock, &address, 0);
 	if (err < 0)
 		return err;
 
@@ -2153,7 +2153,7 @@ int __sys_getpeername(int fd, struct sockaddr __user *usockaddr,
 	if (err)
 		return err;
 
-	err = READ_ONCE(sock->ops)->getname(sock, (struct sockaddr *)&address, 1);
+	err = READ_ONCE(sock->ops)->getname(sock, &address, 1);
 	if (err < 0)
 		return err;
 
@@ -3649,7 +3649,7 @@ EXPORT_SYMBOL(kernel_connect);
  *	Returns the length of the address in bytes or an error code.
  */
 
-int kernel_getsockname(struct socket *sock, struct sockaddr *addr)
+int kernel_getsockname(struct socket *sock, struct sockaddr_storage *addr)
 {
 	return READ_ONCE(sock->ops)->getname(sock, addr, 0);
 }
@@ -3664,7 +3664,7 @@ EXPORT_SYMBOL(kernel_getsockname);
  *	Returns the length of the address in bytes or an error code.
  */
 
-int kernel_getpeername(struct socket *sock, struct sockaddr *addr)
+int kernel_getpeername(struct socket *sock, struct sockaddr_storage *addr)
 {
 	return READ_ONCE(sock->ops)->getname(sock, addr, 1);
 }

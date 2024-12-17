@@ -1447,8 +1447,8 @@ out:
 	return err;
 }
 
-static int ax25_getname(struct socket *sock, struct sockaddr *uaddr,
-	int peer)
+static int ax25_getname(struct socket *sock, struct sockaddr_storage *uaddr,
+			int peer)
 {
 	struct full_sockaddr_ax25 *fsa = (struct full_sockaddr_ax25 *)uaddr;
 	struct sock *sk = sock->sk;

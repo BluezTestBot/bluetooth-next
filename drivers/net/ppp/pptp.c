@@ -479,8 +479,8 @@ static int pptp_connect(struct socket *sock, struct sockaddr *uservaddr,
 	return error;
 }
 
-static int pptp_getname(struct socket *sock, struct sockaddr *uaddr,
-	int peer)
+static int pptp_getname(struct socket *sock, struct sockaddr_storage *uaddr,
+			int peer)
 {
 	int len = sizeof(struct sockaddr_pppox);
 	struct sockaddr_pppox sp;

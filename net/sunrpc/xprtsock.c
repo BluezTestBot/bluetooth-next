@@ -1710,7 +1710,7 @@ static unsigned short xs_sock_getport(struct socket *sock)
 	struct sockaddr_storage buf;
 	unsigned short port = 0;
 
-	if (kernel_getsockname(sock, (struct sockaddr *)&buf) < 0)
+	if (kernel_getsockname(sock, &buf) < 0)
 		goto out;
 	switch (buf.ss_family) {
 	case AF_INET6:
@@ -1779,7 +1779,7 @@ static int xs_sock_srcaddr(struct rpc_xprt *xprt, char *buf, size_t buflen)
 
 	mutex_lock(&sock->recv_mutex);
 	if (sock->sock) {
-		ret = kernel_getsockname(sock->sock, &saddr.sa);
+		ret = kernel_getsockname(sock->sock, &saddr.st);
 		if (ret >= 0)
 			ret = snprintf(buf, buflen, "%pISc", &saddr.sa);
 	}

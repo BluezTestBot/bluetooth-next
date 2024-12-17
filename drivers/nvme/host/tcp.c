@@ -2638,7 +2638,7 @@ static int nvme_tcp_get_address(struct nvme_ctrl *ctrl, char *buf, int size)
 
 	mutex_lock(&queue->queue_lock);
 
-	ret = kernel_getsockname(queue->sock, (struct sockaddr *)&src_addr);
+	ret = kernel_getsockname(queue->sock, &src_addr);
 	if (ret > 0) {
 		if (len > 0)
 			len--; /* strip trailing newline */
