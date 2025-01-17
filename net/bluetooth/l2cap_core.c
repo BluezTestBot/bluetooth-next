@@ -951,11 +951,18 @@ static u8 l2cap_get_ident(struct l2cap_conn *conn)
 static void l2cap_send_cmd(struct l2cap_conn *conn, u8 ident, u8 code, u16 len,
 			   void *data)
 {
-	struct sk_buff *skb = l2cap_build_cmd(conn, code, ident, len, data);
+	struct sk_buff *skb;
 	u8 flags;
+
+	/* Check if hchan has been dropped since it means hci_chan_del has
+	 * been called.
+	 */
+	if (!conn->hchan)
+		return;
 
 	BT_DBG("code 0x%2.2x", code);
 
+	skb = l2cap_build_cmd(conn, code, ident, len, data);
 	if (!skb)
 		return;
 
@@ -1751,11 +1758,15 @@ static void l2cap_conn_del(struct hci_conn *hcon, int err)
 {
 	struct l2cap_conn *conn = hcon->l2cap_data;
 	struct l2cap_chan *chan, *l;
+	struct hci_chan *hchan;
 
 	if (!conn)
 		return;
 
 	BT_DBG("hcon %p conn %p, err %d", hcon, conn, err);
+
+	hchan = conn->hchan;
+	conn->hchan = NULL;
 
 	kfree_skb(conn->rx_skb);
 
@@ -1792,13 +1803,12 @@ static void l2cap_conn_del(struct hci_conn *hcon, int err)
 
 	mutex_unlock(&conn->chan_lock);
 
-	hci_chan_del(conn->hchan);
+	hci_chan_del(hchan);
 
 	if (conn->info_state & L2CAP_INFO_FEAT_MASK_REQ_SENT)
 		cancel_delayed_work_sync(&conn->info_timer);
 
 	hcon->l2cap_data = NULL;
-	conn->hchan = NULL;
 	l2cap_conn_put(conn);
 }
 
@@ -6785,6 +6795,12 @@ static void l2cap_recv_frame(struct l2cap_conn *conn, struct sk_buff *skb)
 	u16 cid, len;
 	__le16 psm;
 
+	/* Check if hchan has been dropped then drop any packets as well */
+	if (!conn->hchan) {
+		kfree_skb(skb);
+		return;
+	}
+
 	if (hcon->state != BT_CONNECTED) {
 		BT_DBG("queueing pending rx skb");
 		skb_queue_tail(&conn->pending_rx, skb);
@@ -7466,13 +7482,32 @@ static void l2cap_recv_reset(struct l2cap_conn *conn)
 	conn->rx_len = 0;
 }
 
+static struct l2cap_conn *l2cap_conn_hold_unless_zero(struct l2cap_conn *c)
+{
+	BT_DBG("conn %p orig refcnt %u", c, kref_read(&c->ref));
+
+	if (!kref_get_unless_zero(&c->ref))
+		return NULL;
+
+	return c;
+}
+
 void l2cap_recv_acldata(struct hci_conn *hcon, struct sk_buff *skb, u16 flags)
 {
-	struct l2cap_conn *conn = hcon->l2cap_data;
+	struct l2cap_conn *conn;
 	int len;
+
+	/* Lock hdev to access l2cap_data to avoid race with l2cap_conn_del */
+	hci_dev_lock(hcon->hdev);
+
+	conn = hcon->l2cap_data;
 
 	if (!conn)
 		conn = l2cap_conn_add(hcon);
+
+	conn = l2cap_conn_hold_unless_zero(conn);
+
+	hci_dev_unlock(hcon->hdev);
 
 	if (!conn)
 		goto drop;
@@ -7564,6 +7599,8 @@ void l2cap_recv_acldata(struct hci_conn *hcon, struct sk_buff *skb, u16 flags)
 		}
 		break;
 	}
+
+	l2cap_conn_put(conn);
 
 drop:
 	kfree_skb(skb);
