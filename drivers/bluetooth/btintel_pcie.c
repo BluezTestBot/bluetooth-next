@@ -1509,6 +1509,13 @@ static int btintel_pcie_setup(struct hci_dev *hdev)
 	return err;
 }
 
+static bool btintel_pcie_wakeup(struct hci_dev *hdev)
+{
+	struct btintel_pcie_data *data = hci_get_drvdata(hdev);
+
+	return device_may_wakeup(&data->pdev->dev);
+}
+
 static int btintel_pcie_setup_hdev(struct btintel_pcie_data *data)
 {
 	int err;
@@ -1533,6 +1540,7 @@ static int btintel_pcie_setup_hdev(struct btintel_pcie_data *data)
 	hdev->hw_error = btintel_hw_error;
 	hdev->set_diag = btintel_set_diag;
 	hdev->set_bdaddr = btintel_set_bdaddr;
+	hdev->wakeup = btintel_pcie_wakeup;
 
 	err = hci_register_dev(hdev);
 	if (err < 0) {
