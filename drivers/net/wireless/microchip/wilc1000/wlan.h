@@ -58,6 +58,7 @@
 #define WILC_HOST_TX_CTRL_1		(WILC_PERIPH_REG_BASE + 0x88)
 #define WILC_INTR_REG_BASE		(WILC_PERIPH_REG_BASE + 0xa00)
 #define WILC_INTR_ENABLE		WILC_INTR_REG_BASE
+#define WILC_INTR_ENABLE_BIT_BASE	27
 #define WILC_INTR2_ENABLE		(WILC_INTR_REG_BASE + 4)
 
 #define WILC_INTR_POLARITY		(WILC_INTR_REG_BASE + 0x10)
@@ -114,6 +115,21 @@
 					 WILC_SPI_REG_BASE)
 
 #define WILC_SPI_CLOCKLESS_ADDR_LIMIT	0x30
+
+#define WILC_BT_RESET_MUX		0x3b0090
+#define WILC_BT_ENABLE_GLOBAL_RESET	BIT(0)
+
+#define WILC_BT_CPU_CONFIGURATION	0x3b0400
+#define WILC_BT_CPU_ENABLE		BIT(2)
+#define WILC_BT_CPU_BOOT		(BIT(3) | WILC_BT_CPU_ENABLE)
+
+#define WILC_BT_IRAM			0x400000
+
+#define WILC_BT_BOOTROM_CONFIGURATION	0x4f0000
+#define WILC_BT_BOOTROM_DISABLE		0x71
+
+#define WILC_BT_FW_MAGIC_LOC		0x4f000c
+#define WILC_BT_FW_MAGIC		0x10add09e
 
 /* Functions IO enables bits */
 #define WILC_SDIO_CCCR_IO_EN_FUNC1	BIT(1)
@@ -173,6 +189,8 @@
 
 #define GLOBAL_MODE_CONTROL		0x1614
 #define PWR_SEQ_MISC_CTRL		0x3008
+#define COE_AUTO_PS_ON_NULL_PKT		0x160468
+#define COE_AUTO_PS_OFF_NULL_PKT	0x16046C
 
 #define WILC_GLOBAL_MODE_ENABLE_WIFI	BIT(0)
 #define WILC_PWR_SEQ_ENABLE_WIFI_SLEEP	BIT(28)
@@ -403,6 +421,7 @@ struct wilc_hif_func {
 	void (*disable_interrupt)(struct wilc *nic);
 	int (*hif_reset)(struct wilc *wilc);
 	bool (*hif_is_init)(struct wilc *wilc);
+	int (*hif_rmw_reg)(struct wilc *wilc, u32 reg, u32 mask, u32 data);
 };
 
 #define WILC_MAX_CFG_FRAME_SIZE		1468
@@ -472,4 +491,8 @@ int wilc_send_config_pkt(struct wilc_vif *vif, u8 mode, struct wid *wids,
 int wilc_wlan_init(struct net_device *dev);
 int wilc_get_chipid(struct wilc *wilc);
 int wilc_load_mac_from_nv(struct wilc *wilc);
+
+int acquire_bus(struct wilc *wilc, enum bus_acquire acquire);
+int release_bus(struct wilc *wilc, enum bus_release release);
+
 #endif

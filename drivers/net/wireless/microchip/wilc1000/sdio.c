@@ -5,11 +5,16 @@
  */
 
 #include <linux/clk.h>
+#include "linux/device.h"
+#include "linux/device/driver.h"
 #include <linux/mmc/sdio_func.h>
 #include <linux/mmc/sdio_ids.h>
 #include <linux/mmc/host.h>
 #include <linux/mmc/sdio.h>
 #include <linux/of_irq.h>
+#include <linux/of_platform.h>
+#include <linux/platform_device.h>
+#include <net/wilc.h>
 
 #include "netdev.h"
 #include "cfg80211.h"
@@ -911,6 +916,7 @@ static int wilc_sdio_sync_ext(struct wilc *wilc, int nint)
 {
 	struct sdio_func *func = dev_to_sdio_func(wilc->dev);
 	struct wilc_sdio *sdio_priv = wilc->bus_data;
+	u32 int_en_mask = 0;
 
 	if (nint > MAX_NUM_INT) {
 		dev_err(&func->dev, "Too many interrupts (%d)...\n", nint);
@@ -918,66 +924,64 @@ static int wilc_sdio_sync_ext(struct wilc *wilc, int nint)
 	}
 
 	if (sdio_priv->irq_gpio) {
-		u32 reg;
 		int ret, i;
 
 		/**
 		 *      interrupt pin mux select
 		 **/
-		ret = wilc_sdio_read_reg(wilc, WILC_PIN_MUX_0, &reg);
+		ret = wilc->hif_func->hif_rmw_reg(wilc, WILC_PIN_MUX_0, BIT(8),
+						  BIT(8));
 		if (ret) {
-			dev_err(&func->dev, "Failed read reg (%08x)...\n",
-				WILC_PIN_MUX_0);
-			return ret;
-		}
-		reg |= BIT(8);
-		ret = wilc_sdio_write_reg(wilc, WILC_PIN_MUX_0, reg);
-		if (ret) {
-			dev_err(&func->dev, "Failed write reg (%08x)...\n",
-				WILC_PIN_MUX_0);
+			dev_err(&func->dev, "Failed to set interrupt mux\n");
 			return ret;
 		}
 
 		/**
 		 *      interrupt enable
 		 **/
-		ret = wilc_sdio_read_reg(wilc, WILC_INTR_ENABLE, &reg);
-		if (ret) {
-			dev_err(&func->dev, "Failed read reg (%08x)...\n",
-				WILC_INTR_ENABLE);
-			return ret;
-		}
-
 		for (i = 0; (i < 5) && (nint > 0); i++, nint--)
-			reg |= BIT((27 + i));
-		ret = wilc_sdio_write_reg(wilc, WILC_INTR_ENABLE, reg);
+			int_en_mask |= BIT(WILC_INTR_ENABLE_BIT_BASE + i);
+		ret = wilc->hif_func->hif_rmw_reg(wilc, WILC_INTR_ENABLE,
+						  int_en_mask, int_en_mask);
 		if (ret) {
-			dev_err(&func->dev, "Failed write reg (%08x)...\n",
-				WILC_INTR_ENABLE);
+			dev_err(&func->dev, "Failed to enable interrupts\n");
 			return ret;
 		}
+
 		if (nint) {
-			ret = wilc_sdio_read_reg(wilc, WILC_INTR2_ENABLE, &reg);
-			if (ret) {
-				dev_err(&func->dev,
-					"Failed read reg (%08x)...\n",
-					WILC_INTR2_ENABLE);
-				return ret;
-			}
-
+			int_en_mask = 0;
 			for (i = 0; (i < 3) && (nint > 0); i++, nint--)
-				reg |= BIT(i);
+				int_en_mask |= BIT(i);
 
-			ret = wilc_sdio_write_reg(wilc, WILC_INTR2_ENABLE, reg);
+			ret = wilc->hif_func->hif_rmw_reg(wilc,
+							  WILC_INTR2_ENABLE,
+							  int_en_mask,
+							  int_en_mask);
 			if (ret) {
 				dev_err(&func->dev,
-					"Failed write reg (%08x)...\n",
-					WILC_INTR2_ENABLE);
+					"Failed to enable internal interrupts\n");
 				return ret;
 			}
 		}
 	}
 	return 0;
+}
+
+static int wilc_sdio_rmw_reg(struct wilc *wilc, u32 reg, u32 mask, u32 data)
+{
+	u32 old_val, new_val;
+	int ret = 0;
+
+	ret = wilc_sdio_read_reg(wilc, reg, &old_val);
+	if (ret)
+		return ret;
+
+	new_val = old_val & ~mask;
+	new_val |= data;
+	if (new_val != old_val)
+		ret = wilc_sdio_write_reg(wilc, reg, new_val);
+
+	return ret;
 }
 
 /* Global sdio HIF function table */
@@ -998,6 +1002,7 @@ static const struct wilc_hif_func wilc_hif_sdio = {
 	.disable_interrupt = wilc_sdio_disable_interrupt,
 	.hif_reset = wilc_sdio_reset,
 	.hif_is_init = wilc_sdio_is_init,
+	.hif_rmw_reg = wilc_sdio_rmw_reg
 };
 
 static int wilc_sdio_suspend(struct device *dev)
@@ -1066,6 +1071,34 @@ static struct sdio_driver wilc_sdio_driver = {
 	}
 };
 module_sdio_driver(wilc_sdio_driver);
+
+static int find_wilc_device(struct device *dev, const void *data)
+{
+	struct device_node *target_node = (struct device_node *)data;
+	struct sdio_func *func = container_of(dev, struct sdio_func, dev);
+
+	return func->card->dev.of_node == target_node ? 1 : 0;
+}
+
+void *wilc_sdio_get_byphandle(struct device_node *wlan_node)
+{
+	struct wilc *wilc;
+	struct device *wilc_dev;
+
+	/* Search in devices bound to the driver if any has a device_node
+	 * matching the targeted one
+	 */
+	wilc_dev = driver_find_device(&wilc_sdio_driver.drv, NULL,
+				      (void *)wlan_node, find_wilc_device);
+	if (!wilc_dev)
+		return ERR_PTR(-EPROBE_DEFER);
+
+	get_device(wilc_dev);
+	wilc = (struct wilc *)dev_get_drvdata(wilc_dev);
+
+	return wilc;
+}
+EXPORT_SYMBOL(wilc_sdio_get_byphandle);
 
 MODULE_DESCRIPTION("Atmel WILC1000 SDIO wireless driver");
 MODULE_LICENSE("GPL");
