@@ -147,6 +147,19 @@ config BT_HCIUART_NOKIA
 
 	  Say Y here to compile support for Nokia's H4+ protocol.
 
+config BT_HCIUART_WILC
+	tristate "WILC protocol support"
+	depends on (WILC1000_SDIO || WILC1000_SPI)
+	select WILC_BT
+	depends on BT_HCIUART
+	depends on BT_HCIUART_SERDEV
+	select BT_HCIUART_H4
+	help
+	  The WILC uart protocol allows interacting with wilc3000 chips
+	  with HCI over UART. The bluetooth firmware needs to be uploaded
+	  to the chip through the main bus, so this driver needs the
+	  corresponding wlan driver.
+
 config BT_HCIUART_BCSP
 	bool "BCSP protocol support"
 	depends on BT_HCIUART
