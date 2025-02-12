@@ -1932,7 +1932,7 @@ int wilc_edit_station(struct wilc_vif *vif, const u8 *mac,
 	return result;
 }
 
-int wilc_set_power_mgmt(struct wilc_vif *vif, bool enabled, u32 timeout)
+int wilc_set_power_mgmt(struct wilc_vif *vif, bool enabled)
 {
 	struct wilc *wilc = vif->wilc;
 	struct wid wid;

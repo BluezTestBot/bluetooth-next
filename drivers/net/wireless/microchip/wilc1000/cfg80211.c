@@ -1348,7 +1348,7 @@ static int set_power_mgmt(struct wiphy *wiphy, struct net_device *dev,
 	if (!priv->hif_drv)
 		return -EIO;
 
-	wilc_set_power_mgmt(vif, enabled, timeout);
+	wilc_set_power_mgmt(vif, enabled);
 
 	return 0;
 }
