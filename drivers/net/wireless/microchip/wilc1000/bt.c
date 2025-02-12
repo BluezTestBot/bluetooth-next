@@ -7,6 +7,7 @@
 #include <linux/of_platform.h>
 #include <linux/platform_device.h>
 #include <net/wilc.h>
+#include "cfg80211.h"
 #include "netdev.h"
 #include "wlan_if.h"
 #include "wlan.h"
@@ -261,22 +262,36 @@ static int wilc_bt_start(struct wilc *wilc)
 int wilc_bt_init(void *wilc_wl_priv)
 {
 	struct wilc *wilc = (struct wilc *)wilc_wl_priv;
+	struct wilc_vif *vif;
 	int ret;
+
+	wilc->bt_enabled = true;
 
 	if (!wilc->hif_func->hif_is_init(wilc)) {
 		dev_info(wilc->dev, "Initializing bus before starting BT");
 		acquire_bus(wilc, WILC_BUS_ACQUIRE_ONLY);
 		ret = wilc->hif_func->hif_init(wilc, false);
 		release_bus(wilc, WILC_BUS_RELEASE_ONLY);
-		if (ret)
+		if (ret) {
+			wilc->bt_enabled = false;
 			return ret;
+		}
 	}
+
+	/* Power save feature managed by WLAN firmware may disrupt
+	 * operations from the bluetooth CPU, so disable it while bluetooth
+	 * is in use (if enabled, it will be enabled back when bluetooth is
+	 * not used anymore)
+	 */
+	vif = wilc_get_wl_to_vif(wilc);
+	if (wilc->power_save_mode && wilc_set_power_mgmt(vif, false))
+		goto hif_deinit;
 
 	mutex_lock(&wilc->radio_fw_start);
 	ret = wilc_bt_power_up(wilc);
 	if (ret) {
 		dev_err(wilc->dev, "Error powering up bluetooth chip\n");
-		goto hif_deinit;
+		goto reenable_power_save;
 	}
 	ret = wilc_bt_firmware_download(wilc);
 	if (ret) {
@@ -293,10 +308,14 @@ int wilc_bt_init(void *wilc_wl_priv)
 
 power_down:
 	wilc_bt_power_down(wilc);
-hif_deinit:
+reenable_power_save:
+	if (wilc->power_save_mode_request)
+		wilc_set_power_mgmt(vif, true);
 	mutex_unlock(&wilc->radio_fw_start);
+hif_deinit:
 	if (!wilc->initialized)
 		wilc->hif_func->hif_deinit(wilc);
+	wilc->bt_enabled = false;
 	return ret;
 }
 EXPORT_SYMBOL(wilc_bt_init);
@@ -304,6 +323,7 @@ EXPORT_SYMBOL(wilc_bt_init);
 int wilc_bt_shutdown(void *wilc_wl_priv)
 {
 	struct wilc *wilc = (struct wilc *)wilc_wl_priv;
+	struct wilc_vif *vif;
 	int ret;
 
 	mutex_lock(&wilc->radio_fw_start);
@@ -313,6 +333,9 @@ int wilc_bt_shutdown(void *wilc_wl_priv)
 		dev_warn(wilc->dev, "Failed to disable BT CPU\n");
 	if (wilc_bt_power_down(wilc))
 		dev_warn(wilc->dev, "Failed to power down BT CPU\n");
+	vif = wilc_get_wl_to_vif(wilc);
+	if (wilc->power_save_mode_request && wilc_set_power_mgmt(vif, true))
+		dev_warn(wilc->dev, "Failed to set back wlan power save\n");
 	if (!wilc->initialized)
 		wilc->hif_func->hif_deinit(wilc);
 	mutex_unlock(&wilc->radio_fw_start);

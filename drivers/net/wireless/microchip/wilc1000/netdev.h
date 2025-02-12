@@ -213,6 +213,7 @@ struct wilc {
 	struct clk *rtc_clk;
 	bool initialized;
 	u32 chipid;
+	bool power_save_mode_request;
 	bool power_save_mode;
 	int dev_irq_num;
 	int close;
@@ -289,6 +290,8 @@ struct wilc {
 	u8 nv_mac_address[ETH_ALEN];
 	/* Lock to prevent concurrent start of wlan/bluetooth firmware */
 	struct mutex radio_fw_start;
+	/* Is the bluetooth part in use ? */
+	bool bt_enabled;
 };
 
 struct wilc_wfi_mon_priv {

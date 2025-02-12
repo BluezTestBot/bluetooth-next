@@ -1344,11 +1344,14 @@ static int set_power_mgmt(struct wiphy *wiphy, struct net_device *dev,
 {
 	struct wilc_vif *vif = netdev_priv(dev);
 	struct wilc_priv *priv = &vif->priv;
+	struct wilc *wilc = vif->wilc;
 
 	if (!priv->hif_drv)
 		return -EIO;
 
-	wilc_set_power_mgmt(vif, enabled);
+	wilc->power_save_mode_request = enabled;
+	if (!wilc->bt_enabled)
+		wilc_set_power_mgmt(vif, enabled);
 
 	return 0;
 }
