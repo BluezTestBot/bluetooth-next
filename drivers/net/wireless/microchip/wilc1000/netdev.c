@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 
+#include "linux/mutex.h"
 #include <linux/irq.h>
 #include <linux/kthread.h>
 #include <linux/firmware.h>
@@ -534,6 +535,8 @@ static int wilc_wlan_initialize(struct net_device *dev, struct wilc_vif *vif)
 			goto fail_irq_init;
 		}
 
+		mutex_lock(&wl->radio_fw_start);
+
 		ret = wilc_wlan_get_firmware(dev);
 		if (ret)
 			goto fail_irq_enable;
@@ -562,6 +565,7 @@ static int wilc_wlan_initialize(struct net_device *dev, struct wilc_vif *vif)
 			netdev_err(dev, "Failed to configure firmware\n");
 			goto fail_fw_start;
 		}
+		mutex_unlock(&wl->radio_fw_start);
 		wl->initialized = true;
 		return 0;
 
@@ -569,6 +573,7 @@ fail_fw_start:
 		wilc_wlan_stop(wl, vif);
 
 fail_irq_enable:
+		mutex_unlock(&wl->radio_fw_start);
 		if (!wl->dev_irq_num &&
 		    wl->hif_func->disable_interrupt)
 			wl->hif_func->disable_interrupt(wl);

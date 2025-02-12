@@ -1736,6 +1736,7 @@ static void wlan_init_locks(struct wilc *wl)
 	mutex_init(&wl->cfg_cmd_lock);
 	mutex_init(&wl->vif_mutex);
 	mutex_init(&wl->deinit_lock);
+	mutex_init(&wl->radio_fw_start);
 
 	spin_lock_init(&wl->txq_spinlock);
 	mutex_init(&wl->txq_add_to_head_cs);
@@ -1755,6 +1756,7 @@ void wlan_deinit_locks(struct wilc *wilc)
 	mutex_destroy(&wilc->txq_add_to_head_cs);
 	mutex_destroy(&wilc->vif_mutex);
 	mutex_destroy(&wilc->deinit_lock);
+	mutex_destroy(&wilc->radio_fw_start);
 	cleanup_srcu_struct(&wilc->srcu);
 }
 

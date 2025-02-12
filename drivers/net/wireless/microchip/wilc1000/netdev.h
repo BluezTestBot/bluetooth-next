@@ -287,6 +287,8 @@ struct wilc {
 	struct ieee80211_supported_band band;
 	u32 cipher_suites[ARRAY_SIZE(wilc_cipher_suites)];
 	u8 nv_mac_address[ETH_ALEN];
+	/* Lock to prevent concurrent start of wlan/bluetooth firmware */
+	struct mutex radio_fw_start;
 };
 
 struct wilc_wfi_mon_priv {
