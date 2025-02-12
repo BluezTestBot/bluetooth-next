@@ -50,10 +50,18 @@
 
 &flx1 {
 	atmel,flexcom-mode = <ATMEL_FLEXCOM_MODE_USART>;
+	status = "okay";
 
 	uart6: serial@200 {
 		pinctrl-0 = <&pinctrl_flx1_default>;
 		pinctrl-names = "default";
+		atmel,use-dma-rx;
+		atmel,use-dma-tx;
+		status = "okay";
+		bluetooth: bluetooth@0 {
+			compatible = "microchip,wilc3000-bt";
+			wlan = <&wilc>;
+		};
 	};
 };
 

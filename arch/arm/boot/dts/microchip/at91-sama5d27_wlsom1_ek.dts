@@ -85,16 +85,6 @@
 	};
 };
 
-&flx1 {
-	status = "okay";
-
-	uart6: serial@200 {
-		atmel,use-dma-rx;
-		atmel,use-dma-tx;
-		status = "okay";
-	};
-};
-
 &macb0 {
 	status = "okay";
 };
