@@ -748,7 +748,7 @@ int acquire_bus(struct wilc *wilc, enum bus_acquire acquire)
 	int ret = 0;
 
 	mutex_lock(&wilc->hif_cs);
-	if (acquire == WILC_BUS_ACQUIRE_AND_WAKEUP && wilc->power_save_mode) {
+	if (acquire == WILC_BUS_ACQUIRE_AND_WAKEUP) {
 		ret = chip_wakeup(wilc);
 		if (ret)
 			mutex_unlock(&wilc->hif_cs);
@@ -761,7 +761,7 @@ int release_bus(struct wilc *wilc, enum bus_release release)
 {
 	int ret = 0;
 
-	if (release == WILC_BUS_RELEASE_ALLOW_SLEEP && wilc->power_save_mode)
+	if (release == WILC_BUS_RELEASE_ALLOW_SLEEP)
 		ret = chip_allow_sleep(wilc);
 
 	mutex_unlock(&wilc->hif_cs);
