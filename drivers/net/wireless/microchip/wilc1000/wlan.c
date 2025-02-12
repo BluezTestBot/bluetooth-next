@@ -743,7 +743,7 @@ static int chip_wakeup(struct wilc *wilc)
 		return chip_wakeup_wilc3000(wilc);
 }
 
-static inline int acquire_bus(struct wilc *wilc, enum bus_acquire acquire)
+int acquire_bus(struct wilc *wilc, enum bus_acquire acquire)
 {
 	int ret = 0;
 
@@ -757,12 +757,13 @@ static inline int acquire_bus(struct wilc *wilc, enum bus_acquire acquire)
 	return ret;
 }
 
-static inline int release_bus(struct wilc *wilc, enum bus_release release)
+int release_bus(struct wilc *wilc, enum bus_release release)
 {
 	int ret = 0;
 
 	if (release == WILC_BUS_RELEASE_ALLOW_SLEEP && wilc->power_save_mode)
 		ret = chip_allow_sleep(wilc);
+
 	mutex_unlock(&wilc->hif_cs);
 
 	return ret;

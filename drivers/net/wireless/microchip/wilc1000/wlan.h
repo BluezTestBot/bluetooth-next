@@ -475,4 +475,7 @@ int wilc_wlan_init(struct net_device *dev);
 int wilc_get_chipid(struct wilc *wilc);
 int wilc_load_mac_from_nv(struct wilc *wilc);
 
+int acquire_bus(struct wilc *wilc, enum bus_acquire acquire);
+int release_bus(struct wilc *wilc, enum bus_release release);
+
 #endif
