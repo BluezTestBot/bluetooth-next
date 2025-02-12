@@ -1350,6 +1350,23 @@ static int wilc_spi_sync_ext(struct wilc *wilc, int nint)
 	return 0;
 }
 
+static int wilc_spi_rmw_reg(struct wilc *wilc, u32 reg, u32 mask, u32 data)
+{
+	u32 old_val, new_val;
+	int ret = 0;
+
+	ret = wilc_spi_read_reg(wilc, reg, &old_val);
+	if (ret)
+		return ret;
+
+	new_val = old_val & ~mask;
+	new_val |= data;
+	if (new_val != old_val)
+		ret = wilc_spi_write_reg(wilc, reg, new_val);
+
+	return ret;
+}
+
 /* Global spi HIF function table */
 static const struct wilc_hif_func wilc_hif_spi = {
 	.hif_init = wilc_spi_init,
@@ -1366,4 +1383,5 @@ static const struct wilc_hif_func wilc_hif_spi = {
 	.hif_sync_ext = wilc_spi_sync_ext,
 	.hif_reset = wilc_spi_reset,
 	.hif_is_init = wilc_spi_is_init,
+	.hif_rmw_reg = wilc_spi_rmw_reg
 };

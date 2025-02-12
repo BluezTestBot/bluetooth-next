@@ -58,6 +58,7 @@
 #define WILC_HOST_TX_CTRL_1		(WILC_PERIPH_REG_BASE + 0x88)
 #define WILC_INTR_REG_BASE		(WILC_PERIPH_REG_BASE + 0xa00)
 #define WILC_INTR_ENABLE		WILC_INTR_REG_BASE
+#define WILC_INTR_ENABLE_BIT_BASE	27
 #define WILC_INTR2_ENABLE		(WILC_INTR_REG_BASE + 4)
 
 #define WILC_INTR_POLARITY		(WILC_INTR_REG_BASE + 0x10)
@@ -403,6 +404,7 @@ struct wilc_hif_func {
 	void (*disable_interrupt)(struct wilc *nic);
 	int (*hif_reset)(struct wilc *wilc);
 	bool (*hif_is_init)(struct wilc *wilc);
+	int (*hif_rmw_reg)(struct wilc *wilc, u32 reg, u32 mask, u32 data);
 };
 
 #define WILC_MAX_CFG_FRAME_SIZE		1468
@@ -472,4 +474,5 @@ int wilc_send_config_pkt(struct wilc_vif *vif, u8 mode, struct wid *wids,
 int wilc_wlan_init(struct net_device *dev);
 int wilc_get_chipid(struct wilc *wilc);
 int wilc_load_mac_from_nv(struct wilc *wilc);
+
 #endif

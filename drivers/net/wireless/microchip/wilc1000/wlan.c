@@ -578,53 +578,27 @@ static int chip_allow_sleep_wilc1000(struct wilc *wilc)
 		pr_warn("FW not responding\n");
 
 	/* Clear bit 1 */
-	ret = hif_func->hif_read_reg(wilc, wakeup_reg, &reg);
+	ret = wilc->hif_func->hif_rmw_reg(wilc, wakeup_reg, wakeup_bit, 0);
 	if (ret)
 		return ret;
-	if (reg & wakeup_bit) {
-		reg &= ~wakeup_bit;
-		ret = hif_func->hif_write_reg(wilc, wakeup_reg, reg);
-		if (ret)
-			return ret;
-	}
 
-	ret = hif_func->hif_read_reg(wilc, from_host_to_fw_reg, &reg);
+	ret = wilc->hif_func->hif_rmw_reg(wilc, from_host_to_fw_reg,
+					  from_host_to_fw_bit, 0);
 	if (ret)
 		return ret;
-	if (reg & from_host_to_fw_bit) {
-		reg &= ~from_host_to_fw_bit;
-		ret = hif_func->hif_write_reg(wilc, from_host_to_fw_reg, reg);
-		if (ret)
-			return ret;
-	}
 
 	return 0;
 }
 
 static int chip_allow_sleep_wilc3000(struct wilc *wilc)
 {
-	u32 reg = 0;
 	int ret;
-	const struct wilc_hif_func *hif_func = wilc->hif_func;
+	u32 wake_bit = wilc->io_type == WILC_HIF_SDIO ? WILC_SDIO_WAKEUP_BIT :
+							WILC_SPI_WAKEUP_BIT;
 
-	if (wilc->io_type == WILC_HIF_SDIO) {
-		ret = hif_func->hif_read_reg(wilc, WILC_SDIO_WAKEUP_REG, &reg);
-		if (ret)
-			return ret;
-		ret = hif_func->hif_write_reg(wilc, WILC_SDIO_WAKEUP_REG,
-					      reg & ~WILC_SDIO_WAKEUP_BIT);
-		if (ret)
-			return ret;
-	} else {
-		ret = hif_func->hif_read_reg(wilc, WILC_SPI_WAKEUP_REG, &reg);
-		if (ret)
-			return ret;
-		ret = hif_func->hif_write_reg(wilc, WILC_SPI_WAKEUP_REG,
-					      reg & ~WILC_SPI_WAKEUP_BIT);
-		if (ret)
-			return ret;
-	}
-	return 0;
+	ret = wilc->hif_func->hif_rmw_reg(wilc, WILC_SDIO_WAKEUP_REG, wake_bit,
+					  0);
+	return ret;
 }
 
 static int chip_allow_sleep(struct wilc *wilc)
@@ -699,10 +673,10 @@ static int chip_wakeup_wilc1000(struct wilc *wilc)
 
 static int chip_wakeup_wilc3000(struct wilc *wilc)
 {
-	u32 wakeup_reg_val, clk_status_reg_val, trials = 0;
-	u32 wakeup_reg, wakeup_bit;
+	u32 clk_status_reg_val, trials = 0;
 	u32 clk_status_reg, clk_status_bit;
-	int wake_seq_trials = 5;
+	int wake_seq_trials = 5, ret;
+	u32 wakeup_reg, wakeup_bit;
 	const struct wilc_hif_func *hif_func = wilc->hif_func;
 
 	if (wilc->io_type == WILC_HIF_SDIO) {
@@ -717,10 +691,12 @@ static int chip_wakeup_wilc3000(struct wilc *wilc)
 		clk_status_bit = WILC3000_SPI_CLK_STATUS_BIT;
 	}
 
-	hif_func->hif_read_reg(wilc, wakeup_reg, &wakeup_reg_val);
 	do {
-		hif_func->hif_write_reg(wilc, wakeup_reg, wakeup_reg_val |
-							  wakeup_bit);
+		ret = hif_func->hif_rmw_reg(wilc, wakeup_reg, wakeup_bit,
+					    wakeup_bit);
+		if (ret)
+			dev_warn(wilc->dev, "Failed to set wake bit\n");
+
 		/* Check the clock status */
 		hif_func->hif_read_reg(wilc, clk_status_reg,
 				       &clk_status_reg_val);
@@ -745,8 +721,10 @@ static int chip_wakeup_wilc3000(struct wilc *wilc)
 		 * edge on the next loop
 		 */
 		if ((clk_status_reg_val & clk_status_bit) == 0) {
-			hif_func->hif_write_reg(wilc, wakeup_reg,
-						wakeup_reg_val & (~wakeup_bit));
+			ret = hif_func->hif_rmw_reg(wilc, wakeup_reg,
+						    wakeup_bit, 0);
+			if (ret)
+				dev_warn(wilc->dev, "Failed to set CLK bit\n");
 			/* added wait before wakeup sequence retry */
 			usleep_range(200, 300);
 		}
@@ -996,11 +974,11 @@ int wilc_wlan_handle_txq(struct wilc *wilc, u32 *txq_count)
 			break;
 
 		if (entries == 0) {
-			ret = func->hif_read_reg(wilc, WILC_HOST_TX_CTRL, &reg);
+			ret = wilc->hif_func->hif_rmw_reg(wilc,
+					WILC_HOST_TX_CTRL, BIT(0), 0);
 			if (ret)
-				break;
-			reg &= ~BIT(0);
-			ret = func->hif_write_reg(wilc, WILC_HOST_TX_CTRL, reg);
+				dev_warn(wilc->dev,
+					 "Failed to reset TX CTRL bit\n");
 		}
 	} while (0);
 
@@ -1267,9 +1245,12 @@ int wilc_wlan_firmware_download(struct wilc *wilc, const u8 *buffer,
 	if (ret)
 		return ret;
 
-	wilc->hif_func->hif_read_reg(wilc, WILC_GLB_RESET_0, &reg);
-	reg &= ~BIT(10);
-	ret = wilc->hif_func->hif_write_reg(wilc, WILC_GLB_RESET_0, reg);
+	ret = wilc->hif_func->hif_rmw_reg(wilc, WILC_GLB_RESET_0, BIT(10), 0);
+	if (ret) {
+		dev_err(wilc->dev, "Failed to reset WLAN CPU\n");
+		release_bus(wilc, WILC_BUS_RELEASE_ALLOW_SLEEP);
+		return ret;
+	}
 	wilc->hif_func->hif_read_reg(wilc, WILC_GLB_RESET_0, &reg);
 	if (reg & BIT(10))
 		pr_err("%s: Failed to reset\n", __func__);
@@ -1357,16 +1338,12 @@ int wilc_wlan_start(struct wilc *wilc)
 	if (ret)
 		goto release;
 
-	wilc->hif_func->hif_read_reg(wilc, WILC_GLB_RESET_0, &reg);
-	if ((reg & BIT(10)) == BIT(10)) {
-		reg &= ~BIT(10);
-		wilc->hif_func->hif_write_reg(wilc, WILC_GLB_RESET_0, reg);
-		wilc->hif_func->hif_read_reg(wilc, WILC_GLB_RESET_0, &reg);
-	}
-
-	reg |= BIT(10);
-	ret = wilc->hif_func->hif_write_reg(wilc, WILC_GLB_RESET_0, reg);
-	wilc->hif_func->hif_read_reg(wilc, WILC_GLB_RESET_0, &reg);
+	ret = wilc->hif_func->hif_rmw_reg(wilc, WILC_GLB_RESET_0, BIT(10), 0);
+	if (!ret)
+		ret = wilc->hif_func->hif_rmw_reg(wilc, WILC_GLB_RESET_0,
+						  BIT(10), BIT(10));
+	if (ret)
+		dev_warn(wilc->dev, "Failed to reset WLAN CPU\n");
 
 release:
 	rv = release_bus(wilc, WILC_BUS_RELEASE_ONLY);
@@ -1375,43 +1352,30 @@ release:
 
 int wilc_wlan_stop(struct wilc *wilc, struct wilc_vif *vif)
 {
-	u32 reg = 0;
 	int ret, rv;
 
 	ret = acquire_bus(wilc, WILC_BUS_ACQUIRE_AND_WAKEUP);
 	if (ret)
 		return ret;
 
-	ret = wilc->hif_func->hif_read_reg(wilc, GLOBAL_MODE_CONTROL, &reg);
-	if (ret)
-		goto release;
-
-	reg &= ~WILC_GLOBAL_MODE_ENABLE_WIFI;
-	ret = wilc->hif_func->hif_write_reg(wilc, GLOBAL_MODE_CONTROL, reg);
-	if (ret)
-		goto release;
-
-	ret = wilc->hif_func->hif_read_reg(wilc, PWR_SEQ_MISC_CTRL, &reg);
-	if (ret)
-		goto release;
-
-	reg &= ~WILC_PWR_SEQ_ENABLE_WIFI_SLEEP;
-	ret = wilc->hif_func->hif_write_reg(wilc, PWR_SEQ_MISC_CTRL, reg);
-	if (ret)
-		goto release;
-
-	ret = wilc->hif_func->hif_read_reg(wilc, WILC_GP_REG_0, &reg);
+	ret = wilc->hif_func->hif_rmw_reg(wilc, GLOBAL_MODE_CONTROL,
+			  WILC_GLOBAL_MODE_ENABLE_WIFI, 0);
 	if (ret) {
-		netdev_err(vif->ndev, "Error while reading reg\n");
+		netdev_err(vif->ndev, "Failed to disable wlan control\n");
 		goto release;
 	}
 
-	ret = wilc->hif_func->hif_write_reg(wilc, WILC_GP_REG_0,
-					(reg | WILC_ABORT_REQ_BIT));
+	ret = wilc->hif_func->hif_rmw_reg(wilc, PWR_SEQ_MISC_CTRL,
+			  WILC_PWR_SEQ_ENABLE_WIFI_SLEEP, 0);
 	if (ret) {
-		netdev_err(vif->ndev, "Error while writing reg\n");
+		netdev_err(vif->ndev, "Failed to unmux wlan power seq\n");
 		goto release;
 	}
+
+	ret = wilc->hif_func->hif_rmw_reg(wilc, WILC_GP_REG_0,
+			  WILC_ABORT_REQ_BIT, 1);
+	if (ret)
+		netdev_err(vif->ndev, "Failed to stop wlan CPU\n");
 
 	ret = 0;
 release:
@@ -1641,19 +1605,10 @@ static int init_chip(struct net_device *dev)
 		goto release;
 
 	if ((wilc->chipid & 0xfff) != 0xa0) {
-		ret = wilc->hif_func->hif_read_reg(wilc,
-						   WILC_CORTUS_RESET_MUX_SEL,
-						   &reg);
+		ret = wilc->hif_func->hif_rmw_reg(wilc,
+				WILC_CORTUS_RESET_MUX_SEL, BIT(0), BIT(0));
 		if (ret) {
-			netdev_err(dev, "fail read reg 0x1118\n");
-			goto release;
-		}
-		reg |= BIT(0);
-		ret = wilc->hif_func->hif_write_reg(wilc,
-						    WILC_CORTUS_RESET_MUX_SEL,
-						    reg);
-		if (ret) {
-			netdev_err(dev, "fail write reg 0x1118\n");
+			netdev_err(dev, "Failed to enable WLAN global reset\n");
 			goto release;
 		}
 		ret = wilc->hif_func->hif_write_reg(wilc,
