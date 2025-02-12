@@ -10,6 +10,7 @@
 #include <linux/firmware.h>
 #include <linux/netdevice.h>
 #include <linux/inetdevice.h>
+#include <net/wilc.h>
 
 #include "cfg80211.h"
 #include "wlan_cfg.h"
@@ -1025,6 +1026,14 @@ error_remove_vif:
 	return ERR_PTR(ret);
 }
 EXPORT_SYMBOL_GPL(wilc_netdev_ifc_init);
+
+void wilc_put(void *wilc_wl_priv)
+{
+	struct wilc *wilc = (struct wilc *)wilc_wl_priv;
+
+	put_device(wilc->dev);
+}
+EXPORT_SYMBOL_GPL(wilc_put);
 
 MODULE_DESCRIPTION("Atmel WILC1000 core wireless driver");
 MODULE_LICENSE("GPL");

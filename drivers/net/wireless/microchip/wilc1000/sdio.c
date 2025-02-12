@@ -5,11 +5,16 @@
  */
 
 #include <linux/clk.h>
+#include "linux/device.h"
+#include "linux/device/driver.h"
 #include <linux/mmc/sdio_func.h>
 #include <linux/mmc/sdio_ids.h>
 #include <linux/mmc/host.h>
 #include <linux/mmc/sdio.h>
 #include <linux/of_irq.h>
+#include <linux/of_platform.h>
+#include <linux/platform_device.h>
+#include <net/wilc.h>
 
 #include "netdev.h"
 #include "cfg80211.h"
@@ -1066,6 +1071,34 @@ static struct sdio_driver wilc_sdio_driver = {
 	}
 };
 module_sdio_driver(wilc_sdio_driver);
+
+static int find_wilc_device(struct device *dev, const void *data)
+{
+	struct device_node *target_node = (struct device_node *)data;
+	struct sdio_func *func = container_of(dev, struct sdio_func, dev);
+
+	return func->card->dev.of_node == target_node ? 1 : 0;
+}
+
+void *wilc_sdio_get_byphandle(struct device_node *wlan_node)
+{
+	struct wilc *wilc;
+	struct device *wilc_dev;
+
+	/* Search in devices bound to the driver if any has a device_node
+	 * matching the targeted one
+	 */
+	wilc_dev = driver_find_device(&wilc_sdio_driver.drv, NULL,
+				      (void *)wlan_node, find_wilc_device);
+	if (!wilc_dev)
+		return ERR_PTR(-EPROBE_DEFER);
+
+	get_device(wilc_dev);
+	wilc = (struct wilc *)dev_get_drvdata(wilc_dev);
+
+	return wilc;
+}
+EXPORT_SYMBOL(wilc_sdio_get_byphandle);
 
 MODULE_DESCRIPTION("Atmel WILC1000 SDIO wireless driver");
 MODULE_LICENSE("GPL");

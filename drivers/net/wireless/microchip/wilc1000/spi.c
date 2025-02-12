@@ -4,11 +4,16 @@
  * All rights reserved.
  */
 
+#include "linux/device/driver.h"
+#include "linux/of.h"
+#include "linux/of_platform.h"
 #include <linux/clk.h>
 #include <linux/spi/spi.h>
 #include <linux/crc7.h>
 #include <linux/crc-itu-t.h>
 #include <linux/gpio/consumer.h>
+#include <linux/platform_device.h>
+#include <net/wilc.h>
 
 #include "netdev.h"
 #include "cfg80211.h"
@@ -1385,3 +1390,23 @@ static const struct wilc_hif_func wilc_hif_spi = {
 	.hif_is_init = wilc_spi_is_init,
 	.hif_rmw_reg = wilc_spi_rmw_reg
 };
+
+void *wilc_spi_get_byphandle(struct device_node *wlan_node)
+{
+	struct wilc *wilc;
+	struct device *wilc_dev;
+
+	/* Search in devices bound to the driver if any has a device_node
+	 * matching the targeted one
+	 */
+	wilc_dev = driver_find_device_by_of_node(&wilc_spi_driver.driver,
+						 wlan_node);
+	if (!wilc_dev)
+		return ERR_PTR(-EPROBE_DEFER);
+
+	get_device(wilc_dev);
+	wilc = (struct wilc *)dev_get_drvdata(wilc_dev);
+
+	return wilc;
+}
+EXPORT_SYMBOL(wilc_spi_get_byphandle);

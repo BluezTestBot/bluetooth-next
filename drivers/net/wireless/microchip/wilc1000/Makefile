@@ -9,6 +9,7 @@ wilc1000-objs := \
 	wlan.o \
 	wlan_cfg.o
 
+wilc1000-$(CONFIG_WILC_BT) += bt.o
 
 obj-$(CONFIG_WILC1000_SDIO) += wilc1000-sdio.o
 wilc1000-sdio-objs += sdio.o
