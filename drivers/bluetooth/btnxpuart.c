@@ -540,9 +540,11 @@ static int send_wakeup_method_cmd(struct hci_dev *hdev, void *data)
 
 	pcmd.c2h_wakeupmode = psdata->c2h_wakeupmode;
 	pcmd.c2h_wakeup_gpio = psdata->c2h_wakeup_gpio;
+	pcmd.h2c_wakeup_gpio = 0xff;
 	switch (psdata->h2c_wakeupmode) {
 	case WAKEUP_METHOD_GPIO:
 		pcmd.h2c_wakeupmode = BT_CTRL_WAKEUP_METHOD_GPIO;
+		pcmd.h2c_wakeup_gpio = psdata->h2c_wakeup_gpio;
 		break;
 	case WAKEUP_METHOD_DTR:
 		pcmd.h2c_wakeupmode = BT_CTRL_WAKEUP_METHOD_DSR;
@@ -552,7 +554,6 @@ static int send_wakeup_method_cmd(struct hci_dev *hdev, void *data)
 		pcmd.h2c_wakeupmode = BT_CTRL_WAKEUP_METHOD_BREAK;
 		break;
 	}
-	pcmd.h2c_wakeup_gpio = 0xff;
 
 	skb = nxp_drv_send_cmd(hdev, HCI_NXP_WAKEUP_METHOD, sizeof(pcmd), &pcmd);
 	if (IS_ERR(skb)) {
@@ -615,6 +616,13 @@ static void ps_init(struct hci_dev *hdev)
 		usleep_range(5000, 10000);
 		break;
 	}
+
+	if (!device_property_read_u8(&nxpdev->serdev->dev, "nxp,wakein-pin",
+				     &psdata->h2c_wakeup_gpio))
+		psdata->h2c_wakeupmode = WAKEUP_METHOD_GPIO;
+	if (!device_property_read_u8(&nxpdev->serdev->dev, "nxp,wakeout-pin",
+				     &psdata->c2h_wakeup_gpio))
+		psdata->c2h_wakeupmode = BT_HOST_WAKEUP_METHOD_GPIO;
 
 	psdata->cur_psmode = PS_MODE_DISABLE;
 	psdata->target_ps_mode = DEFAULT_PS_MODE;
@@ -1266,6 +1274,17 @@ static int nxp_shutdown(struct hci_dev *hdev)
 	return 0;
 }
 
+static bool nxp_wakeup(struct hci_dev *hdev)
+{
+	struct btnxpuart_dev *nxpdev = hci_get_drvdata(hdev);
+	struct ps_data *psdata = &nxpdev->psdata;
+
+	if (psdata->c2h_wakeupmode != BT_HOST_WAKEUP_METHOD_NONE)
+		return true;
+
+	return false;
+}
+
 static int btnxpuart_queue_skb(struct hci_dev *hdev, struct sk_buff *skb)
 {
 	struct btnxpuart_dev *nxpdev = hci_get_drvdata(hdev);
@@ -1546,6 +1565,7 @@ static int nxp_serdev_probe(struct serdev_device *serdev)
 	hdev->send  = nxp_enqueue;
 	hdev->hw_error = nxp_hw_err;
 	hdev->shutdown = nxp_shutdown;
+	hdev->wakeup = nxp_wakeup;
 	SET_HCIDEV_DEV(hdev, &serdev->dev);
 
 	if (hci_register_dev(hdev) < 0) {
