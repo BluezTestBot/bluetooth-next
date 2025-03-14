@@ -64,6 +64,12 @@ struct intel_tlv {
 
 #define BTINTEL_FWID_MAXLEN 64
 
+enum {
+	DSM_SET_WDISABLE2_DELAY = 1,
+	DSM_SET_RESET_METHOD = 3,
+	DSM_SET_RESET_METHOD_PCIE = 5 /* Used for PCIe products */
+};
+
 struct intel_version_tlv {
 	u32	cnvi_top;
 	u32	cnvr_top;
@@ -255,6 +261,7 @@ int btintel_shutdown_combined(struct hci_dev *hdev);
 void btintel_hw_error(struct hci_dev *hdev, u8 code);
 void btintel_print_fseq_info(struct hci_dev *hdev);
 int btintel_diagnostics(struct hci_dev *hdev, struct sk_buff *skb);
+int btintel_acpi_reset_method(struct hci_dev *hdev);
 #else
 
 static inline int btintel_check_bdaddr(struct hci_dev *hdev)
@@ -390,6 +397,11 @@ static inline void btintel_print_fseq_info(struct hci_dev *hdev)
 }
 
 static inline int btintel_diagnostics(struct hci_dev *hdev, struct sk_buff *skb)
+{
+	return -EOPNOTSUPP;
+}
+
+static int btintel_acpi_reset_method(struct hci_dev *hdev)
 {
 	return -EOPNOTSUPP;
 }
