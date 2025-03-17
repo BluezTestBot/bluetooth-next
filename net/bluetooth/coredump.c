@@ -257,6 +257,12 @@ static void hci_devcd_handle_pkt_complete(struct hci_dev *hdev,
 		   hdev->dump.alloc_size);
 
 	dev_coredumpv(&hdev->dev, hdev->dump.head, dump_size, GFP_KERNEL);
+
+	skb = bt_skb_alloc(dump_size, GFP_ATOMIC);
+	if (skb) {
+		skb_put_data(skb, hdev->dump.head, dump_size);
+		hci_recv_diag(hdev, skb);
+	}
 }
 
 static void hci_devcd_handle_pkt_abort(struct hci_dev *hdev,
@@ -277,6 +283,12 @@ static void hci_devcd_handle_pkt_abort(struct hci_dev *hdev,
 
 	/* Emit a devcoredump with the available data */
 	dev_coredumpv(&hdev->dev, hdev->dump.head, dump_size, GFP_KERNEL);
+
+	skb = bt_skb_alloc(dump_size, GFP_ATOMIC);
+	if (skb) {
+		skb_put_data(skb, hdev->dump.head, dump_size);
+		hci_recv_diag(hdev, skb);
+	}
 }
 
 /* Bluetooth devcoredump state machine.
