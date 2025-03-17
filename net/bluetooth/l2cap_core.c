@@ -3385,6 +3385,20 @@ static int l2cap_parse_conf_req(struct l2cap_chan *chan, void *data, size_t data
 
 	BT_DBG("chan %p", chan);
 
+	/* 4.4. L2CAP_CONFIGURATION_REQ (code 0x04):
+	 * ...
+	 * Any missing configuration parameters are assumed to have their most
+	 * recently explicitly or implicitly accepted values.
+	 */
+
+	/* If MTU has been previously set, use it instead of default. */
+	if (test_bit(CONF_MTU_DONE, &chan->conf_state))
+		mtu = chan->omtu;
+
+	/* If Mode has been previously set, use it instead of default. */
+	if (test_bit(CONF_MODE_DONE, &chan->conf_state))
+		rfc.mode = chan->mode;
+
 	while (len >= L2CAP_CONF_OPT_SIZE) {
 		len -= l2cap_get_conf_opt(&req, &type, &olen, &val);
 		if (len < 0)
