@@ -1238,6 +1238,8 @@ static int nxp_set_baudrate_cmd(struct hci_dev *hdev, void *data)
 		if (*status == 0) {
 			serdev_device_set_baudrate(nxpdev->serdev, nxpdev->new_baudrate);
 			nxpdev->current_baudrate = nxpdev->new_baudrate;
+			/* Allow sufficiant time for chip to switch to new baudrate */
+			sleep(100);
 		}
 		bt_dev_dbg(hdev, "Set baudrate response: status=%d, baudrate=%d",
 			   *status, nxpdev->new_baudrate);
@@ -1286,7 +1288,9 @@ static void nxp_coredump(struct hci_dev *hdev)
 	u8 pcmd = 2;
 
 	skb = nxp_drv_send_cmd(hdev, HCI_NXP_TRIGGER_DUMP, 1, &pcmd);
-	if (!IS_ERR(skb))
+	if (IS_ERR(skb))
+		bt_dev_err(hdev, "Failed to trigger FW Dump. (%ld)", PTR_ERR(skb));
+	else
 		kfree_skb(skb);
 }
 
