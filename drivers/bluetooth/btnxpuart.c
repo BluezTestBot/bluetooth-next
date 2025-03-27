@@ -1238,6 +1238,8 @@ static int nxp_set_baudrate_cmd(struct hci_dev *hdev, void *data)
 		if (*status == 0) {
 			serdev_device_set_baudrate(nxpdev->serdev, nxpdev->new_baudrate);
 			nxpdev->current_baudrate = nxpdev->new_baudrate;
+			/* Allow sufficiant time for chip to switch to new baudrate */
+			sleep(100);
 		}
 		bt_dev_dbg(hdev, "Set baudrate response: status=%d, baudrate=%d",
 			   *status, nxpdev->new_baudrate);
