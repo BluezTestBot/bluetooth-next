@@ -1562,23 +1562,15 @@ static int rfcomm_recv_rpn(struct rfcomm_session *s, int cr, int len, struct sk_
 		}
 	}
 
-	if (rpn->param_mask & cpu_to_le16(RFCOMM_RPN_PM_XON)) {
+	if (rpn->param_mask & cpu_to_le16(RFCOMM_RPN_PM_XON))
 		xon_char = rpn->xon_char;
-		if (xon_char != RFCOMM_RPN_XON_CHAR) {
-			BT_DBG("RPN XON char mismatch 0x%x", xon_char);
-			xon_char = RFCOMM_RPN_XON_CHAR;
-			rpn_mask ^= RFCOMM_RPN_PM_XON;
-		}
-	}
+	else
+		rpn_mask ^= RFCOMM_RPN_PM_XON;
 
-	if (rpn->param_mask & cpu_to_le16(RFCOMM_RPN_PM_XOFF)) {
+	if (rpn->param_mask & cpu_to_le16(RFCOMM_RPN_PM_XOFF))
 		xoff_char = rpn->xoff_char;
-		if (xoff_char != RFCOMM_RPN_XOFF_CHAR) {
-			BT_DBG("RPN XOFF char mismatch 0x%x", xoff_char);
-			xoff_char = RFCOMM_RPN_XOFF_CHAR;
-			rpn_mask ^= RFCOMM_RPN_PM_XOFF;
-		}
-	}
+	else
+		rpn_mask ^= RFCOMM_RPN_PM_XOFF;
 
 rpn_out:
 	rfcomm_send_rpn(s, 0, dlci, bit_rate, data_bits, stop_bits,
