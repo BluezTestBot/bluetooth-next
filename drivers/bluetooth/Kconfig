@@ -56,17 +56,23 @@ config BT_HCIBTUSB_POLL_SYNC
 	  Say Y here to enable USB poll_sync for Bluetooth USB devices by
 	  default.
 
-config BT_HCIBTUSB_AUTO_ISOC_ALT
-	bool "Automatically adjust alternate setting for Isoc endpoints"
+config BT_HCIBTUSB_AUTO_ISOC_ALT_MAX_HANDLES
+	int "Automatically adjust alternate setting for Isoc endpoints"
 	depends on BT_HCIBTUSB
-	default y if CHROME_PLATFORMS
+	default 2 if CHROME_PLATFORMS
+	default 0
 	help
-	  Say Y here to automatically adjusting the alternate setting for
-	  HCI_USER_CHANNEL whenever a SCO link is established.
+	  Say positive number here to automatically adjusting the alternate
+	  setting for HCI_USER_CHANNEL whenever a SCO link is established.
 
-	  When enabled, btusb intercepts the HCI_EV_SYNC_CONN_COMPLETE packets
+	  When positive, btusb intercepts the HCI_EV_SYNC_CONN_COMPLETE packets
 	  and configures isoc endpoint alternate setting automatically when
 	  HCI_USER_CHANNEL is in use.
+	  btusb traces at most the given number of SCO handles and intercepts
+	  the HCI_EV_DISCONN_COMPLETE and the HCI_EV_CMD_COMPLETE of
+	  HCI_OP_RESET packets. When the controller is reset, or all tracing
+	  handles are disconnected, btusb reset the isoc endpoint alternate
+	  setting to zero.
 
 config BT_HCIBTUSB_BCM
 	bool "Broadcom protocol support"

@@ -34,7 +34,7 @@ static bool force_scofix;
 static bool enable_autosuspend = IS_ENABLED(CONFIG_BT_HCIBTUSB_AUTOSUSPEND);
 static bool enable_poll_sync = IS_ENABLED(CONFIG_BT_HCIBTUSB_POLL_SYNC);
 static bool reset = true;
-static bool auto_isoc_alt = IS_ENABLED(CONFIG_BT_HCIBTUSB_AUTO_ISOC_ALT);
+static bool auto_isoc_alt = CONFIG_BT_HCIBTUSB_AUTO_ISOC_ALT_MAX_HANDLES > 0;
 
 static struct usb_driver btusb_driver;
 
@@ -907,6 +907,8 @@ struct btusb_data {
 	__u8 cmdreq;
 
 	unsigned int sco_num;
+	u16 sco_handles[CONFIG_BT_HCIBTUSB_AUTO_ISOC_ALT_MAX_HANDLES];
+
 	unsigned int air_mode;
 	bool usb_alt6_packet_flow;
 	int isoc_altsetting;
@@ -1118,40 +1120,108 @@ static inline void btusb_free_frags(struct btusb_data *data)
 	spin_unlock_irqrestore(&data->rxlock, flags);
 }
 
-static void btusb_sco_connected(struct btusb_data *data, struct sk_buff *skb)
+static void btusb_sco_changed(struct btusb_data *data, struct sk_buff *skb)
 {
 	struct hci_event_hdr *hdr = (void *) skb->data;
-	struct hci_ev_sync_conn_complete *ev =
-		(void *) skb->data + sizeof(*hdr);
 	struct hci_dev *hdev = data->hdev;
-	unsigned int notify_air_mode;
 
-	if (hci_skb_pkt_type(skb) != HCI_EVENT_PKT)
-		return;
-
-	if (skb->len < sizeof(*hdr) || hdr->evt != HCI_EV_SYNC_CONN_COMPLETE)
-		return;
-
-	if (skb->len != sizeof(*hdr) + sizeof(*ev) || ev->status)
-		return;
-
-	switch (ev->air_mode) {
-	case BT_CODEC_CVSD:
-		notify_air_mode = HCI_NOTIFY_ENABLE_SCO_CVSD;
-		break;
-
-	case BT_CODEC_TRANSPARENT:
-		notify_air_mode = HCI_NOTIFY_ENABLE_SCO_TRANSP;
-		break;
-
-	default:
-		return;
+	if (data->sco_num > CONFIG_BT_HCIBTUSB_AUTO_ISOC_ALT_MAX_HANDLES) {
+		bt_dev_warn(hdev, "Invalid sco_num to HCI_USER_CHANNEL");
+		data->sco_num = 0;
 	}
 
-	bt_dev_info(hdev, "enabling SCO with air mode %u", ev->air_mode);
-	data->sco_num = 1;
-	data->air_mode = notify_air_mode;
-	schedule_work(&data->work);
+	if (hci_skb_pkt_type(skb) != HCI_EVENT_PKT || skb->len < sizeof(*hdr))
+		return;
+
+	switch (hdr->evt) {
+	case HCI_EV_CMD_COMPLETE: {
+		struct hci_ev_cmd_complete *ev =
+			(void *) skb->data + sizeof(*hdr);
+		struct hci_ev_status *rp =
+			(void *) skb->data + sizeof(*hdr) + sizeof(*ev);
+		u16 opcode;
+
+		if (skb->len != sizeof(*hdr) + sizeof(*ev) + sizeof(*rp))
+			return;
+
+		opcode = __le16_to_cpu(ev->opcode);
+
+		if (opcode != HCI_OP_RESET || rp->status)
+			return;
+
+		bt_dev_info(hdev, "Resetting SCO");
+		data->sco_num = 0;
+		data->air_mode = HCI_NOTIFY_DISABLE_SCO;
+		schedule_work(&data->work);
+
+		break;
+	}
+	case HCI_EV_DISCONN_COMPLETE: {
+		struct hci_ev_disconn_complete *ev =
+			(void *) skb->data + sizeof(*hdr);
+		u16 handle;
+		int i;
+
+		if (skb->len != sizeof(*hdr) + sizeof(*ev) || ev->status)
+			return;
+
+		handle = __le16_to_cpu(ev->handle);
+		for (i = 0; i < data->sco_num; i++) {
+			if (data->sco_handles[i] == handle)
+				break;
+		}
+
+		if (i == data->sco_num)
+			return;
+
+		bt_dev_info(hdev, "Disabling SCO");
+		data->sco_handles[i] = data->sco_handles[data->sco_num - 1];
+		data->sco_num--;
+		data->air_mode = HCI_NOTIFY_DISABLE_SCO;
+		schedule_work(&data->work);
+
+		break;
+	}
+	case HCI_EV_SYNC_CONN_COMPLETE: {
+		struct hci_ev_sync_conn_complete *ev =
+			(void *) skb->data + sizeof(*hdr);
+		unsigned int notify_air_mode;
+		u16 handle;
+
+		if (skb->len != sizeof(*hdr) + sizeof(*ev) || ev->status)
+			return;
+
+		switch (ev->air_mode) {
+		case BT_CODEC_CVSD:
+			notify_air_mode = HCI_NOTIFY_ENABLE_SCO_CVSD;
+			break;
+
+		case BT_CODEC_TRANSPARENT:
+			notify_air_mode = HCI_NOTIFY_ENABLE_SCO_TRANSP;
+			break;
+
+		default:
+			return;
+		}
+
+		handle = __le16_to_cpu(ev->handle);
+		if (data->sco_num
+		    == CONFIG_BT_HCIBTUSB_AUTO_ISOC_ALT_MAX_HANDLES) {
+			bt_dev_err(hdev, "Failed to add the new SCO handle");
+			return;
+		}
+
+		bt_dev_info(hdev, "Enabling SCO with air mode %u",
+			    ev->air_mode);
+		data->sco_handles[data->sco_num++] = handle;
+		data->air_mode = notify_air_mode;
+		schedule_work(&data->work);
+
+		break;
+	}
+	default:
+		break;
+	}
 }
 
 static int btusb_recv_event(struct btusb_data *data, struct sk_buff *skb)
@@ -1161,9 +1231,9 @@ static int btusb_recv_event(struct btusb_data *data, struct sk_buff *skb)
 		schedule_delayed_work(&data->rx_work, 0);
 	}
 
-	/* Configure altsetting for HCI_USER_CHANNEL on SCO connected */
+	/* Configure altsetting for HCI_USER_CHANNEL on SCO changed */
 	if (auto_isoc_alt && hci_dev_test_flag(data->hdev, HCI_USER_CHANNEL))
-		btusb_sco_connected(data, skb);
+		btusb_sco_changed(data, skb);
 
 	return data->recv_event(data->hdev, skb);
 }
