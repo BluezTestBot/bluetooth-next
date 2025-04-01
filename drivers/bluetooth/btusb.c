@@ -2151,6 +2151,67 @@ static int submit_or_queue_tx_urb(struct hci_dev *hdev, struct urb *urb)
 	return 0;
 }
 
+static struct sk_buff *btusb_drv_response(u8 opcode, size_t data_len)
+{
+	struct sk_buff *skb;
+
+	/* btusb driver response starts with 1 oct of the opcode,
+	 * and followed by the command specific data.
+	 */
+	skb = bt_skb_alloc(1 + data_len, GFP_KERNEL);
+	if (!skb)
+		return NULL;
+
+	skb_put_u8(skb, opcode);
+	hci_skb_pkt_type(skb) = HCI_DRV_PKT;
+
+	return skb;
+}
+
+static int btusb_switch_alt_setting(struct hci_dev *hdev, int new_alts);
+
+#define BTUSB_DRV_CMD_SWITCH_ALT_SETTING 0x35
+
+static int btusb_drv_cmd(struct hci_dev *hdev, struct sk_buff *skb)
+{
+	/* btusb driver command starts with 1 oct of the opcode,
+	 * and followed by the command specific data.
+	 */
+	if (!skb->len)
+		return -EILSEQ;
+
+	switch (skb->data[0]) {
+	case BTUSB_DRV_CMD_SWITCH_ALT_SETTING: {
+		struct sk_buff *resp;
+		int status;
+
+		/* Response data: Total 1 Oct
+		 *   Status: 1 Oct
+		 *     0 = Success
+		 *     1 = Invalid command
+		 *     2 = Other errors
+		 */
+		resp = btusb_drv_response(BTUSB_DRV_CMD_SWITCH_ALT_SETTING, 1);
+		if (!resp)
+			return -ENOMEM;
+
+		if (skb->len != 2 || skb->data[1] > 6) {
+			status = 1;
+		} else {
+			status = btusb_switch_alt_setting(hdev, skb->data[1]);
+			if (status)
+				status = 2;
+		}
+		skb_put_u8(resp, status);
+
+		kfree_skb(skb);
+		return hci_recv_frame(hdev, resp);
+	}
+	}
+
+	return -EILSEQ;
+}
+
 static int btusb_send_frame(struct hci_dev *hdev, struct sk_buff *skb)
 {
 	struct urb *urb;
@@ -2192,6 +2253,9 @@ static int btusb_send_frame(struct hci_dev *hdev, struct sk_buff *skb)
 			return PTR_ERR(urb);
 
 		return submit_or_queue_tx_urb(hdev, urb);
+
+	case HCI_DRV_PKT:
+		return btusb_drv_cmd(hdev, skb);
 	}
 
 	return -EILSEQ;
@@ -2669,6 +2733,9 @@ static int btusb_send_frame_intel(struct hci_dev *hdev, struct sk_buff *skb)
 			return PTR_ERR(urb);
 
 		return submit_or_queue_tx_urb(hdev, urb);
+
+	case HCI_DRV_PKT:
+		return btusb_drv_cmd(hdev, skb);
 	}
 
 	return -EILSEQ;
