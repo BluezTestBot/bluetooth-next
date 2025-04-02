@@ -957,8 +957,10 @@ static int btintel_pcie_recv_event(struct hci_dev *hdev, struct sk_buff *skb)
 		/* This is a debug event that comes from IML and OP image when it
 		 * starts execution. There is no need pass this event to stack.
 		 */
-		if (skb->data[2] == 0x97)
+		if (skb->data[2] == 0x97) {
+			kfree_skb(skb);
 			return 0;
+		}
 	}
 
 	return hci_recv_frame(hdev, skb);
@@ -974,7 +976,6 @@ static int btintel_pcie_recv_frame(struct btintel_pcie_data *data,
 	u8 pkt_type;
 	u16 plen;
 	u32 pcie_pkt_type;
-	struct sk_buff *new_skb;
 	void *pdata;
 	struct hci_dev *hdev = data->hdev;
 
@@ -984,8 +985,7 @@ static int btintel_pcie_recv_frame(struct btintel_pcie_data *data,
 	pdata = skb_pull_data(skb, BTINTEL_PCIE_HCI_TYPE_LEN);
 	if (!pdata) {
 		bt_dev_err(hdev, "Corrupted packet received");
-		ret = -EILSEQ;
-		goto exit_error;
+		goto no_or_short_data;
 	}
 
 	pcie_pkt_type = get_unaligned_le32(pdata);
@@ -997,8 +997,7 @@ static int btintel_pcie_recv_frame(struct btintel_pcie_data *data,
 			pkt_type = HCI_ACLDATA_PKT;
 		} else {
 			bt_dev_err(hdev, "ACL packet is too short");
-			ret = -EILSEQ;
-			goto exit_error;
+			goto no_or_short_data;
 		}
 		break;
 
@@ -1008,8 +1007,7 @@ static int btintel_pcie_recv_frame(struct btintel_pcie_data *data,
 			pkt_type = HCI_SCODATA_PKT;
 		} else {
 			bt_dev_err(hdev, "SCO packet is too short");
-			ret = -EILSEQ;
-			goto exit_error;
+			goto no_or_short_data;
 		}
 		break;
 
@@ -1019,8 +1017,7 @@ static int btintel_pcie_recv_frame(struct btintel_pcie_data *data,
 			pkt_type = HCI_EVENT_PKT;
 		} else {
 			bt_dev_err(hdev, "Event packet is too short");
-			ret = -EILSEQ;
-			goto exit_error;
+			goto no_or_short_data;
 		}
 		break;
 
@@ -1030,45 +1027,40 @@ static int btintel_pcie_recv_frame(struct btintel_pcie_data *data,
 			pkt_type = HCI_ISODATA_PKT;
 		} else {
 			bt_dev_err(hdev, "ISO packet is too short");
-			ret = -EILSEQ;
-			goto exit_error;
+			goto no_or_short_data;
 		}
 		break;
 
 	default:
 		bt_dev_err(hdev, "Invalid packet type received: 0x%4.4x",
 			   pcie_pkt_type);
-		ret = -EINVAL;
-		goto exit_error;
+		goto no_or_short_data;
 	}
 
 	if (skb->len < plen) {
 		bt_dev_err(hdev, "Received corrupted packet. type: 0x%2.2x",
 			   pkt_type);
-		ret = -EILSEQ;
-		goto exit_error;
+		goto no_or_short_data;
 	}
 
 	bt_dev_dbg(hdev, "pkt_type: 0x%2.2x len: %u", pkt_type, plen);
 
-	new_skb = bt_skb_alloc(plen, GFP_ATOMIC);
-	if (!new_skb) {
-		bt_dev_err(hdev, "Failed to allocate memory for skb of len: %u",
-			   skb->len);
-		ret = -ENOMEM;
-		goto exit_error;
-	}
-
-	hci_skb_pkt_type(new_skb) = pkt_type;
-	skb_put_data(new_skb, skb->data, plen);
+	hci_skb_pkt_type(skb) = pkt_type;
 	hdev->stat.byte_rx += plen;
+	skb_trim(skb, plen);
 
 	if (pcie_pkt_type == BTINTEL_PCIE_HCI_EVT_PKT)
-		ret = btintel_pcie_recv_event(hdev, new_skb);
+		ret = btintel_pcie_recv_event(hdev, skb);
 	else
-		ret = hci_recv_frame(hdev, new_skb);
+		ret = hci_recv_frame(hdev, skb);
 
-exit_error:
+goto out;
+
+no_or_short_data:
+	ret = -EILSEQ;
+	kfree_skb(skb);
+
+out:
 	if (ret)
 		hdev->stat.err_rx++;
 
@@ -1202,8 +1194,6 @@ static void btintel_pcie_rx_work(struct work_struct *work)
 	struct btintel_pcie_data *data = container_of(work,
 					struct btintel_pcie_data, rx_work);
 	struct sk_buff *skb;
-	int err;
-	struct hci_dev *hdev = data->hdev;
 
 	if (test_bit(BTINTEL_PCIE_HWEXP_INPROGRESS, &data->flags)) {
 		/* Unlike usb products, controller will not send hardware
@@ -1224,11 +1214,7 @@ static void btintel_pcie_rx_work(struct work_struct *work)
 
 	/* Process the sk_buf in queue and send to the HCI layer */
 	while ((skb = skb_dequeue(&data->rx_skb_q))) {
-		err = btintel_pcie_recv_frame(data, skb);
-		if (err)
-			bt_dev_err(hdev, "Failed to send received frame: %d",
-				   err);
-		kfree_skb(skb);
+		btintel_pcie_recv_frame(data, skb);
 	}
 }
 
