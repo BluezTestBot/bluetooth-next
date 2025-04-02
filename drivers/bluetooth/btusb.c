@@ -26,6 +26,7 @@
 #include "btbcm.h"
 #include "btrtl.h"
 #include "btmtk.h"
+#include "hci_drv_pkt.h"
 
 #define VERSION "0.8"
 
@@ -2151,6 +2152,111 @@ static int submit_or_queue_tx_urb(struct hci_dev *hdev, struct urb *urb)
 	return 0;
 }
 
+static int btusb_switch_alt_setting(struct hci_dev *hdev, int new_alts);
+
+static int btusb_drv_process_cmd(struct hci_dev *hdev, struct sk_buff *cmd_skb)
+{
+	struct hci_drv_cmd_hdr *hdr;
+	u16 opcode, cmd_len;
+
+	hdr = skb_pull_data(cmd_skb, sizeof(*hdr));
+	if (!hdr)
+		return -EILSEQ;
+
+	opcode = le16_to_cpu(hdr->opcode);
+	cmd_len = le16_to_cpu(hdr->len);
+	if (cmd_len != cmd_skb->len)
+		return -EILSEQ;
+
+	switch (opcode) {
+	case HCI_DRV_OP_READ_SUPPORTED_DRIVER_COMMANDS: {
+		struct hci_drv_resp_read_supported_driver_commands *resp;
+		struct sk_buff *resp_skb;
+		struct btusb_data *data = hci_get_drvdata(hdev);
+		int ret;
+		u16 num_commands = 1; /* SUPPORTED_DRIVER_COMMANDS */
+
+		if (data->isoc)
+			num_commands++; /* SWITCH_ALT_SETTING */
+
+		resp_skb = hci_drv_skb_alloc(
+			opcode, sizeof(*resp) + num_commands * sizeof(__le16),
+			GFP_KERNEL);
+		if (!resp_skb)
+			return -ENOMEM;
+
+		resp = skb_put(resp_skb,
+			       sizeof(*resp) + num_commands * sizeof(__le16));
+		resp->status = HCI_DRV_STATUS_SUCCESS;
+		resp->num_commands = cpu_to_le16(num_commands);
+		resp->commands[0] =
+			cpu_to_le16(HCI_DRV_OP_READ_SUPPORTED_DRIVER_COMMANDS);
+
+		if (data->isoc)
+			resp->commands[1] =
+				cpu_to_le16(HCI_DRV_OP_SWITCH_ALT_SETTING);
+
+		ret = hci_recv_frame(hdev, resp_skb);
+		if (ret)
+			return ret;
+
+		kfree_skb(cmd_skb);
+		return 0;
+	}
+	case HCI_DRV_OP_SWITCH_ALT_SETTING: {
+		struct hci_drv_cmd_switch_alt_setting *cmd;
+		struct hci_drv_resp_status *resp;
+		struct sk_buff *resp_skb;
+		int ret;
+		u8 status;
+
+		resp_skb = hci_drv_skb_alloc(opcode, sizeof(*resp), GFP_KERNEL);
+		if (!resp_skb)
+			return -ENOMEM;
+
+		cmd = skb_pull_data(cmd_skb, sizeof(*cmd));
+		if (!cmd || cmd_skb->len || cmd->new_alt > 6) {
+			status = HCI_DRV_STATUS_INVALID_PARAMETERS;
+		} else {
+			ret = btusb_switch_alt_setting(hdev, cmd->new_alt);
+			if (ret)
+				status = HCI_DRV_STATUS_UNSPECIFIED_ERROR;
+			else
+				status = HCI_DRV_STATUS_SUCCESS;
+		}
+
+		resp = skb_put(resp_skb, sizeof(*resp));
+		resp->status = status;
+
+		ret = hci_recv_frame(hdev, resp_skb);
+		if (ret)
+			return ret;
+
+		kfree_skb(cmd_skb);
+		return 0;
+	}
+	default: {
+		struct hci_drv_resp_status *resp;
+		struct sk_buff *resp_skb;
+		int ret;
+
+		resp_skb = hci_drv_skb_alloc(opcode, sizeof(*resp), GFP_KERNEL);
+		if (!resp_skb)
+			return -ENOMEM;
+
+		resp = skb_put(resp_skb, sizeof(*resp));
+		resp->status = HCI_DRV_STATUS_UNKNOWN_COMMAND;
+
+		ret = hci_recv_frame(hdev, resp_skb);
+		if (ret)
+			return ret;
+
+		kfree_skb(cmd_skb);
+		return 0;
+	}
+	}
+}
+
 static int btusb_send_frame(struct hci_dev *hdev, struct sk_buff *skb)
 {
 	struct urb *urb;
@@ -2192,6 +2298,9 @@ static int btusb_send_frame(struct hci_dev *hdev, struct sk_buff *skb)
 			return PTR_ERR(urb);
 
 		return submit_or_queue_tx_urb(hdev, urb);
+
+	case HCI_DRV_PKT:
+		return btusb_drv_process_cmd(hdev, skb);
 	}
 
 	return -EILSEQ;
@@ -2669,6 +2778,9 @@ static int btusb_send_frame_intel(struct hci_dev *hdev, struct sk_buff *skb)
 			return PTR_ERR(urb);
 
 		return submit_or_queue_tx_urb(hdev, urb);
+
+	case HCI_DRV_PKT:
+		return btusb_drv_process_cmd(hdev, skb);
 	}
 
 	return -EILSEQ;
