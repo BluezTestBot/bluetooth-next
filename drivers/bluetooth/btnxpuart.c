@@ -1866,6 +1866,7 @@ static void nxp_serdev_remove(struct serdev_device *serdev)
 	}
 
 	ps_cleanup(nxpdev);
+	hci_devcd_unregister(hdev);
 	hci_unregister_dev(hdev);
 	hci_free_dev(hdev);
 }
