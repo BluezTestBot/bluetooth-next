@@ -66,6 +66,7 @@ static struct usb_driver btusb_driver;
 #define BTUSB_INTEL_BROKEN_INITIAL_NCMD BIT(25)
 #define BTUSB_INTEL_NO_WBS_SUPPORT	BIT(26)
 #define BTUSB_ACTIONS_SEMI		BIT(27)
+#define BTUSB_BARROT			BIT(28)
 
 static const struct usb_device_id btusb_table[] = {
 	/* Generic Bluetooth USB device */
@@ -812,6 +813,10 @@ static const struct usb_device_id quirks_table[] = {
 	{ USB_DEVICE(0x0cb5, 0xc547), .driver_info = BTUSB_REALTEK |
 						     BTUSB_WIDEBAND_SPEECH },
 
+	/* Barrot Technology Bluetooth devices */
+	{ USB_DEVICE(0x33fa, 0x0010), .driver_info = BTUSB_BARROT },
+	{ USB_DEVICE(0x33fa, 0x0012), .driver_info = BTUSB_BARROT },
+
 	/* Actions Semiconductor ATS2851 based devices */
 	{ USB_DEVICE(0x10d7, 0xb012), .driver_info = BTUSB_ACTIONS_SEMI },
 
@@ -1122,6 +1127,21 @@ static void btusb_qca_reset(struct hci_dev *hdev)
 	btusb_reset(hdev);
 }
 
+static int btusb_barrot_urb_quirk(struct btusb_data *data, struct sk_buff *skb)
+{
+	struct hci_dev *hdev = data->hdev;
+	struct hci_ev_cmd_complete *ev;
+
+	if (hci_test_quirk(hdev, HCI_QUIRK_FIXUP_LOCAL_EXT_FEATURES_URB_BUFFER) &&
+	    hci_event_hdr(skb)->evt == HCI_EV_CMD_COMPLETE) {
+		ev = (struct hci_ev_cmd_complete *)(hci_event_hdr(skb) + 1);
+		if (__le16_to_cpu(ev->opcode) == HCI_OP_READ_LOCAL_EXT_FEATURES)
+			return 1;
+	}
+
+	return 0;
+}
+
 static inline void btusb_free_frags(struct btusb_data *data)
 {
 	unsigned long flags;
@@ -1194,6 +1214,13 @@ static int btusb_recv_intr(struct btusb_data *data, void *buffer, int count)
 		}
 
 		if (!hci_skb_expect(skb)) {
+			/* Discard one extra byte sent by some Barrot USB
+			 * controllers. Otherwise, the rest of the transfer
+			 * will be misaligned by one byte.
+			 */
+			if (btusb_barrot_urb_quirk(data, skb) && count == 1)
+				count = 0;
+
 			/* Complete frame */
 			btusb_recv_event(data, skb);
 			skb = NULL;
@@ -4219,6 +4246,9 @@ static int btusb_probe(struct usb_interface *intf,
 		hci_set_quirk(hdev, HCI_QUIRK_BROKEN_EXT_CREATE_CONN);
 		hci_set_quirk(hdev, HCI_QUIRK_BROKEN_WRITE_AUTH_PAYLOAD_TIMEOUT);
 	}
+
+	if (id->driver_info & BTUSB_BARROT)
+		hci_set_quirk(hdev, HCI_QUIRK_FIXUP_LOCAL_EXT_FEATURES_URB_BUFFER);
 
 	if (!reset)
 		hci_set_quirk(hdev, HCI_QUIRK_RESET_ON_CLOSE);
