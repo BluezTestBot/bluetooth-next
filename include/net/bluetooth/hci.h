@@ -352,6 +352,15 @@ enum {
 	HCI_QUIRK_BROKEN_READ_ENC_KEY_SIZE,
 
 	/*
+	 * When this quirk is set, the URB buffer with response event for the
+	 * HCI_OP_READ_LOCAL_EXT_FEATURES command needs to be trimmed by one byte.
+	 * This is required for some Barrot controllers which erroneously transfer
+	 * an extra random byte at the end of the buffer which misaligns the rest
+	 * of the HCI communication.
+	 */
+	HCI_QUIRK_FIXUP_LOCAL_EXT_FEATURES_URB_BUFFER,
+
+	/*
 	 * When this quirk is set, the reserved bits of Primary/Secondary_PHY
 	 * inside the LE Extended Advertising Report events are discarded.
 	 * This is required for some Apple/Broadcom controllers which
