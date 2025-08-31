@@ -12,34 +12,70 @@
 #include "mgmt_config.h"
 
 #define HDEV_PARAM_U16(_param_name_) \
-	struct {\
-		struct mgmt_tlv entry; \
+	TRAILING_OVERLAP(struct mgmt_tlv, entry, value, \
 		__le16 value; \
-	} __packed _param_name_
+	) __packed _param_name_
 
 #define HDEV_PARAM_U8(_param_name_) \
-	struct {\
-		struct mgmt_tlv entry; \
+	TRAILING_OVERLAP(struct mgmt_tlv, entry, value, \
 		__u8 value; \
-	} __packed _param_name_
+	) __packed _param_name_
 
 #define TLV_SET_U16(_param_code_, _param_name_) \
 	{ \
-		{ cpu_to_le16(_param_code_), sizeof(__u16) }, \
-		cpu_to_le16(hdev->_param_name_) \
+		rp._param_name_.entry.type = cpu_to_le16(_param_code_); \
+		rp._param_name_.entry.length = sizeof(__u16); \
+		rp._param_name_.value = cpu_to_le16(hdev->_param_name_); \
 	}
 
 #define TLV_SET_U8(_param_code_, _param_name_) \
 	{ \
-		{ cpu_to_le16(_param_code_), sizeof(__u8) }, \
-		hdev->_param_name_ \
+		rp._param_name_.entry.type = cpu_to_le16(_param_code_); \
+		rp._param_name_.entry.length = sizeof(__u8); \
+		rp._param_name_.value = hdev->_param_name_; \
 	}
 
 #define TLV_SET_U16_JIFFIES_TO_MSECS(_param_code_, _param_name_) \
 	{ \
-		{ cpu_to_le16(_param_code_), sizeof(__u16) }, \
-		cpu_to_le16(jiffies_to_msecs(hdev->_param_name_)) \
+		rp._param_name_.entry.type = cpu_to_le16(_param_code_); \
+		rp._param_name_.entry.length = sizeof(__u16); \
+		rp._param_name_.value = cpu_to_le16(jiffies_to_msecs(hdev->_param_name_)); \
 	}
+
+#define TLV_SET_ALL() \
+{ \
+	TLV_SET_U16(0x0000, def_page_scan_type); \
+	TLV_SET_U16(0x0001, def_page_scan_int); \
+	TLV_SET_U16(0x0002, def_page_scan_window); \
+	TLV_SET_U16(0x0003, def_inq_scan_type);  \
+	TLV_SET_U16(0x0004, def_inq_scan_int); \
+	TLV_SET_U16(0x0005, def_inq_scan_window); \
+	TLV_SET_U16(0x0006, def_br_lsto); \
+	TLV_SET_U16(0x0007, def_page_timeout); \
+	TLV_SET_U16(0x0008, sniff_min_interval); \
+	TLV_SET_U16(0x0009, sniff_max_interval); \
+	TLV_SET_U16(0x000a, le_adv_min_interval); \
+	TLV_SET_U16(0x000b, le_adv_max_interval); \
+	TLV_SET_U16(0x000c, def_multi_adv_rotation_duration); \
+	TLV_SET_U16(0x000d, le_scan_interval); \
+	TLV_SET_U16(0x000e, le_scan_window); \
+	TLV_SET_U16(0x000f, le_scan_int_suspend); \
+	TLV_SET_U16(0x0010, le_scan_window_suspend); \
+	TLV_SET_U16(0x0011, le_scan_int_discovery); \
+	TLV_SET_U16(0x0012, le_scan_window_discovery); \
+	TLV_SET_U16(0x0013, le_scan_int_adv_monitor); \
+	TLV_SET_U16(0x0014, le_scan_window_adv_monitor); \
+	TLV_SET_U16(0x0015, le_scan_int_connect); \
+	TLV_SET_U16(0x0016, le_scan_window_connect); \
+	TLV_SET_U16(0x0017, le_conn_min_interval); \
+	TLV_SET_U16(0x0018, le_conn_max_interval); \
+	TLV_SET_U16(0x0019, le_conn_latency); \
+	TLV_SET_U16(0x001a, le_supv_timeout); \
+	TLV_SET_U16_JIFFIES_TO_MSECS(0x001b, def_le_autoconnect_timeout); \
+	TLV_SET_U16(0x001d, advmon_allowlist_duration); \
+	TLV_SET_U16(0x001e, advmon_no_filter_duration); \
+	TLV_SET_U8(0x001f, enable_advmon_interleave_scan); \
+}
 
 int read_def_system_config(struct sock *sk, struct hci_dev *hdev, void *data,
 			   u16 data_len)
@@ -78,40 +114,9 @@ int read_def_system_config(struct sock *sk, struct hci_dev *hdev, void *data,
 		HDEV_PARAM_U16(advmon_allowlist_duration);
 		HDEV_PARAM_U16(advmon_no_filter_duration);
 		HDEV_PARAM_U8(enable_advmon_interleave_scan);
-	} __packed rp = {
-		TLV_SET_U16(0x0000, def_page_scan_type),
-		TLV_SET_U16(0x0001, def_page_scan_int),
-		TLV_SET_U16(0x0002, def_page_scan_window),
-		TLV_SET_U16(0x0003, def_inq_scan_type),
-		TLV_SET_U16(0x0004, def_inq_scan_int),
-		TLV_SET_U16(0x0005, def_inq_scan_window),
-		TLV_SET_U16(0x0006, def_br_lsto),
-		TLV_SET_U16(0x0007, def_page_timeout),
-		TLV_SET_U16(0x0008, sniff_min_interval),
-		TLV_SET_U16(0x0009, sniff_max_interval),
-		TLV_SET_U16(0x000a, le_adv_min_interval),
-		TLV_SET_U16(0x000b, le_adv_max_interval),
-		TLV_SET_U16(0x000c, def_multi_adv_rotation_duration),
-		TLV_SET_U16(0x000d, le_scan_interval),
-		TLV_SET_U16(0x000e, le_scan_window),
-		TLV_SET_U16(0x000f, le_scan_int_suspend),
-		TLV_SET_U16(0x0010, le_scan_window_suspend),
-		TLV_SET_U16(0x0011, le_scan_int_discovery),
-		TLV_SET_U16(0x0012, le_scan_window_discovery),
-		TLV_SET_U16(0x0013, le_scan_int_adv_monitor),
-		TLV_SET_U16(0x0014, le_scan_window_adv_monitor),
-		TLV_SET_U16(0x0015, le_scan_int_connect),
-		TLV_SET_U16(0x0016, le_scan_window_connect),
-		TLV_SET_U16(0x0017, le_conn_min_interval),
-		TLV_SET_U16(0x0018, le_conn_max_interval),
-		TLV_SET_U16(0x0019, le_conn_latency),
-		TLV_SET_U16(0x001a, le_supv_timeout),
-		TLV_SET_U16_JIFFIES_TO_MSECS(0x001b,
-					     def_le_autoconnect_timeout),
-		TLV_SET_U16(0x001d, advmon_allowlist_duration),
-		TLV_SET_U16(0x001e, advmon_no_filter_duration),
-		TLV_SET_U8(0x001f, enable_advmon_interleave_scan),
-	};
+	} __packed rp;
+
+	TLV_SET_ALL();
 
 	bt_dev_dbg(hdev, "sock %p", sk);
 
