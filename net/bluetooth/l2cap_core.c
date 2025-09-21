@@ -949,10 +949,14 @@ static void l2cap_send_acl(struct l2cap_conn *conn, struct sk_buff *skb,
 			   u8 flags)
 {
 	/* Check if the hcon still valid before attempting to send */
+	rcu_read_lock();
+
 	if (hci_conn_valid(conn->hcon->hdev, conn->hcon))
 		hci_send_acl(conn->hchan, skb, flags);
 	else
 		kfree_skb(skb);
+
+	rcu_read_unlock();
 }
 
 static void l2cap_send_cmd(struct l2cap_conn *conn, u8 ident, u8 code, u16 len,
@@ -7509,13 +7513,23 @@ struct l2cap_conn *l2cap_conn_hold_unless_zero(struct l2cap_conn *c)
 	return c;
 }
 
-void l2cap_recv_acldata(struct hci_conn *hcon, struct sk_buff *skb, u16 flags)
+int l2cap_recv_acldata(struct hci_dev *hdev, uint16_t handle,
+		       struct sk_buff *skb, u16 flags)
 {
+	struct hci_conn *hcon;
 	struct l2cap_conn *conn;
 	int len;
 
-	/* Lock hdev to access l2cap_data to avoid race with l2cap_conn_del */
-	hci_dev_lock(hcon->hdev);
+	hci_dev_lock(hdev);
+
+	hcon = hci_conn_hash_lookup_handle(hdev, handle);
+	if (!hcon) {
+		hci_dev_unlock(hdev);
+		kfree_skb(skb);
+		return -ENOENT;
+	}
+
+	hci_conn_enter_active_mode(hcon, BT_POWER_FORCE_ACTIVE_OFF);
 
 	conn = hcon->l2cap_data;
 
@@ -7524,12 +7538,13 @@ void l2cap_recv_acldata(struct hci_conn *hcon, struct sk_buff *skb, u16 flags)
 
 	conn = l2cap_conn_hold_unless_zero(conn);
 
-	hci_dev_unlock(hcon->hdev);
-
 	if (!conn) {
+		hci_dev_unlock(hdev);
 		kfree_skb(skb);
-		return;
+		return -ENOENT;
 	}
+
+	hci_dev_unlock(hdev);
 
 	BT_DBG("conn %p len %u flags 0x%x", conn, skb->len, flags);
 
@@ -7642,6 +7657,7 @@ drop:
 unlock:
 	mutex_unlock(&conn->lock);
 	l2cap_conn_put(conn);
+	return 0;
 }
 
 static struct hci_cb l2cap_cb = {

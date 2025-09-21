@@ -20,6 +20,25 @@
 #include "aosp.h"
 #include "leds.h"
 
+void hci_dev_lock_sync(struct hci_dev *hdev)
+{
+	hci_dev_lock(hdev);
+	lockdep_assert(!hdev->req_hdev_locked);
+	hdev->req_hdev_locked = true;
+}
+
+void hci_dev_unlock_sync(struct hci_dev *hdev)
+{
+	lockdep_assert(hdev->req_hdev_locked);
+	hdev->req_hdev_locked = false;
+	hci_dev_unlock(hdev);
+}
+
+void hci_assert_lock_sync_held(struct hci_dev *hdev)
+{
+	lockdep_assert(lockdep_is_held(&hdev->lock) && hdev->req_hdev_locked);
+}
+
 static void hci_cmd_sync_complete(struct hci_dev *hdev, u8 result, u16 opcode,
 				  struct sk_buff *skb)
 {
@@ -159,6 +178,7 @@ struct sk_buff *__hci_cmd_sync_sk(struct hci_dev *hdev, u16 opcode, u32 plen,
 {
 	struct hci_request req;
 	struct sk_buff *skb;
+	bool locked = READ_ONCE(hdev->req_hdev_locked);
 	int err = 0;
 
 	bt_dev_dbg(hdev, "Opcode 0x%4.4x", opcode);
@@ -173,9 +193,15 @@ struct sk_buff *__hci_cmd_sync_sk(struct hci_dev *hdev, u16 opcode, u32 plen,
 	if (err < 0)
 		return ERR_PTR(err);
 
+	if (locked)
+		hci_dev_unlock(hdev);
+
 	err = wait_event_interruptible_timeout(hdev->req_wait_q,
 					       hdev->req_status != HCI_REQ_PEND,
 					       timeout);
+
+	if (locked)
+		hci_dev_lock(hdev);
 
 	if (err == -ERESTARTSYS)
 		return ERR_PTR(-EINTR);
@@ -780,7 +806,7 @@ int hci_cmd_sync_queue_once(struct hci_dev *hdev, hci_cmd_sync_work_func_t func,
 			    void *data, hci_cmd_sync_work_destroy_t destroy)
 {
 	if (hci_cmd_sync_lookup_entry(hdev, func, data, destroy))
-		return 0;
+		return -EEXIST;
 
 	return hci_cmd_sync_queue(hdev, func, data, destroy);
 }
@@ -801,8 +827,15 @@ int hci_cmd_sync_run(struct hci_dev *hdev, hci_cmd_sync_work_func_t func,
 		return -ENETDOWN;
 
 	/* If on cmd_sync_work then run immediately otherwise queue */
-	if (current_work() == &hdev->cmd_sync_work)
-		return func(hdev, data);
+	if (current_work() == &hdev->cmd_sync_work) {
+		int err;
+
+		err = func(hdev, data);
+		if (destroy)
+			destroy(hdev, data, err);
+
+		return 0;
+	}
 
 	return hci_cmd_sync_submit(hdev, func, data, destroy);
 }
@@ -818,7 +851,7 @@ int hci_cmd_sync_run_once(struct hci_dev *hdev, hci_cmd_sync_work_func_t func,
 			  void *data, hci_cmd_sync_work_destroy_t destroy)
 {
 	if (hci_cmd_sync_lookup_entry(hdev, func, data, destroy))
-		return 0;
+		return -EEXIST;
 
 	return hci_cmd_sync_run(hdev, func, data, destroy);
 }
@@ -1029,6 +1062,20 @@ static bool adv_use_rpa(struct hci_dev *hdev, uint32_t flags)
 	return true;
 }
 
+static bool hci_check_le_connect(struct hci_dev *hdev)
+{
+	bool found;
+
+	rcu_read_lock();
+	found = hci_lookup_le_connect(hdev);
+	rcu_read_unlock();
+
+	/* The return value may be wrong under race conditions, as the
+	 * conn may be already deleted
+	 */
+	return found;
+}
+
 static int hci_set_random_addr_sync(struct hci_dev *hdev, bdaddr_t *rpa)
 {
 	/* If a random_addr has been set we're advertising or initiating an LE
@@ -1043,7 +1090,7 @@ static int hci_set_random_addr_sync(struct hci_dev *hdev, bdaddr_t *rpa)
 	 */
 	if (bacmp(&hdev->random_addr, BDADDR_ANY) &&
 	    (hci_dev_test_flag(hdev, HCI_LE_ADV) ||
-	    hci_lookup_le_connect(hdev))) {
+	    hci_check_le_connect(hdev))) {
 		bt_dev_dbg(hdev, "Deferring random address update");
 		hci_dev_set_flag(hdev, HCI_RPA_EXPIRED);
 		return 0;
@@ -2629,7 +2676,7 @@ static int hci_pause_addr_resolution(struct hci_dev *hdev)
 	 * when initiating an LE connection.
 	 */
 	if (hci_dev_test_flag(hdev, HCI_LE_SCAN) ||
-	    hci_lookup_le_connect(hdev)) {
+	    hci_check_le_connect(hdev)) {
 		bt_dev_err(hdev, "Command not allowed when scan/LE connect");
 		return -EPERM;
 	}
@@ -2771,6 +2818,8 @@ static u8 hci_update_accept_list_sync(struct hci_dev *hdev)
 	if (hci_dev_test_flag(hdev, HCI_PA_SYNC)) {
 		struct hci_conn *conn;
 
+		rcu_read_lock();
+
 		conn = hci_conn_hash_lookup_create_pa_sync(hdev);
 		if (conn) {
 			struct conn_params pa;
@@ -2779,6 +2828,8 @@ static u8 hci_update_accept_list_sync(struct hci_dev *hdev)
 
 			bacpy(&pa.addr, &conn->dst);
 			pa.addr_type = conn->dst_type;
+
+			rcu_read_unlock();
 
 			/* Clear first since there could be addresses left
 			 * behind.
@@ -2789,6 +2840,8 @@ static u8 hci_update_accept_list_sync(struct hci_dev *hdev)
 			err = hci_le_add_accept_list_sync(hdev, &pa,
 							  &num_entries);
 			goto done;
+		} else {
+			rcu_read_unlock();
 		}
 	}
 
@@ -2799,16 +2852,21 @@ static u8 hci_update_accept_list_sync(struct hci_dev *hdev)
 	 * the controller.
 	 */
 	list_for_each_entry_safe(b, t, &hdev->le_accept_list, list) {
-		if (hci_conn_hash_lookup_le(hdev, &b->bdaddr, b->bdaddr_type))
-			continue;
+		rcu_read_lock();
 
-		/* Pointers not dereferenced, no locks needed */
+		if (hci_conn_hash_lookup_le(hdev, &b->bdaddr, b->bdaddr_type)) {
+			rcu_read_unlock();
+			continue;
+		}
+
 		pend_conn = hci_pend_le_action_lookup(&hdev->pend_le_conns,
 						      &b->bdaddr,
 						      b->bdaddr_type);
 		pend_report = hci_pend_le_action_lookup(&hdev->pend_le_reports,
 							&b->bdaddr,
 							b->bdaddr_type);
+
+		rcu_read_unlock();
 
 		/* If the device is not likely to connect or report,
 		 * remove it from the acceptlist.
@@ -2936,6 +2994,8 @@ static int hci_le_set_ext_scan_param_sync(struct hci_dev *hdev, u8 type,
 		if (sent) {
 			struct hci_conn *conn;
 
+			rcu_read_lock();
+
 			conn = hci_conn_hash_lookup_ba(hdev, PA_LINK,
 						       &sent->bdaddr);
 			if (conn) {
@@ -2960,8 +3020,12 @@ static int hci_le_set_ext_scan_param_sync(struct hci_dev *hdev, u8 type,
 					phy++;
 				}
 
+				rcu_read_unlock();
+
 				if (num_phy)
 					goto done;
+			} else {
+				rcu_read_unlock();
 			}
 		}
 	}
@@ -3217,7 +3281,7 @@ int hci_update_passive_scan_sync(struct hci_dev *hdev)
 		 * since some controllers are not able to scan and connect at
 		 * the same time.
 		 */
-		if (hci_lookup_le_connect(hdev))
+		if (hci_check_le_connect(hdev))
 			return 0;
 
 		bt_dev_dbg(hdev, "start background scanning");
@@ -3248,6 +3312,8 @@ static int update_passive_scan_sync(struct hci_dev *hdev, void *data)
 
 int hci_update_passive_scan(struct hci_dev *hdev)
 {
+	int err;
+
 	/* Only queue if it would have any effect */
 	if (!test_bit(HCI_UP, &hdev->flags) ||
 	    test_bit(HCI_INIT, &hdev->flags) ||
@@ -3257,8 +3323,9 @@ int hci_update_passive_scan(struct hci_dev *hdev)
 	    hci_dev_test_flag(hdev, HCI_UNREGISTER))
 		return 0;
 
-	return hci_cmd_sync_queue_once(hdev, update_passive_scan_sync, NULL,
-				       NULL);
+	err = hci_cmd_sync_queue_once(hdev, update_passive_scan_sync, NULL,
+				      NULL);
+	return (err == -EEXIST) ? 0 : err;
 }
 
 int hci_write_sc_support_sync(struct hci_dev *hdev, u8 val)
@@ -3438,12 +3505,20 @@ static bool disconnected_accept_list_entries(struct hci_dev *hdev)
 	list_for_each_entry(b, &hdev->accept_list, list) {
 		struct hci_conn *conn;
 
-		conn = hci_conn_hash_lookup_ba(hdev, ACL_LINK, &b->bdaddr);
-		if (!conn)
-			return true;
+		rcu_read_lock();
 
-		if (conn->state != BT_CONNECTED && conn->state != BT_CONFIG)
+		conn = hci_conn_hash_lookup_ba(hdev, ACL_LINK, &b->bdaddr);
+		if (!conn) {
+			rcu_read_unlock();
 			return true;
+		}
+
+		if (conn->state != BT_CONNECTED && conn->state != BT_CONFIG) {
+			rcu_read_unlock();
+			return true;
+		}
+
+		rcu_read_unlock();
 	}
 
 	return false;
@@ -5500,14 +5575,13 @@ static int hci_disconnect_sync(struct hci_dev *hdev, struct hci_conn *conn,
 {
 	struct hci_cp_disconnect cp;
 
+	hci_assert_lock_sync_held(hdev);
+
 	if (conn->type == BIS_LINK || conn->type == PA_LINK) {
 		/* This is a BIS connection, hci_conn_del will
 		 * do the necessary cleanup.
 		 */
-		hci_dev_lock(hdev);
 		hci_conn_failed(conn, reason);
-		hci_dev_unlock(hdev);
-
 		return 0;
 	}
 
@@ -5533,6 +5607,8 @@ static int hci_disconnect_sync(struct hci_dev *hdev, struct hci_conn *conn,
 static int hci_le_connect_cancel_sync(struct hci_dev *hdev,
 				      struct hci_conn *conn, u8 reason)
 {
+	hci_assert_lock_sync_held(hdev);
+
 	/* Return reason if scanning since the connection shall probably be
 	 * cleanup directly.
 	 */
@@ -5550,6 +5626,8 @@ static int hci_le_connect_cancel_sync(struct hci_dev *hdev,
 static int hci_connect_cancel_sync(struct hci_dev *hdev, struct hci_conn *conn,
 				   u8 reason)
 {
+	hci_assert_lock_sync_held(hdev);
+
 	if (conn->type == LE_LINK)
 		return hci_le_connect_cancel_sync(hdev, conn, reason);
 
@@ -5599,6 +5677,8 @@ static int hci_reject_sco_sync(struct hci_dev *hdev, struct hci_conn *conn,
 {
 	struct hci_cp_reject_sync_conn_req cp;
 
+	hci_assert_lock_sync_held(hdev);
+
 	memset(&cp, 0, sizeof(cp));
 	bacpy(&cp.bdaddr, &conn->dst);
 	cp.reason = reason;
@@ -5618,6 +5698,8 @@ static int hci_le_reject_cis_sync(struct hci_dev *hdev, struct hci_conn *conn,
 {
 	struct hci_cp_le_reject_cis cp;
 
+	hci_assert_lock_sync_held(hdev);
+
 	memset(&cp, 0, sizeof(cp));
 	cp.handle = cpu_to_le16(conn->handle);
 	cp.reason = reason;
@@ -5630,6 +5712,8 @@ static int hci_reject_conn_sync(struct hci_dev *hdev, struct hci_conn *conn,
 				u8 reason)
 {
 	struct hci_cp_reject_conn_req cp;
+
+	hci_assert_lock_sync_held(hdev);
 
 	if (conn->type == CIS_LINK)
 		return hci_le_reject_cis_sync(hdev, conn, reason);
@@ -5651,9 +5735,11 @@ static int hci_reject_conn_sync(struct hci_dev *hdev, struct hci_conn *conn,
 int hci_abort_conn_sync(struct hci_dev *hdev, struct hci_conn *conn, u8 reason)
 {
 	int err = 0;
-	u16 handle = conn->handle;
 	bool disconnect = false;
-	struct hci_conn *c;
+
+	hci_assert_lock_sync_held(hdev);
+
+	hci_conn_get(conn);
 
 	switch (conn->state) {
 	case BT_CONNECTED:
@@ -5674,30 +5760,23 @@ int hci_abort_conn_sync(struct hci_dev *hdev, struct hci_conn *conn, u8 reason)
 		break;
 	}
 
-	hci_dev_lock(hdev);
-
-	/* Check if the connection has been cleaned up concurrently */
-	c = hci_conn_hash_lookup_handle(hdev, handle);
-	if (!c || c != conn) {
-		err = 0;
-		goto unlock;
-	}
-
 	/* Cleanup hci_conn object if it cannot be cancelled as it
 	 * likely means the controller and host stack are out of sync
 	 * or in case of LE it was still scanning so it can be cleanup
 	 * safely.
 	 */
-	if (disconnect) {
-		conn->state = BT_CLOSED;
-		hci_disconn_cfm(conn, reason);
-		hci_conn_del(conn);
-	} else {
-		hci_conn_failed(conn, reason);
+	if (hci_conn_valid(hdev, conn)) {
+		if (disconnect) {
+			conn->state = BT_CLOSED;
+			hci_disconn_cfm(conn, reason);
+			hci_conn_del(conn);
+		} else {
+			hci_conn_failed(conn, reason);
+		}
 	}
 
-unlock:
-	hci_dev_unlock(hdev);
+	hci_conn_put(conn);
+
 	return err;
 }
 
@@ -5706,21 +5785,18 @@ static int hci_disconnect_all_sync(struct hci_dev *hdev, u8 reason)
 	struct list_head *head = &hdev->conn_hash.list;
 	struct hci_conn *conn;
 
-	rcu_read_lock();
+	hci_dev_lock_sync(hdev);
+
 	while ((conn = list_first_or_null_rcu(head, struct hci_conn, list))) {
-		/* Make sure the connection is not freed while unlocking */
-		conn = hci_conn_get(conn);
-		rcu_read_unlock();
 		/* Disregard possible errors since hci_conn_del shall have been
 		 * called even in case of errors had occurred since it would
 		 * then cause hci_conn_failed to be called which calls
 		 * hci_conn_del internally.
 		 */
 		hci_abort_conn_sync(hdev, conn, reason);
-		hci_conn_put(conn);
-		rcu_read_lock();
 	}
-	rcu_read_unlock();
+
+	hci_dev_unlock_sync(hdev);
 
 	return 0;
 }
@@ -6332,6 +6408,8 @@ static int hci_le_ext_directed_advertising_sync(struct hci_dev *hdev,
 	bdaddr_t random_addr;
 	u8 own_addr_type;
 
+	hci_assert_lock_sync_held(hdev);
+
 	err = hci_update_random_address_sync(hdev, false, conn_use_rpa(conn),
 					     &own_addr_type);
 	if (err)
@@ -6398,6 +6476,8 @@ static int hci_le_directed_advertising_sync(struct hci_dev *hdev,
 	u8 status;
 	u8 own_addr_type;
 	u8 enable;
+
+	hci_assert_lock_sync_held(hdev);
 
 	if (ext_adv_capable(hdev))
 		return hci_le_ext_directed_advertising_sync(hdev, conn);
@@ -6468,6 +6548,8 @@ static int hci_le_ext_create_conn_sync(struct hci_dev *hdev,
 	u8 data[sizeof(*cp) + sizeof(*p) * 3];
 	u32 plen;
 
+	hci_assert_lock_sync_held(hdev);
+
 	cp = (void *)data;
 	p = (void *)cp->data;
 
@@ -6519,8 +6601,12 @@ static int hci_le_create_conn_sync(struct hci_dev *hdev, void *data)
 	int err;
 	struct hci_conn *conn = data;
 
-	if (!hci_conn_valid(hdev, conn))
+	hci_dev_lock_sync(hdev);
+
+	if (!hci_conn_valid(hdev, conn)) {
+		hci_dev_unlock_sync(hdev);
 		return -ECANCELED;
+	}
 
 	bt_dev_dbg(hdev, "conn %p", conn);
 
@@ -6536,6 +6622,7 @@ static int hci_le_create_conn_sync(struct hci_dev *hdev, void *data)
 		    hdev->le_scan_type == LE_SCAN_ACTIVE &&
 		    !hci_dev_test_flag(hdev, HCI_LE_SIMULTANEOUS_ROLES)) {
 			hci_conn_del(conn);
+			hci_dev_unlock_sync(hdev);
 			return -EBUSY;
 		}
 
@@ -6579,6 +6666,8 @@ static int hci_le_create_conn_sync(struct hci_dev *hdev, void *data)
 	 */
 	err = hci_update_random_address_sync(hdev, false, conn_use_rpa(conn),
 					     &own_addr_type);
+	if (!err && !hci_conn_valid(hdev, conn))
+		err = -ECANCELED;
 	if (err)
 		goto done;
 	/* Send command LE Extended Create Connection if supported */
@@ -6616,11 +6705,13 @@ static int hci_le_create_conn_sync(struct hci_dev *hdev, void *data)
 				       conn->conn_timeout, NULL);
 
 done:
-	if (err == -ETIMEDOUT)
+	if (err == -ETIMEDOUT && hci_conn_valid(hdev, conn))
 		hci_le_connect_cancel_sync(hdev, conn, 0x00);
 
 	/* Re-enable advertising after the connection attempt is finished. */
 	hci_resume_advertising_sync(hdev);
+
+	hci_dev_unlock_sync(hdev);
 	return err;
 }
 
@@ -6845,10 +6936,15 @@ static int hci_acl_create_conn_sync(struct hci_dev *hdev, void *data)
 	struct hci_conn *conn = data;
 	struct inquiry_entry *ie;
 	struct hci_cp_create_conn cp;
+	u32 timeout;
 	int err;
 
-	if (!hci_conn_valid(hdev, conn))
+	hci_dev_lock_sync(hdev);
+
+	if (!hci_conn_valid(hdev, conn)) {
+		hci_dev_unlock_sync(hdev);
 		return -ECANCELED;
+	}
 
 	/* Many controllers disallow HCI Create Connection while it is doing
 	 * HCI Inquiry. So we cancel the Inquiry first before issuing HCI Create
@@ -6863,6 +6959,11 @@ static int hci_acl_create_conn_sync(struct hci_dev *hdev, void *data)
 					    NULL, HCI_CMD_TIMEOUT);
 		if (err)
 			bt_dev_warn(hdev, "Failed to cancel inquiry %d", err);
+
+		if (!hci_conn_valid(hdev, conn)) {
+			hci_dev_unlock_sync(hdev);
+			return -ECANCELED;
+		}
 	}
 
 	conn->state = BT_CONNECT;
@@ -6895,16 +6996,34 @@ static int hci_acl_create_conn_sync(struct hci_dev *hdev, void *data)
 	else
 		cp.role_switch = 0x00;
 
+	timeout = conn->conn_timeout;
+
+	hci_dev_unlock_sync(hdev);
+
 	return __hci_cmd_sync_status_sk(hdev, HCI_OP_CREATE_CONN,
 					sizeof(cp), &cp,
 					HCI_EV_CONN_COMPLETE,
-					conn->conn_timeout, NULL);
+					timeout, NULL);
+}
+
+static void hci_acl_create_conn_sync_complete(struct hci_dev *hdev, void *data,
+					      int err)
+{
+	struct hci_conn *conn = data;
+
+	hci_conn_put(conn);
 }
 
 int hci_connect_acl_sync(struct hci_dev *hdev, struct hci_conn *conn)
 {
-	return hci_cmd_sync_queue_once(hdev, hci_acl_create_conn_sync, conn,
-				       NULL);
+	int err;
+
+	err = hci_cmd_sync_queue_once(hdev, hci_acl_create_conn_sync,
+				      hci_conn_get(conn),
+				      hci_acl_create_conn_sync_complete);
+	if (err)
+		hci_conn_put(conn);
+	return (err == -EEXIST) ? 0 : err;
 }
 
 static void create_le_conn_complete(struct hci_dev *hdev, void *data, int err)
@@ -6914,34 +7033,42 @@ static void create_le_conn_complete(struct hci_dev *hdev, void *data, int err)
 	bt_dev_dbg(hdev, "err %d", err);
 
 	if (err == -ECANCELED)
-		return;
+		goto done;
 
 	hci_dev_lock(hdev);
 
 	if (!hci_conn_valid(hdev, conn))
-		goto done;
+		goto unlock;
 
 	if (!err) {
 		hci_connect_le_scan_cleanup(conn, 0x00);
-		goto done;
+		goto unlock;
 	}
 
 	/* Check if connection is still pending */
 	if (conn != hci_lookup_le_connect(hdev))
-		goto done;
+		goto unlock;
 
 	/* Flush to make sure we send create conn cancel command if needed */
 	flush_delayed_work(&conn->le_conn_timeout);
 	hci_conn_failed(conn, bt_status(err));
 
-done:
+unlock:
 	hci_dev_unlock(hdev);
+done:
+	hci_conn_put(conn);
 }
 
 int hci_connect_le_sync(struct hci_dev *hdev, struct hci_conn *conn)
 {
-	return hci_cmd_sync_queue_once(hdev, hci_le_create_conn_sync, conn,
-				       create_le_conn_complete);
+	int err;
+
+	err = hci_cmd_sync_queue_once(hdev, hci_le_create_conn_sync,
+				      hci_conn_get(conn),
+				      create_le_conn_complete);
+	if (err)
+		hci_conn_put(conn);
+	return (err == -EEXIST) ? 0 : err;
 }
 
 int hci_cancel_connect_sync(struct hci_dev *hdev, struct hci_conn *conn)
@@ -6988,7 +7115,7 @@ static void create_pa_complete(struct hci_dev *hdev, void *data, int err)
 	bt_dev_dbg(hdev, "err %d", err);
 
 	if (err == -ECANCELED)
-		return;
+		goto done;
 
 	hci_dev_lock(hdev);
 
@@ -7012,6 +7139,8 @@ static void create_pa_complete(struct hci_dev *hdev, void *data, int err)
 
 unlock:
 	hci_dev_unlock(hdev);
+done:
+	hci_conn_put(conn);
 }
 
 static int hci_le_pa_create_sync(struct hci_dev *hdev, void *data)
@@ -7021,14 +7150,22 @@ static int hci_le_pa_create_sync(struct hci_dev *hdev, void *data)
 	struct bt_iso_qos *qos = &conn->iso_qos;
 	int err;
 
-	if (!hci_conn_valid(hdev, conn))
+	hci_dev_lock_sync(hdev);
+
+	if (!hci_conn_valid(hdev, conn)) {
+		hci_dev_unlock_sync(hdev);
 		return -ECANCELED;
+	}
 
-	if (conn->sync_handle != HCI_SYNC_HANDLE_INVALID)
+	if (conn->sync_handle != HCI_SYNC_HANDLE_INVALID) {
+		hci_dev_unlock_sync(hdev);
 		return -EINVAL;
+	}
 
-	if (hci_dev_test_and_set_flag(hdev, HCI_PA_SYNC))
+	if (hci_dev_test_and_set_flag(hdev, HCI_PA_SYNC)) {
+		hci_dev_unlock_sync(hdev);
 		return -EBUSY;
+	}
 
 	/* Stop scanning if SID has not been set and active scanning is enabled
 	 * so we use passive scanning which will be scanning using the allow
@@ -7041,6 +7178,11 @@ static int hci_le_pa_create_sync(struct hci_dev *hdev, void *data)
 		hci_discovery_set_state(hdev, DISCOVERY_STOPPED);
 	}
 
+	if (!hci_conn_valid(hdev, conn)) {
+		err = -ECANCELED;
+		goto done;
+	}
+
 	/* Mark HCI_CONN_CREATE_PA_SYNC so hci_update_passive_scan_sync can
 	 * program the address in the allow list so PA advertisements can be
 	 * received.
@@ -7048,6 +7190,11 @@ static int hci_le_pa_create_sync(struct hci_dev *hdev, void *data)
 	set_bit(HCI_CONN_CREATE_PA_SYNC, &conn->flags);
 
 	hci_update_passive_scan_sync(hdev);
+
+	if (!hci_conn_valid(hdev, conn)) {
+		err = -ECANCELED;
+		goto done;
+	}
 
 	/* SID has not been set listen for HCI_EV_LE_EXT_ADV_REPORT to update
 	 * it.
@@ -7058,6 +7205,11 @@ static int hci_le_pa_create_sync(struct hci_dev *hdev, void *data)
 					       conn->conn_timeout, NULL);
 		if (err == -ETIMEDOUT)
 			goto done;
+	}
+
+	if (!hci_conn_valid(hdev, conn)) {
+		err = -ECANCELED;
+		goto done;
 	}
 
 	memset(&cp, 0, sizeof(cp));
@@ -7089,6 +7241,8 @@ static int hci_le_pa_create_sync(struct hci_dev *hdev, void *data)
 				      0, NULL, HCI_CMD_TIMEOUT);
 
 done:
+	hci_dev_unlock_sync(hdev);
+
 	hci_dev_clear_flag(hdev, HCI_PA_SYNC);
 
 	/* Update passive scan since HCI_PA_SYNC flag has been cleared */
@@ -7099,8 +7253,14 @@ done:
 
 int hci_connect_pa_sync(struct hci_dev *hdev, struct hci_conn *conn)
 {
-	return hci_cmd_sync_queue_once(hdev, hci_le_pa_create_sync, conn,
-				       create_pa_complete);
+	int err;
+
+	err = hci_cmd_sync_queue_once(hdev, hci_le_pa_create_sync,
+				      hci_conn_get(conn),
+				      create_pa_complete);
+	if (err)
+		hci_conn_put(conn);
+	return (err == -EEXIST) ? 0 : err;
 }
 
 static void create_big_complete(struct hci_dev *hdev, void *data, int err)
@@ -7110,10 +7270,17 @@ static void create_big_complete(struct hci_dev *hdev, void *data, int err)
 	bt_dev_dbg(hdev, "err %d", err);
 
 	if (err == -ECANCELED)
-		return;
+		goto done;
+
+	hci_dev_lock(hdev);
 
 	if (hci_conn_valid(hdev, conn))
 		clear_bit(HCI_CONN_CREATE_BIG_SYNC, &conn->flags);
+
+	hci_dev_unlock(hdev);
+
+done:
+	hci_conn_put(conn);
 }
 
 static int hci_le_big_create_sync(struct hci_dev *hdev, void *data)
@@ -7123,8 +7290,12 @@ static int hci_le_big_create_sync(struct hci_dev *hdev, void *data)
 	struct bt_iso_qos *qos = &conn->iso_qos;
 	int err;
 
-	if (!hci_conn_valid(hdev, conn))
+	hci_dev_lock_sync(hdev);
+
+	if (!hci_conn_valid(hdev, conn)) {
+		hci_dev_unlock_sync(hdev);
 		return -ECANCELED;
+	}
 
 	set_bit(HCI_CONN_CREATE_BIG_SYNC, &conn->flags);
 
@@ -7157,11 +7328,19 @@ static int hci_le_big_create_sync(struct hci_dev *hdev, void *data)
 	if (err == -ETIMEDOUT)
 		hci_le_big_terminate_sync(hdev, cp->handle);
 
+	hci_dev_unlock_sync(hdev);
+
 	return err;
 }
 
 int hci_connect_big_sync(struct hci_dev *hdev, struct hci_conn *conn)
 {
-	return hci_cmd_sync_queue_once(hdev, hci_le_big_create_sync, conn,
-				       create_big_complete);
+	int err;
+
+	err = hci_cmd_sync_queue_once(hdev, hci_le_big_create_sync,
+				      hci_conn_get(conn),
+				      create_big_complete);
+	if (err)
+		hci_conn_put(conn);
+	return (err == -EEXIST) ? 0 : err;
 }
