@@ -15,11 +15,24 @@
 #include <linux/string.h>
 #include <linux/crc8.h>
 #include <linux/crc32.h>
+#include <linux/math.h>
 #include <linux/string_helpers.h>
 #include <linux/gpio/consumer.h>
 #include <linux/of_irq.h>
 #include <linux/regulator/consumer.h>
 #include <linux/reset.h>
+
+#include <linux/crypto.h>
+#include <crypto/sha2.h>
+#include <crypto/hash.h>
+#include <crypto/kpp.h>
+#include <crypto/ecdh.h>
+#include <linux/scatterlist.h>
+#include <linux/completion.h>
+#include <crypto/aes.h>
+#include <crypto/gcm.h>
+#include <crypto/aead.h>
+#include <crypto/public_key.h>
 
 #include <net/bluetooth/bluetooth.h>
 #include <net/bluetooth/hci_core.h>
@@ -104,6 +117,8 @@
 #define PS_STATE_SLEEP          1
 
 /* NXP Vendor Commands. Refer user manual UM11628 on nxp.com */
+/* Get FW version */
+#define HCI_NXP_GET_FW_VERSION	0xfc0f
 /* Set custom BD Address */
 #define HCI_NXP_SET_BD_ADDR	0xfc22
 /* Set Auto-Sleep mode */
@@ -116,6 +131,8 @@
 #define HCI_NXP_IND_RESET	0xfcfc
 /* Bluetooth vendor command: Trigger FW dump */
 #define HCI_NXP_TRIGGER_DUMP	0xfe91
+/* Bluetooth vendor command: Secure Host Interface */
+#define HCI_NXP_SHI_ENCRYPT	0xfe9c
 
 /* Bluetooth Power State : Vendor cmd params */
 #define BT_PS_ENABLE			0x02
@@ -133,6 +150,16 @@
 #define BT_CTRL_WAKEUP_METHOD_GPIO      0x02
 #define BT_CTRL_WAKEUP_METHOD_EXT_BREAK 0x04
 #define BT_CTRL_WAKEUP_METHOD_RTS       0x05
+
+/* FW Metadata */
+#define FW_METADATA_TLV_UUID		0x40
+#define FW_METADATA_TLV_ECDSA_KEY	0x50
+#define FW_METADATA_FLAG_BT		0x02
+
+#define NXP_FW_UUID_SIZE		16
+#define NXP_FW_ECDH_PUBKEY_SIZE		64
+#define NXP_FW_ECDSA_PUBKEY_SIZE	65
+#define NXP_MAX_ENCRYPT_CMD_LEN		256
 
 struct ps_data {
 	u8    target_ps_mode;	/* ps mode to be set */
@@ -180,6 +207,33 @@ enum bootloader_param_change {
 	changed
 };
 
+struct nxp_tls_traffic_keys {
+	u8 h2d_secret[SHA256_DIGEST_SIZE];
+	u8 d2h_secret[SHA256_DIGEST_SIZE];
+	/* These keys below should be used for message encryption/decryption */
+	u8 h2d_iv[GCM_AES_IV_SIZE];
+	u8 h2d_key[AES_KEYSIZE_128];
+	u8 d2h_iv[GCM_AES_IV_SIZE];
+	u8 d2h_key[AES_KEYSIZE_128];
+};
+
+struct btnxpuart_crypto {
+	struct crypto_shash *tls_handshake_hash_tfm;
+	struct shash_desc *tls_handshake_hash_desc;
+	struct crypto_kpp *kpp;
+	u8 ecdh_public[NXP_FW_ECDH_PUBKEY_SIZE];	/* ECDH public key, Key negotiation */
+	u8 ecdsa_public[NXP_FW_ECDSA_PUBKEY_SIZE];	/* ECDSA public key, Authentication*/
+	u8 fw_uuid[NXP_FW_UUID_SIZE];
+	u8 handshake_h2_hash[SHA256_DIGEST_SIZE];
+	u8 handshake_secret[SHA256_DIGEST_SIZE];
+	u8 master_secret[SHA256_DIGEST_SIZE];
+	u64 enc_seq_no;
+	u64 dec_seq_no;
+	struct completion completion;
+	int decrypt_result;
+	struct nxp_tls_traffic_keys keys;
+};
+
 struct btnxpuart_dev {
 	struct hci_dev *hdev;
 	struct serdev_device *serdev;
@@ -213,6 +267,8 @@ struct btnxpuart_dev {
 	struct btnxpuart_data *nxp_data;
 	struct reset_control *pdn;
 	struct hci_uart hu;
+	bool secure_interface;
+	struct btnxpuart_crypto crypto;
 };
 
 #define NXP_V1_FW_REQ_PKT	0xa5
@@ -360,6 +416,152 @@ union nxp_set_bd_addr_payload {
 		u8 param[6];
 	} __packed data;
 	u8 buf[8];
+};
+
+/* Secure Host Interface */
+#define NXP_TLS_MAGIC			0x43b826f3
+#define NXP_TLS_VERSION			1
+
+#define NXP_TLS_ECDH_PUBLIC_KEY_SIZE	64
+#define NXP_DEVICE_UUID_LEN		16
+#define NXP_ENC_AUTH_TAG_SIZE		16
+
+#define NXP_TLS_LABEL(str)		str, strlen(str)
+#define NXP_TLS_DEVICE_HS_TS_LABEL	NXP_TLS_LABEL("D HS TS")
+#define NXP_TLS_KEYING_IV_LABEL		NXP_TLS_LABEL("iv")
+#define NXP_TLS_KEYING_KEY_LABEL	NXP_TLS_LABEL("key")
+#define NXP_TLS_FINISHED_LABEL		NXP_TLS_LABEL("finished")
+#define NXP_TLS_DERIVED_LABEL		NXP_TLS_LABEL("derived")
+#define NXP_TLS_HOST_HS_TS_LABEL	NXP_TLS_LABEL("H HS TS")
+#define NXP_TLS_D_AP_TS_LABEL		NXP_TLS_LABEL("D AP TS")
+#define NXP_TLS_H_AP_TS_LABEL		NXP_TLS_LABEL("H AP TS")
+
+enum nxp_tls_signature_algorithm {
+	NXP_TLS_ECDSA_SECP256R1_SHA256 = 0x0403,
+};
+
+enum nxp_tls_key_exchange_type {
+	NXP_TLS_ECDHE_SECP256R1 = 0x0017,
+};
+
+enum nxp_tls_cipher_suite {
+	NXP_TLS_AES_128_GCM_SHA256 = 0x1301,
+};
+
+enum nxp_tls_message_id {
+	NXP_TLS_HOST_HELLO	= 1,
+	NXP_TLS_DEVICE_HELLO	= 2,
+	NXP_TLS_HOST_FINISHED	= 3,
+};
+
+struct nxp_tls_message_hdr {
+	__le32 magic;
+	__le16 len;
+	u8 message_id;
+	u8 protocol_version;
+};
+
+struct nxp_tls_host_hello {
+	struct nxp_tls_message_hdr hdr;
+	__le16 sig_alg;
+	__le16 key_exchange_type;
+	__le16 cipher_suite;
+	__le16 reserved;
+	u8 random[32];
+	u8 pubkey[NXP_TLS_ECDH_PUBLIC_KEY_SIZE]; /* ECDHE */
+};
+
+union nxp_tls_host_hello_payload {
+	struct {
+		u8 msg_type;
+		struct nxp_tls_host_hello host_hello;
+	} __packed;
+	u8 buf[113];
+};
+
+struct nxp_tls_device_info {
+	__le16 chip_id;
+	__le16 device_flags;
+	u8 reserved[4];
+	u8 uuid[NXP_DEVICE_UUID_LEN];
+};
+
+struct nxp_tls_signature {
+	u8 sig[64];        /* P-256 ECDSA signature, two points */
+};
+
+struct nxp_tls_finished {
+	u8 verify_data[32];
+};
+
+struct nxp_tls_device_hello {
+	struct nxp_tls_message_hdr hdr;
+	__le32 reserved;
+	u8 random[32];
+	u8 pubkey[NXP_TLS_ECDH_PUBLIC_KEY_SIZE];
+	/* Encrypted portion */
+	struct {
+		struct nxp_tls_device_info device_info;
+		struct nxp_tls_signature device_handshake_sig;   /* TLS Certificate Verify */
+		struct nxp_tls_finished device_finished;
+	} enc;
+	u8 auth_tag[NXP_ENC_AUTH_TAG_SIZE];   /* Auth tag for the encrypted portion */
+};
+
+struct nxp_tls_data_add {
+	u8 version;        /* NXP_TLS_VERSION */
+	u8 reserved[5];    /* zeroes */
+	__le16 len;
+};
+
+struct nxp_tls_host_finished {
+	struct nxp_tls_message_hdr hdr;
+	__le32 reserved;
+	/* Encrypted portion */
+	struct {
+		struct nxp_tls_signature reserved2;
+		struct nxp_tls_finished host_finished;
+	} enc;
+	u8 auth_tag[NXP_ENC_AUTH_TAG_SIZE];   /* Auth tag for the encrypted portion */
+};
+
+union nxp_tls_host_finished_payload {
+	struct {
+		u8 msg_type;
+		struct nxp_tls_host_finished host_finished;
+	} __packed;
+	u8 buf[125];
+};
+
+#define DEVICE_HELLO_SIG_CUTOFF_POS \
+	offsetof(struct nxp_tls_device_hello, enc)
+
+#define DEVICE_HELLO_FINISHED_ENC_CUTOFF_POS \
+	(offsetof(struct nxp_tls_device_hello, enc.device_finished) - \
+	DEVICE_HELLO_SIG_CUTOFF_POS)
+
+
+#define HOST_FINISHED_CUTOFF_POS \
+	offsetof(struct nxp_tls_host_finished, enc.host_finished)
+
+/* FW Meta Data */
+struct fw_metadata_hdr {
+	__le32 cmd;
+	__le32 addr;
+	__le32 len;
+	__le32 crc;
+};
+
+struct fw_metadata_tail {
+	__le32 len;
+	u8 magic[8];
+	__le32 crc;
+};
+
+struct fw_metadata_tlv {
+	__le16 id;
+	__le16 flag;
+	__le32 len;
 };
 
 static u8 crc8_table[CRC8_TABLE_SIZE];
@@ -1190,6 +1392,85 @@ static void nxp_handle_fw_download_error(struct hci_dev *hdev, struct v3_data_re
 	}
 }
 
+static u32 nxp_process_fw_metadata_tlv(struct hci_dev *hdev, char **payload)
+{
+	struct btnxpuart_dev *nxpdev = hci_get_drvdata(hdev);
+	struct fw_metadata_tlv *tlv = (struct fw_metadata_tlv *)(*payload);
+	u32 ret = sizeof(*tlv) + le32_to_cpu(tlv->len);
+
+	/* Process only BT specific metadata TLVs */
+	if (!(le16_to_cpu(tlv->flag) & FW_METADATA_FLAG_BT))
+		goto align_and_return;
+
+	switch (le16_to_cpu(tlv->id)) {
+	case FW_METADATA_TLV_UUID:
+		if (le32_to_cpu(tlv->len) == NXP_FW_UUID_SIZE)
+			memcpy(nxpdev->crypto.fw_uuid,
+				*payload + sizeof(*tlv), NXP_FW_UUID_SIZE);
+		break;
+	case FW_METADATA_TLV_ECDSA_KEY:
+		if (le32_to_cpu(tlv->len) == NXP_FW_ECDSA_PUBKEY_SIZE)
+			memcpy(nxpdev->crypto.ecdsa_public,
+				*payload + sizeof(*tlv), NXP_FW_ECDSA_PUBKEY_SIZE);
+		break;
+	default:
+		bt_dev_err(hdev, "Unknown metadata TLV ID: 0x%x", le16_to_cpu(tlv->id));
+		break;
+	}
+
+align_and_return:
+	/* Align the pointer to 4 byte structure alignment */
+	ret = round_up(ret, 4);
+	*payload += ret;
+
+	return ret;
+}
+
+static void nxp_process_fw_meta_data(struct hci_dev *hdev, const struct firmware *fw)
+{
+	const char *metamagc = "metamagc";
+	struct fw_metadata_hdr *hdr = NULL;
+	struct fw_metadata_tail *tail;
+	u32 hdr_crc = 0;
+	u32 payload_crc = 0;
+	char *payload;
+	u32 payload_len = 0;
+
+	/* FW metadata should contain at least header and tail */
+	if (fw->size < (sizeof(*hdr) + sizeof(*tail)))
+		return;
+
+	tail = (struct fw_metadata_tail *)&fw->data[fw->size - sizeof(*tail)];
+
+	/* If tail doesn't contain the string "metamagc", this is invalid FW metadata */
+	if (memcmp(metamagc, tail->magic, strlen(metamagc)))
+		return;
+
+	hdr = (struct fw_metadata_hdr *)&fw->data[fw->size -
+						  sizeof(*tail) -
+						  le32_to_cpu(tail->len)];
+
+	/* If metadata header isn't cmd24, this is invalid FW metadata */
+	if (le32_to_cpu(hdr->cmd) != 24)
+		return;
+
+	/* If header CRC doesn't match, this is invalid FW metadata */
+	hdr_crc = crc32_be(0, (u8 *)hdr, offsetof(struct fw_metadata_hdr, crc));
+	if (hdr_crc != le32_to_cpu(hdr->crc))
+		return;
+
+	/* If payload CRC doesn't match, this is invalid FW metadata */
+	payload = (u8 *)hdr  + sizeof(*hdr);
+	payload_crc = crc32_be(0, payload, le32_to_cpu(hdr->len) - 4);
+	if (payload_crc != le32_to_cpu(tail->crc))
+		return;
+
+	payload_len = le32_to_cpu(hdr->len) - sizeof(*tail);
+
+	while (payload_len > sizeof(struct fw_metadata_tlv))
+		payload_len -= nxp_process_fw_metadata_tlv(hdev, &payload);
+}
+
 static int nxp_recv_fw_req_v3(struct hci_dev *hdev, struct sk_buff *skb)
 {
 	struct btnxpuart_dev *nxpdev = hci_get_drvdata(hdev);
@@ -1248,14 +1529,6 @@ static int nxp_recv_fw_req_v3(struct hci_dev *hdev, struct sk_buff *skb)
 		goto free_skb;
 	}
 
-	if (req->len == 0) {
-		bt_dev_info(hdev, "FW Download Complete: %zu bytes",
-			   nxpdev->fw->size);
-		clear_bit(BTNXPUART_FW_DOWNLOADING, &nxpdev->tx_state);
-		wake_up_interruptible(&nxpdev->fw_dnld_done_wait_q);
-		goto free_skb;
-	}
-
 	offset = __le32_to_cpu(req->offset);
 	if (offset < nxpdev->fw_v3_offset_correction) {
 		/* This scenario should ideally never occur. But if it ever does,
@@ -1267,6 +1540,17 @@ static int nxp_recv_fw_req_v3(struct hci_dev *hdev, struct sk_buff *skb)
 	}
 
 	nxpdev->fw_dnld_v3_offset = offset - nxpdev->fw_v3_offset_correction;
+
+	if (req->len == 0) {
+		if (nxpdev->fw_dnld_v3_offset < nxpdev->fw->size)
+			nxp_process_fw_meta_data(hdev, nxpdev->fw);
+		bt_dev_info(hdev, "FW Download Complete: %u bytes.",
+			   req->offset - nxpdev->fw_v3_offset_correction);
+		clear_bit(BTNXPUART_FW_DOWNLOADING, &nxpdev->tx_state);
+		wake_up_interruptible(&nxpdev->fw_dnld_done_wait_q);
+		goto free_skb;
+	}
+
 	serdev_device_write_buf(nxpdev->serdev, nxpdev->fw->data +
 				nxpdev->fw_dnld_v3_offset, len);
 
@@ -1437,6 +1721,1131 @@ static int nxp_set_bdaddr(struct hci_dev *hdev, const bdaddr_t *bdaddr)
 	return 0;
 }
 
+static void nxp_handle_chip_specific_features(struct hci_dev *hdev, u8 *version)
+{
+	struct btnxpuart_dev *nxpdev = hci_get_drvdata(hdev);
+
+	if (!version || strlen(version) == 0)
+		return;
+
+	if (!strncmp(version, "aw693n-V1", strlen("aw693n-V1")))
+		nxpdev->secure_interface = true;
+}
+
+static void nxp_get_fw_version(struct hci_dev *hdev)
+{
+	struct sk_buff *skb;
+	u8 version[100] = {0};
+	u8 cmd = 0;
+	u8 *status;
+
+	skb = nxp_drv_send_cmd(hdev, HCI_NXP_GET_FW_VERSION, 1, &cmd, true);
+	if (IS_ERR(skb)) {
+		bt_dev_err(hdev, "Failed to get firmware version (%ld)",
+			   PTR_ERR(skb));
+		return;
+	}
+
+	status = skb_pull_data(skb, 1);
+	if (status) {
+		if (*status) {
+			bt_dev_err(hdev, "Error get FW version: %d", *status);
+		} else if (skb->len < 10 || skb->len >= 100) {
+			bt_dev_err(hdev, "Invalid FW version");
+		} else {
+			memcpy(version, skb->data, skb->len);
+			bt_dev_info(hdev, "FW Version: %s", version);
+			nxp_handle_chip_specific_features(hdev, version);
+		}
+	}
+
+	kfree_skb(skb);
+}
+
+/* Secure Interface */
+static int nxp_get_pub_key(struct hci_dev *hdev,
+		      const struct nxp_tls_device_info *device_info,
+		      u8 ecdsa_pub_key[NXP_FW_ECDSA_PUBKEY_SIZE])
+{
+	struct btnxpuart_dev *nxpdev = hci_get_drvdata(hdev);
+	const char *fw_name;
+
+	if (ecdsa_pub_key[0] == 0x04)
+		return 0;
+
+	fw_name = nxp_get_fw_name_from_chipid(hdev,
+					      le16_to_cpu(device_info->chip_id),
+					      le16_to_cpu(device_info->device_flags));
+	if (nxp_request_firmware(hdev, fw_name, NULL))
+		return -ENOENT;
+
+	nxp_process_fw_meta_data(hdev, nxpdev->fw);
+	release_firmware(nxpdev->fw);
+	memset(nxpdev->fw_name, 0, sizeof(nxpdev->fw_name));
+
+	if (memcmp(nxpdev->crypto.fw_uuid, device_info->uuid, 16) ||
+	    nxpdev->crypto.ecdsa_public[0] != 0x04) {
+		bt_dev_err(hdev,
+			   "UUID check failed while trying to read ECDSA public key from FW.");
+		return -EBADF;
+	}
+
+	memcpy(ecdsa_pub_key, nxpdev->crypto.ecdsa_public, 65);
+
+	return 0;
+}
+
+static int nxp_generate_ecdh_public_key(struct crypto_kpp *tfm, u8 public_key[64])
+{
+	DECLARE_CRYPTO_WAIT(result);
+	struct kpp_request *req;
+	u8 *tmp;
+	struct scatterlist dst;
+	int err;
+
+	tmp = kzalloc(64, GFP_KERNEL);
+	if (!tmp)
+		return -ENOMEM;
+
+	req = kpp_request_alloc(tfm, GFP_KERNEL);
+	if (!req) {
+		err = -ENOMEM;
+		goto free_tmp;
+	}
+
+	sg_init_one(&dst, tmp, 64);
+	kpp_request_set_input(req, NULL, 0);
+	kpp_request_set_output(req, &dst, 64);
+	kpp_request_set_callback(req, CRYPTO_TFM_REQ_MAY_BACKLOG,
+				 crypto_req_done, &result);
+
+	err = crypto_kpp_generate_public_key(req);
+	err = crypto_wait_req(err, &result);
+	if (err < 0)
+		goto free_all;
+
+	memcpy(public_key, tmp, 64);
+
+free_all:
+	kpp_request_free(req);
+free_tmp:
+	kfree(tmp);
+	return err;
+}
+
+static inline void nxp_tls_hdr_init(struct nxp_tls_message_hdr *hdr, size_t len,
+				    enum nxp_tls_message_id id)
+{
+	hdr->magic = cpu_to_le32(NXP_TLS_MAGIC);
+	hdr->len = cpu_to_le16((u16)len);
+	hdr->message_id = (u8)id;
+	hdr->protocol_version = NXP_TLS_VERSION;
+}
+
+static struct sk_buff *nxp_host_do_hello(struct hci_dev *hdev)
+{
+	struct btnxpuart_dev *nxpdev = hci_get_drvdata(hdev);
+	union nxp_tls_host_hello_payload tls_hello;
+	struct nxp_tls_host_hello *host_hello = &tls_hello.host_hello;
+	struct ecdh p = {0};
+	u8 *buf = NULL;
+	unsigned int buf_len;
+	struct sk_buff *skb;
+	int ret;
+
+	nxp_tls_hdr_init(&host_hello->hdr, sizeof(*host_hello), NXP_TLS_HOST_HELLO);
+
+	host_hello->sig_alg = cpu_to_le16(NXP_TLS_ECDSA_SECP256R1_SHA256);
+	host_hello->key_exchange_type = cpu_to_le16(NXP_TLS_ECDHE_SECP256R1);
+	host_hello->cipher_suite = cpu_to_le16(NXP_TLS_AES_128_GCM_SHA256);
+
+	get_random_bytes(host_hello->random, sizeof(host_hello->random));
+
+	/* Generate random private key */
+	p.key_size = 32;
+	p.key = kzalloc(p.key_size, GFP_KERNEL);
+	if (!p.key)
+		return ERR_PTR(-ENOMEM);
+
+	get_random_bytes(p.key, p.key_size);
+
+	buf_len = crypto_ecdh_key_len(&p);
+	buf = kzalloc(buf_len, GFP_KERNEL);
+	if (!buf) {
+		ret = -ENOMEM;
+		goto free_key;
+	}
+
+	ret = crypto_ecdh_encode_key(buf, buf_len, &p);
+	if (ret) {
+		bt_dev_err(hdev, "crypto_ecdh_encode_key() failed");
+		goto free_buf;
+	}
+
+	ret = crypto_kpp_set_secret(nxpdev->crypto.kpp, buf, buf_len);
+	if (ret) {
+		bt_dev_err(hdev, "crypto_kpp_set_secret() failed");
+		goto free_buf;
+	}
+
+	ret = nxp_generate_ecdh_public_key(nxpdev->crypto.kpp, host_hello->pubkey);
+	if (ret) {
+		bt_dev_err(hdev, "Failed to generate ECDH public key: %d", ret);
+		goto free_buf;
+	}
+
+	ret = crypto_shash_update(nxpdev->crypto.tls_handshake_hash_desc,
+				  (u8 *)host_hello, sizeof(*host_hello));
+	if (ret) {
+		bt_dev_err(hdev, "Failed to update handshake hash: %d", ret);
+		goto free_buf;
+	}
+
+	tls_hello.msg_type = 0;
+
+	skb = __hci_cmd_sync(hdev, HCI_NXP_SHI_ENCRYPT, sizeof(tls_hello),
+			     tls_hello.buf, HCI_CMD_TIMEOUT);
+	if (IS_ERR(skb)) {
+		bt_dev_err(hdev, "Host Hello command failed: %ld", PTR_ERR(skb));
+		ret = PTR_ERR(skb);
+	}
+
+free_buf:
+	kfree(buf);
+free_key:
+	memset(p.key, 0, p.key_size);
+	kfree(p.key);
+	if (ret)
+		return ERR_PTR(ret);
+	else
+		return skb;
+}
+
+static int nxp_crypto_shash_final(struct shash_desc *desc, u8 *out)
+{
+	struct shash_desc *desc_tmp = kzalloc(sizeof(struct shash_desc) +
+					      crypto_shash_descsize(desc->tfm),
+					      GFP_KERNEL);
+
+	if (!desc_tmp)
+		return -ENOMEM;
+
+	crypto_shash_export(desc, desc_tmp);
+	crypto_shash_final(desc, out);
+	crypto_shash_import(desc, desc_tmp);
+	kfree(desc_tmp);
+
+	return 0;
+}
+
+static int nxp_compute_shared_secret(struct crypto_kpp *tfm, const u8 public_key[64], u8 secret[32])
+{
+	DECLARE_CRYPTO_WAIT(result);
+	struct kpp_request *req;
+	struct scatterlist src, dst;
+	int err;
+
+	req = kpp_request_alloc(tfm, GFP_KERNEL);
+	if (!req) {
+		pr_err("Failed to allocate memory for KPP request\n");
+		return -ENOMEM;
+	}
+
+	sg_init_one(&src, public_key, 64);
+	sg_init_one(&dst, secret, 32);
+	kpp_request_set_input(req, &src, 64);
+	kpp_request_set_output(req, &dst, 32);
+	kpp_request_set_callback(req, CRYPTO_TFM_REQ_MAY_BACKLOG,
+				 crypto_req_done, &result);
+	err = crypto_kpp_compute_shared_secret(req);
+	err = crypto_wait_req(err, &result);
+	if (err < 0) {
+		pr_err("alg: ecdh: compute shared secret failed. err %d\n", err);
+		goto free_all;
+	}
+
+free_all:
+	kpp_request_free(req);
+	return err;
+}
+
+static int nxp_hkdf_sha256_extract(const void *salt, size_t salt_len,
+				    const void *ikm, size_t ikm_len,
+				    u8 result[SHA256_DIGEST_SIZE])
+{
+	struct crypto_shash *tfm;
+	struct shash_desc *desc;
+	u8 zeroes[SHA256_DIGEST_SIZE] = {0};
+	int ret = 0;
+
+	tfm = crypto_alloc_shash("hmac(sha256)", 0, 0);
+	if (IS_ERR(tfm))
+		return PTR_ERR(tfm);
+
+	desc = kzalloc(sizeof(*desc) + crypto_shash_descsize(tfm), GFP_KERNEL);
+	if (!desc) {
+		crypto_free_shash(tfm);
+		return -ENOMEM;
+	}
+
+	desc->tfm = tfm;
+
+	/* RFC 5869: If salt is empty, use HashLen zero octets */
+	if (salt_len == 0)
+		ret = crypto_shash_setkey(tfm, zeroes, SHA256_DIGEST_SIZE);
+	else
+		ret = crypto_shash_setkey(tfm, salt, salt_len);
+
+	if (ret)
+		goto cleanup;
+
+	ret = crypto_shash_init(desc);
+	if (ret)
+		goto cleanup;
+
+	ret = crypto_shash_update(desc, ikm, ikm_len);
+	if (ret)
+		goto cleanup;
+
+	ret = crypto_shash_final(desc, result);
+
+cleanup:
+	kfree(desc);
+	crypto_free_shash(tfm);
+	return ret;
+}
+
+static int nxp_hkdf_expand_label(const u8 secret[SHA256_DIGEST_SIZE],
+				 const char *label, size_t label_size,
+				 u8 *context, size_t context_size,
+				 void *output, size_t output_size)
+{
+	struct crypto_shash *tfm = crypto_alloc_shash("hmac(sha256)", 0, 0);
+	struct shash_desc *desc = kzalloc(sizeof(*desc) + crypto_shash_descsize(tfm),
+					  GFP_KERNEL);
+	u8 hmac_out[SHA256_DIGEST_SIZE];
+	u16 length = output_size;
+	u8 one = 0x01;
+
+	if (IS_ERR(tfm)) {
+		pr_err("Failed to alloc shash for HMAC\n");
+		return -ENOMEM;
+	}
+
+	if (!desc) {
+		crypto_free_shash(tfm);
+		return -ENOMEM;
+	}
+
+	crypto_shash_setkey(tfm, secret, SHA256_DIGEST_SIZE);
+	desc->tfm = tfm;
+
+	crypto_shash_init(desc);
+	crypto_shash_update(desc, (u8 *)&length, sizeof(length));
+	crypto_shash_update(desc, label, label_size);
+
+	if (context && context_size > 0)
+		crypto_shash_update(desc, context, context_size);
+
+	/* RFC 5869: HKDF-Expand counter starts at 0x01 */
+	crypto_shash_update(desc, &one, sizeof(one));
+	crypto_shash_final(desc, hmac_out);
+
+	memcpy(output, hmac_out, output_size);
+
+	kfree(desc);
+	crypto_free_shash(tfm);
+	return 0;
+}
+
+static int nxp_hkdf_derive_secret(u8 secret[32], const char *label, size_t label_size,
+				  u8 context[SHA256_DIGEST_SIZE],
+				  u8 output[SHA256_DIGEST_SIZE])
+{
+	return nxp_hkdf_expand_label(secret, label, label_size, context, SHA256_DIGEST_SIZE,
+				     output, SHA256_DIGEST_SIZE);
+}
+
+/*
+ * The digital signature is computed over the concatenation of:
+ *  -  A string that consists of octet 32 (0x20) repeated 64 times
+ *  -  The context string
+ *  -  A single 0 byte which serves as the separator
+ *  -  The content to be signed
+ */
+static int nxp_handshake_sig_hash(const u8 transcript_hash[SHA256_DIGEST_SIZE],
+				   const char *context, size_t context_len,
+				   u8 output_hash[SHA256_DIGEST_SIZE])
+{
+	struct crypto_shash *tfm;
+	struct shash_desc *desc;
+	const u8 zero = 0;
+
+	tfm = crypto_alloc_shash("sha256", 0, 0);
+	if (IS_ERR(tfm))
+		return PTR_ERR(tfm);
+
+	desc = kzalloc(sizeof(*desc) + crypto_shash_descsize(tfm), GFP_KERNEL);
+	if (!desc) {
+		crypto_free_shash(tfm);
+		return -ENOMEM;
+	}
+
+	desc->tfm = tfm;
+
+	memset(output_hash, 0x20, SHA256_DIGEST_SIZE);
+
+	crypto_shash_init(desc);
+	/* 2x hash size = block size of 0x20 */
+	crypto_shash_update(desc, output_hash, SHA256_DIGEST_SIZE);
+	crypto_shash_update(desc, output_hash, SHA256_DIGEST_SIZE);
+
+	crypto_shash_update(desc, context, context_len);
+	crypto_shash_update(desc, &zero, sizeof(zero));
+
+	crypto_shash_update(desc, transcript_hash, SHA256_DIGEST_SIZE);
+	crypto_shash_final(desc, output_hash);
+
+	kfree(desc);
+	crypto_free_shash(tfm);
+	return 0;
+}
+
+
+static void nxp_aead_complete(void *req, int err)
+{
+	struct btnxpuart_crypto *crypto = req;
+
+	crypto->decrypt_result = err;
+	complete(&crypto->completion);
+}
+
+static int nxp_aes_gcm_decrypt(struct hci_dev *hdev, void *buf, size_t size,
+			       u8 auth_tag[16], u8 key[AES_KEYSIZE_128],
+			       u8 iv[GCM_AES_IV_SIZE])
+{
+	struct btnxpuart_dev *nxpdev = hci_get_drvdata(hdev);
+	struct crypto_aead *tfm;
+	struct aead_request *req;
+	struct scatterlist src, dst;
+	struct nxp_tls_data_add aad = {
+		.version = NXP_TLS_VERSION,
+		.len = cpu_to_le16((u16)size)
+	};
+	u8 *ciphertext;
+	u8 *plaintext;
+	int ret = 0;
+
+	ciphertext = kzalloc(sizeof(aad) + size + NXP_ENC_AUTH_TAG_SIZE,
+				 GFP_KERNEL);
+	if (!ciphertext)
+		return -ENOMEM;
+
+	plaintext = kzalloc(size + NXP_ENC_AUTH_TAG_SIZE, GFP_KERNEL);
+	if (!plaintext) {
+		ret = -ENOMEM;
+		goto free_ciphertext;
+	}
+
+	memcpy(ciphertext, &aad, sizeof(aad));
+	memcpy(ciphertext + sizeof(aad), buf, size);
+	memcpy(ciphertext + sizeof(aad) + size, auth_tag, NXP_ENC_AUTH_TAG_SIZE);
+
+	tfm = crypto_alloc_aead("gcm(aes)", 0, 0);
+	if (IS_ERR(tfm)) {
+		ret = PTR_ERR(tfm);
+		goto free_plaintext;
+	}
+
+	crypto_aead_setkey(tfm, key, AES_KEYSIZE_128);
+	crypto_aead_setauthsize(tfm, NXP_ENC_AUTH_TAG_SIZE);
+
+	req = aead_request_alloc(tfm, GFP_KERNEL);
+	if (!req) {
+		ret = -ENOMEM;
+		goto free_tfm;
+	}
+
+	sg_init_one(&src, ciphertext, sizeof(aad) + size + NXP_ENC_AUTH_TAG_SIZE);
+	sg_init_one(&dst, plaintext, size + NXP_ENC_AUTH_TAG_SIZE);
+	init_completion(&nxpdev->crypto.completion);
+
+	aead_request_set_callback(req, CRYPTO_TFM_REQ_MAY_BACKLOG,
+				  nxp_aead_complete, &nxpdev->crypto);
+	aead_request_set_crypt(req, &src, &dst, size + NXP_ENC_AUTH_TAG_SIZE, iv);
+	aead_request_set_ad(req, sizeof(aad));
+
+	ret = crypto_aead_decrypt(req);
+	if (ret == -EINPROGRESS || ret == -EBUSY) {
+		wait_for_completion(&nxpdev->crypto.completion);
+		ret = nxpdev->crypto.decrypt_result;
+	}
+	if (!ret)
+		memcpy(buf, plaintext + sizeof(aad), size);
+
+	aead_request_free(req);
+free_tfm:
+	crypto_free_aead(tfm);
+free_plaintext:
+	kfree(plaintext);
+free_ciphertext:
+	kfree(ciphertext);
+	return ret;
+}
+
+static int nxp_aes_gcm_encrypt(struct hci_dev *hdev, void *buf, size_t size, u8 auth_tag[16],
+			       u8 key[AES_KEYSIZE_128], u8 iv[GCM_AES_IV_SIZE])
+{
+	struct btnxpuart_dev *nxpdev = hci_get_drvdata(hdev);
+	struct crypto_aead *tfm;
+	struct aead_request *req;
+	struct scatterlist src, dst;
+	struct nxp_tls_data_add aad = {
+		.version = NXP_TLS_VERSION,
+		.len = cpu_to_le16((u16)size)
+	};
+	u8 *ciphertext;
+	u8 *plaintext;
+	int ret = 0;
+
+	ciphertext = kzalloc(sizeof(aad) + size + NXP_ENC_AUTH_TAG_SIZE,
+				 GFP_KERNEL);
+	if (!ciphertext)
+		return -ENOMEM;
+
+	plaintext = kzalloc(size + NXP_ENC_AUTH_TAG_SIZE, GFP_KERNEL);
+	if (!plaintext) {
+		ret = -ENOMEM;
+		goto free_ciphertext;
+	}
+
+	memcpy(plaintext, &aad, sizeof(aad));
+	memcpy(plaintext + sizeof(aad), buf, size);
+
+	tfm = crypto_alloc_aead("gcm(aes)", 0, 0);
+	if (IS_ERR(tfm)) {
+		ret = PTR_ERR(tfm);
+		goto free_plaintext;
+	}
+
+	crypto_aead_setkey(tfm, key, AES_KEYSIZE_128);
+	crypto_aead_setauthsize(tfm, NXP_ENC_AUTH_TAG_SIZE);
+
+	req = aead_request_alloc(tfm, GFP_KERNEL);
+	if (!req) {
+		ret = -ENOMEM;
+		goto free_tfm;
+	}
+
+	sg_init_one(&src, plaintext, size + NXP_ENC_AUTH_TAG_SIZE);
+	sg_init_one(&dst, ciphertext, sizeof(aad) + size + NXP_ENC_AUTH_TAG_SIZE);
+	init_completion(&nxpdev->crypto.completion);
+
+	aead_request_set_callback(req, CRYPTO_TFM_REQ_MAY_BACKLOG,
+				  nxp_aead_complete, &nxpdev->crypto);
+	aead_request_set_crypt(req, &src, &dst, size, iv);
+	aead_request_set_ad(req, sizeof(aad));
+
+	ret = crypto_aead_encrypt(req);
+	if (ret == -EINPROGRESS || ret == -EBUSY) {
+		wait_for_completion(&nxpdev->crypto.completion);
+		ret = nxpdev->crypto.decrypt_result;
+	}
+	if (!ret) {
+		memcpy(buf, ciphertext + sizeof(aad), size);
+		memcpy(auth_tag, ciphertext + size + sizeof(aad), NXP_ENC_AUTH_TAG_SIZE);
+	}
+
+	aead_request_free(req);
+free_tfm:
+	crypto_free_aead(tfm);
+free_plaintext:
+	kfree(plaintext);
+free_ciphertext:
+	kfree(ciphertext);
+	return ret;
+}
+
+static int nxp_handshake_decrypt_verify(struct hci_dev *hdev, void *buf, size_t size,
+					u8 auth_tag[16],
+					u8 traffic_secret[SHA256_DIGEST_SIZE])
+{
+	u8 key[AES_KEYSIZE_128] = {0};
+	u8 iv[GCM_AES_IV_SIZE] = {0};
+
+	nxp_hkdf_expand_label(traffic_secret, NXP_TLS_KEYING_KEY_LABEL, NULL, 0,
+			      key, AES_KEYSIZE_128);
+	nxp_hkdf_expand_label(traffic_secret, NXP_TLS_KEYING_IV_LABEL, NULL, 0,
+			      iv, GCM_AES_IV_SIZE);
+
+	return nxp_aes_gcm_decrypt(hdev, buf, size, auth_tag, key, iv);
+}
+
+static int nxp_handshake_encrypt(struct hci_dev *hdev, void *buf,
+				 size_t size, u8 auth_tag[16],
+				 u8 traffic_secret[SHA256_DIGEST_SIZE])
+{
+	u8 key[AES_KEYSIZE_128] = {0};
+	u8 iv[GCM_AES_IV_SIZE] = {0};
+
+	nxp_hkdf_expand_label(traffic_secret, NXP_TLS_KEYING_KEY_LABEL, NULL,
+			      0, key, AES_KEYSIZE_128);
+	nxp_hkdf_expand_label(traffic_secret, NXP_TLS_KEYING_IV_LABEL, NULL,
+			      0, iv, GCM_AES_IV_SIZE);
+
+	return nxp_aes_gcm_encrypt(hdev, buf, size, auth_tag, key, iv);
+}
+
+static int nxp_p256_ecdsa_verify(const u8 sig[64], const u8 pub[65],
+				const u8 *hash, size_t hash_len)
+{
+	struct public_key_signature sig_info = {0};
+	struct public_key pub_key = {0};
+	int ret;
+
+	sig_info.s = (u8 *)sig;
+	sig_info.s_size = 64;
+	sig_info.digest = (u8 *)hash;
+	sig_info.digest_size = hash_len;
+	sig_info.pkey_algo = "ecdsa";
+	sig_info.hash_algo = "sha256";
+	sig_info.encoding = "p1363";
+
+	pub_key.key = (void *)pub;
+	pub_key.keylen = 65;
+	pub_key.algo = OID_id_ecPublicKey;
+	pub_key.key_is_private = false;
+	pub_key.pkey_algo = "ecdsa-nist-p256";
+	pub_key.id_type = NULL;
+
+	ret = public_key_verify_signature(&pub_key, &sig_info);
+	if (ret)
+		pr_err("ECDSA signature verification failed: %d\n", ret);
+
+	return ret;
+}
+
+static int nxp_device_hello_sig_verify(struct hci_dev *hdev, struct nxp_tls_device_hello *msg)
+{
+	struct btnxpuart_dev *nxpdev = hci_get_drvdata(hdev);
+	u8 hash_sig[SHA256_DIGEST_SIZE];
+
+	nxp_handshake_sig_hash(nxpdev->crypto.handshake_h2_hash,
+			       "D HS SIG", 8, hash_sig);
+	return nxp_p256_ecdsa_verify(msg->enc.device_handshake_sig.sig,
+				nxpdev->crypto.ecdsa_public,
+				hash_sig, SHA256_DIGEST_SIZE);
+}
+
+static int nxp_write_finished(struct hci_dev *hdev,
+			       const u8 hs_traffic_secret[SHA256_DIGEST_SIZE],
+			       u8 verify_data[SHA256_DIGEST_SIZE])
+{
+	struct btnxpuart_dev *nxpdev = hci_get_drvdata(hdev);
+	u8 transcript_hash[SHA256_DIGEST_SIZE];
+	u8 finished_key[SHA256_DIGEST_SIZE];
+	int ret = 0;
+
+	ret = nxp_crypto_shash_final(nxpdev->crypto.tls_handshake_hash_desc,
+				     transcript_hash);
+	if (ret)
+		return ret;
+
+	ret = nxp_hkdf_expand_label(hs_traffic_secret, NXP_TLS_FINISHED_LABEL,
+				    NULL, 0, finished_key, sizeof(finished_key));
+	if (ret)
+		return ret;
+
+	nxp_hkdf_sha256_extract(finished_key, SHA256_DIGEST_SIZE, transcript_hash,
+				SHA256_DIGEST_SIZE, verify_data);
+
+	return 0;
+}
+
+static int nxp_verify_device_finished(struct hci_dev *hdev,
+				      struct nxp_tls_device_hello *msg,
+				      const u8 hs_traffic_secret[SHA256_DIGEST_SIZE])
+{
+	u8 verify_data[SHA256_DIGEST_SIZE] = {0};
+	int ret = 0;
+
+	ret = nxp_write_finished(hdev, hs_traffic_secret, verify_data);
+	if (ret)
+		return ret;
+
+	if (memcmp(verify_data, msg->enc.device_finished.verify_data,
+		      SHA256_DIGEST_SIZE))
+		return -EBADMSG;
+
+	return 0;
+}
+
+static int nxp_process_device_hello(struct hci_dev *hdev, struct nxp_tls_device_hello *msg)
+{
+	struct btnxpuart_dev *nxpdev = hci_get_drvdata(hdev);
+	struct nxp_tls_message_hdr *hdr;
+	u8 hs_traffic_secret[SHA256_DIGEST_SIZE];
+	u8 *shared_secret = NULL;
+	int ret;
+
+	if (!msg)
+		return -EINVAL;
+
+	hdr = &msg->hdr;
+
+	if (le32_to_cpu(hdr->magic) != NXP_TLS_MAGIC ||
+	    le16_to_cpu(hdr->len) != sizeof(*msg) ||
+	    hdr->message_id != NXP_TLS_DEVICE_HELLO ||
+	    hdr->protocol_version != NXP_TLS_VERSION) {
+		bt_dev_err(hdev, "Invalid device hello header");
+		return -EINVAL;
+	}
+
+	shared_secret = kzalloc(32, GFP_KERNEL);
+	if (!shared_secret)
+		return -ENOMEM;
+
+	ret = crypto_shash_update(nxpdev->crypto.tls_handshake_hash_desc, (u8 *)msg,
+			    DEVICE_HELLO_SIG_CUTOFF_POS);
+	if (ret)
+		goto fail;
+
+	ret = nxp_crypto_shash_final(nxpdev->crypto.tls_handshake_hash_desc,
+				     nxpdev->crypto.handshake_h2_hash);
+	if (ret)
+		goto fail;
+
+	memcpy(nxpdev->crypto.ecdh_public, msg->pubkey, NXP_FW_ECDH_PUBKEY_SIZE);
+
+	ret = nxp_compute_shared_secret(nxpdev->crypto.kpp, nxpdev->crypto.ecdh_public,
+				  shared_secret);
+	if (ret)
+		goto fail;
+
+	ret = nxp_hkdf_sha256_extract(NULL, 0, shared_secret, 32,
+				      nxpdev->crypto.handshake_secret);
+	if (ret)
+		goto fail;
+
+	ret = nxp_hkdf_derive_secret(nxpdev->crypto.handshake_secret,
+				     NXP_TLS_DEVICE_HS_TS_LABEL,
+				     nxpdev->crypto.handshake_h2_hash,
+				     hs_traffic_secret);
+	if (ret)
+		goto fail;
+
+	ret = nxp_handshake_decrypt_verify(hdev, &msg->enc, sizeof(msg->enc),
+					   msg->auth_tag, hs_traffic_secret);
+	if (ret)
+		goto fail;
+
+	/*
+	 * Verify ECDSA signature handshake_sig using Device's public key from FW metadata.
+	 *
+	 * This is the key point where Device authentication happens:
+	 * - Host generates a random (HostHello.random)
+	 * - Device signs the entire handshake (incl. Host's random) with its
+	 *   private key (DeviceHello.device_handshake_sig)
+	 * - Host now verifies ECDSA signature generated by device using Device's
+	 *   public key
+	 *
+	 * Only the device that possesses the proper private key could sign the
+	 * Host's random.
+	 * If the device is an impostor and does not pose a valid private key,
+	 * the handshake will fail at this point.
+	 */
+	ret = nxp_get_pub_key(hdev, &msg->enc.device_info, nxpdev->crypto.ecdsa_public);
+	if (ret)
+		goto fail;
+
+	ret = nxp_device_hello_sig_verify(hdev, msg);
+	if (ret)
+		goto fail;
+
+	ret = crypto_shash_update(nxpdev->crypto.tls_handshake_hash_desc,
+				  (u8 *)&msg->enc,
+				  DEVICE_HELLO_FINISHED_ENC_CUTOFF_POS);
+	if (ret)
+		goto fail;
+
+	ret = nxp_verify_device_finished(hdev, msg, hs_traffic_secret);
+	if (ret)
+		goto fail;
+
+	ret = crypto_shash_update(nxpdev->crypto.tls_handshake_hash_desc,
+				  (u8 *)&msg->enc.device_finished,
+				  sizeof(msg->enc.device_finished));
+	if (ret)
+		goto fail;
+
+	memset(hs_traffic_secret, 0, SHA256_DIGEST_SIZE);
+
+fail:
+	memset(shared_secret, 0, 32);
+	kfree(shared_secret);
+	return ret;
+}
+
+static int nxp_host_do_finished(struct hci_dev *hdev)
+{
+	struct btnxpuart_dev *nxpdev = hci_get_drvdata(hdev);
+	union nxp_tls_host_finished_payload finished;
+	struct nxp_tls_host_finished *msg = &finished.host_finished;
+	u8 hs_traffic_secret[SHA256_DIGEST_SIZE];
+	struct sk_buff *skb;
+	u8 *status;
+	int ret = 0;
+
+	memset(msg, 0, sizeof(*msg));
+	nxp_tls_hdr_init(&msg->hdr, sizeof(*msg), NXP_TLS_HOST_FINISHED);
+
+	crypto_shash_update(nxpdev->crypto.tls_handshake_hash_desc,
+			    (u8 *)msg, HOST_FINISHED_CUTOFF_POS);
+
+	ret = nxp_hkdf_derive_secret(nxpdev->crypto.handshake_secret,
+				     NXP_TLS_HOST_HS_TS_LABEL,
+				     nxpdev->crypto.handshake_h2_hash,
+				     hs_traffic_secret);
+	if (ret)
+		return ret;
+
+	ret = nxp_write_finished(hdev, hs_traffic_secret,
+				 msg->enc.host_finished.verify_data);
+	if (ret)
+		return ret;
+
+	crypto_shash_update(nxpdev->crypto.tls_handshake_hash_desc,
+			    (u8 *)&msg->enc.host_finished, sizeof(msg->enc.host_finished));
+
+	nxp_handshake_encrypt(hdev, &msg->enc, sizeof(msg->enc),
+			      msg->auth_tag, hs_traffic_secret);
+
+	finished.msg_type = 0x01;
+
+	skb = __hci_cmd_sync(hdev, HCI_NXP_SHI_ENCRYPT,
+			     sizeof(finished), finished.buf,
+			     HCI_CMD_TIMEOUT);
+	if (IS_ERR(skb)) {
+		bt_dev_err(hdev, "Host Finished error %ld", PTR_ERR(skb));
+		return PTR_ERR(skb);
+	}
+	status = skb_pull_data(skb, 1);
+	if (!status) {
+		ret = -EIO;
+		goto fail;
+	}
+	if (*status) {
+		ret = -EIO;
+		bt_dev_err(hdev, "Host Finished status error: %d", *status);
+	}
+
+fail:
+	kfree_skb(skb);
+	return ret;
+}
+
+static void nxp_handshake_derive_master_secret(u8 master_secret[SHA256_DIGEST_SIZE],
+					       u8 handshake_secret[SHA256_DIGEST_SIZE])
+{
+	u8 zeros[SHA256_DIGEST_SIZE] = {0};
+	u8 dhs[SHA256_DIGEST_SIZE];
+
+	/* Derive intermediate secret */
+	nxp_hkdf_expand_label(handshake_secret, NXP_TLS_DERIVED_LABEL,
+			      NULL, 0, dhs, sizeof(dhs));
+	/* Extract master secret from derived handshake secret */
+	nxp_hkdf_sha256_extract(dhs, SHA256_DIGEST_SIZE, zeros,
+				sizeof(zeros), master_secret);
+
+	memset(dhs, 0, sizeof(dhs));
+}
+
+static int nxp_handshake_derive_traffic_keys(struct hci_dev *hdev)
+{
+	struct btnxpuart_dev *nxpdev = hci_get_drvdata(hdev);
+	struct nxp_tls_traffic_keys *keys = &nxpdev->crypto.keys;
+	u8 hash[SHA256_DIGEST_SIZE];
+	int ret = 0;
+
+	ret = crypto_shash_final(nxpdev->crypto.tls_handshake_hash_desc, hash);
+	if (ret)
+		return ret;
+
+	ret = nxp_hkdf_derive_secret(nxpdev->crypto.master_secret,
+				     NXP_TLS_D_AP_TS_LABEL, hash, keys->d2h_secret);
+	if (ret)
+		return ret;
+
+	ret = nxp_hkdf_expand_label(keys->d2h_secret,
+				    NXP_TLS_KEYING_KEY_LABEL, NULL, 0,
+				    keys->d2h_key, AES_KEYSIZE_128);
+	if (ret)
+		return ret;
+
+	ret = nxp_hkdf_expand_label(keys->d2h_secret,
+				    NXP_TLS_KEYING_IV_LABEL, NULL, 0,
+				    keys->d2h_iv, GCM_AES_IV_SIZE);
+	if (ret)
+		return ret;
+
+	ret = nxp_hkdf_derive_secret(nxpdev->crypto.master_secret,
+				     NXP_TLS_H_AP_TS_LABEL, hash, keys->h2d_secret);
+	if (ret)
+		return ret;
+
+	ret = nxp_hkdf_expand_label(keys->h2d_secret,
+				    NXP_TLS_KEYING_KEY_LABEL, NULL, 0,
+				    keys->h2d_key, AES_KEYSIZE_128);
+	if (ret)
+		return ret;
+
+	ret = nxp_hkdf_expand_label(keys->h2d_secret,
+				    NXP_TLS_KEYING_IV_LABEL, NULL, 0,
+				    keys->h2d_iv, GCM_AES_IV_SIZE);
+	if (ret)
+		return ret;
+
+	memset(hash, 0, sizeof(hash));
+	return ret;
+}
+
+static int nxp_authenticate_device(struct hci_dev *hdev)
+{
+	struct btnxpuart_dev *nxpdev = hci_get_drvdata(hdev);
+	struct nxp_tls_device_hello *device_hello;
+	size_t desc_size = 0;
+	struct sk_buff *skb;
+	u8 *status;
+	int ret = 0;
+
+	nxpdev->crypto.tls_handshake_hash_tfm = crypto_alloc_shash("sha256", 0, 0);
+	if (IS_ERR(nxpdev->crypto.tls_handshake_hash_tfm))
+		return PTR_ERR(nxpdev->crypto.tls_handshake_hash_tfm);
+
+	desc_size = sizeof(struct shash_desc) +
+		    crypto_shash_descsize(nxpdev->crypto.tls_handshake_hash_tfm);
+	nxpdev->crypto.tls_handshake_hash_desc = kzalloc(desc_size, GFP_KERNEL);
+	if (!nxpdev->crypto.tls_handshake_hash_desc) {
+		ret = -ENOMEM;
+		goto free_tfm;
+	}
+
+	nxpdev->crypto.kpp = crypto_alloc_kpp("ecdh-nist-p256", 0, 0);
+	if (IS_ERR(nxpdev->crypto.kpp)) {
+		ret = PTR_ERR(nxpdev->crypto.kpp);
+		goto free_desc;
+	}
+
+	nxpdev->crypto.tls_handshake_hash_desc->tfm = nxpdev->crypto.tls_handshake_hash_tfm;
+	crypto_shash_init(nxpdev->crypto.tls_handshake_hash_desc);
+
+	skb = nxp_host_do_hello(hdev);
+	if (IS_ERR(skb)) {
+		ret =  PTR_ERR(skb);
+		goto free_kpp;
+	}
+
+	status = skb_pull_data(skb, 1);
+	if (*status)
+		goto free_skb;
+
+	if (skb->len != sizeof(struct nxp_tls_device_hello)) {
+		bt_dev_err(hdev, "Invalid Device Hello Length: %d", skb->len);
+		goto free_skb;
+	}
+
+	device_hello = skb_pull_data(skb, sizeof(*device_hello));
+	ret = nxp_process_device_hello(hdev, device_hello);
+	if (ret)
+		goto free_skb;
+
+	ret = nxp_host_do_finished(hdev);
+	if (ret)
+		goto free_skb;
+
+	nxp_handshake_derive_master_secret(nxpdev->crypto.master_secret,
+					   nxpdev->crypto.handshake_secret);
+
+	nxp_handshake_derive_traffic_keys(hdev);
+
+free_skb:
+	kfree_skb(skb);
+free_kpp:
+	crypto_free_kpp(nxpdev->crypto.kpp);
+	nxpdev->crypto.kpp = NULL;
+free_desc:
+	kfree(nxpdev->crypto.tls_handshake_hash_desc);
+	nxpdev->crypto.tls_handshake_hash_desc = NULL;
+free_tfm:
+	crypto_free_shash(nxpdev->crypto.tls_handshake_hash_tfm);
+	nxpdev->crypto.tls_handshake_hash_tfm = NULL;
+	if (ret)
+		bt_dev_err(hdev, "Device Authentication failed: %d", ret);
+
+	return ret;
+}
+
+static void nxp_data_calc_nonce(u8 iv[GCM_AES_IV_SIZE], u64 seq_no,
+				u8 nonce[GCM_AES_IV_SIZE])
+{
+	u64 tmp;
+
+	/* XOR sequence number with IV to create unique nonce */
+	memcpy(&tmp, iv, sizeof(tmp));
+	tmp ^= seq_no;
+	memcpy(nonce, &tmp, sizeof(tmp));
+	memcpy(nonce + sizeof(tmp), iv + sizeof(tmp),
+	       GCM_AES_IV_SIZE - sizeof(tmp));
+}
+
+static struct sk_buff *nxp_crypto_encrypt_cmd(struct hci_dev *hdev,
+					      struct sk_buff *skb)
+{
+	struct btnxpuart_dev *nxpdev = hci_get_drvdata(hdev);
+	__le16 vendor_opcode = __cpu_to_le16(HCI_NXP_SHI_ENCRYPT);
+	u8 nonce[GCM_AES_IV_SIZE];
+	u8 tag[NXP_ENC_AUTH_TAG_SIZE];
+	u8 *enc_data;
+	u8 sub_opcode = 0x10;
+	int ret;
+	u32 plen, enc_data_len;
+	struct nxp_tls_traffic_keys *keys = &nxpdev->crypto.keys;
+
+	if (skb->len > NXP_MAX_ENCRYPT_CMD_LEN) {
+		bt_dev_err(hdev, "Invalid skb->len: %d", skb->len);
+		return skb;
+	}
+
+	nxp_data_calc_nonce(keys->h2d_iv, nxpdev->crypto.enc_seq_no, nonce);
+
+	enc_data_len = skb->len;
+	enc_data = kmemdup(skb->data, skb->len, GFP_KERNEL);
+	if (!enc_data)
+		return skb;
+
+	ret = nxp_aes_gcm_encrypt(hdev, enc_data, enc_data_len, tag,
+				  keys->h2d_key, nonce);
+	if (ret) {
+		kfree(enc_data);
+		return skb;
+	}
+
+	kfree_skb(skb);
+
+	plen = enc_data_len + NXP_ENC_AUTH_TAG_SIZE + 1;
+	skb = bt_skb_alloc(plen, GFP_ATOMIC);
+	if (!skb) {
+		kfree(enc_data);
+		return ERR_PTR(-ENOMEM);
+	}
+	hci_skb_pkt_type(skb) = HCI_COMMAND_PKT;
+	skb_put_data(skb, &vendor_opcode, 2);
+	skb_put_data(skb, &plen, 1);
+	skb_put_data(skb, &sub_opcode, 1);
+	skb_put_data(skb, enc_data, enc_data_len);
+	skb_put_data(skb, tag, NXP_ENC_AUTH_TAG_SIZE);
+
+	nxpdev->crypto.enc_seq_no++;
+	kfree(enc_data);
+	return skb;
+}
+
+static int nxp_crypto_event(struct hci_dev *hdev, struct sk_buff *skb)
+{
+	struct btnxpuart_dev *nxpdev = hci_get_drvdata(hdev);
+	int ciphertext_size;
+	u8 *ciphertext;
+	u8 aes_gcm_tag[NXP_ENC_AUTH_TAG_SIZE];
+	u8 nonce[GCM_AES_IV_SIZE];
+	int ret;
+	struct sk_buff *event_skb;
+	struct nxp_tls_traffic_keys *keys = &nxpdev->crypto.keys;
+
+	if (skb->len < NXP_ENC_AUTH_TAG_SIZE) {
+		bt_dev_err(hdev, "Encrypted event too short: %d", skb->len);
+		return -EINVAL;
+	}
+	ciphertext_size = skb->len - NXP_ENC_AUTH_TAG_SIZE;
+	ciphertext = kzalloc(ciphertext_size, GFP_KERNEL);
+	if (!ciphertext)
+		return -ENOMEM;
+
+	memcpy(ciphertext, skb->data, ciphertext_size);
+	memcpy(aes_gcm_tag, skb->data + ciphertext_size, NXP_ENC_AUTH_TAG_SIZE);
+
+	nxp_data_calc_nonce(keys->d2h_iv, nxpdev->crypto.dec_seq_no, nonce);
+
+	ret = nxp_aes_gcm_decrypt(hdev, ciphertext, ciphertext_size,
+				  aes_gcm_tag, keys->d2h_key, nonce);
+	if (ret) {
+		kfree(ciphertext);
+		return ret;
+	}
+
+	event_skb = bt_skb_alloc(ciphertext_size, GFP_ATOMIC);
+	if (!event_skb) {
+		kfree(ciphertext);
+		return -ENOMEM;
+	}
+
+	hci_skb_pkt_type(event_skb) = HCI_EVENT_PKT;
+	skb_put_data(event_skb, ciphertext, ciphertext_size);
+
+	nxpdev->crypto.dec_seq_no++;
+
+	kfree(ciphertext);
+
+	/* Inject Decrypted Event to upper stack */
+	return hci_recv_frame(hdev, event_skb);
+}
+
+static int nxp_process_vendor_event(struct hci_dev *hdev, struct sk_buff *skb)
+{
+	struct btnxpuart_dev *nxpdev = hci_get_drvdata(hdev);
+	struct hci_event_hdr *vendor_event_hdr;
+	u8 *vendor_sub_event;
+
+	vendor_event_hdr = (struct hci_event_hdr *)skb_pull_data(skb,
+								 sizeof(*vendor_event_hdr));
+	if (!vendor_event_hdr)
+		goto free_skb;
+
+	if (!vendor_event_hdr->plen)
+		goto free_skb;
+
+	vendor_sub_event = skb_pull_data(skb, 1);
+	if (!vendor_sub_event)
+		goto free_skb;
+
+	switch (*vendor_sub_event) {
+	case 0x23:
+		break;	// Power Save Enable/Disable vendor response. Can be ignored.
+	case 0xe3:
+		if (nxpdev->secure_interface)
+			nxp_crypto_event(hdev, skb);
+		else
+			bt_dev_warn(hdev, "Unexpected encrypted event");
+		break;
+	default:
+		bt_dev_err(hdev, "Unknown vendor event subtype: %d", *vendor_sub_event);
+		break;
+	}
+
+free_skb:
+	kfree_skb(skb);
+	return 0;
+}
+
+static int nxp_recv_event_frame(struct hci_dev *hdev, struct sk_buff *skb)
+{
+	u8 event = hci_event_hdr(skb)->evt;
+
+	if (event == 0xff)
+		return nxp_process_vendor_event(hdev, skb);
+	else
+		return hci_recv_frame(hdev, skb);
+}
+
 /* NXP protocol */
 static int nxp_setup(struct hci_dev *hdev)
 {
@@ -1465,6 +2874,14 @@ static int nxp_setup(struct hci_dev *hdev)
 
 	serdev_device_set_baudrate(nxpdev->serdev, nxpdev->fw_init_baudrate);
 	nxpdev->current_baudrate = nxpdev->fw_init_baudrate;
+
+	nxp_get_fw_version(hdev);
+
+	if (nxpdev->secure_interface) {
+		err = nxp_authenticate_device(hdev);
+		if (err)
+			return -EACCES;
+	}
 
 	ps_init(hdev);
 
@@ -1632,6 +3049,20 @@ static int nxp_enqueue(struct hci_dev *hdev, struct sk_buff *skb)
 				goto free_skb;
 			}
 			break;
+		case HCI_OP_LINK_KEY_REPLY:
+		case HCI_OP_LE_START_ENC:
+		case HCI_OP_LE_LTK_REPLY:
+		case HCI_OP_LE_ADD_TO_RESOLV_LIST:
+			if (nxpdev->secure_interface) {
+				/* Re-alloc skb and encrypt sensitive command
+				 * and payload. Command complete event
+				 * won't be encrypted.
+				 */
+				skb = nxp_crypto_encrypt_cmd(hdev, skb);
+				if (IS_ERR(skb))
+					return PTR_ERR(skb);
+			}
+			break;
 		default:
 			break;
 		}
@@ -1742,7 +3173,7 @@ static int btnxpuart_flush(struct hci_dev *hdev)
 static const struct h4_recv_pkt nxp_recv_pkts[] = {
 	{ H4_RECV_ACL,          .recv = nxp_recv_acl_pkt },
 	{ H4_RECV_SCO,          .recv = hci_recv_frame },
-	{ H4_RECV_EVENT,        .recv = hci_recv_frame },
+	{ H4_RECV_EVENT,        .recv = nxp_recv_event_frame },
 	{ H4_RECV_ISO,		.recv = hci_recv_frame },
 	{ NXP_RECV_CHIP_VER_V1, .recv = nxp_recv_chip_ver_v1 },
 	{ NXP_RECV_FW_REQ_V1,   .recv = nxp_recv_fw_req_v1 },
