@@ -2045,7 +2045,7 @@ retry:
 	}
 
 out:
-	if (ret && retries < MAX_INIT_RETRIES) {
+	if (ret) {
 		bt_dev_warn(hdev, "Retry BT power ON:%d", retries);
 		qca_power_shutdown(hu);
 		if (hu->serdev) {
@@ -2056,8 +2056,10 @@ out:
 				return ret;
 			}
 		}
-		retries++;
-		goto retry;
+		if (retries < MAX_INIT_RETRIES) {
+			retries++;
+			goto retry;
+		}
 	}
 
 	/* Setup bdaddr */
