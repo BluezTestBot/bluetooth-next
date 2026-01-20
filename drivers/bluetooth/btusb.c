@@ -4468,7 +4468,8 @@ static void btusb_disconnect(struct usb_interface *intf)
 	kfree(data);
 }
 
-static int btusb_suspend(struct usb_interface *intf, pm_message_t message)
+static int __maybe_unused btusb_suspend(struct usb_interface *intf,
+					pm_message_t message)
 {
 	struct btusb_data *data = usb_get_intfdata(intf);
 
@@ -4557,7 +4558,7 @@ static void play_deferred(struct btusb_data *data)
 	}
 }
 
-static int btusb_resume(struct usb_interface *intf)
+static int __maybe_unused btusb_resume(struct usb_interface *intf)
 {
 	struct btusb_data *data = usb_get_intfdata(intf);
 	struct hci_dev *hdev = data->hdev;
