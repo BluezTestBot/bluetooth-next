@@ -1436,7 +1436,7 @@ struct hci_conn *hci_connect_le(struct hci_dev *hdev, bdaddr_t *dst,
 	}
 
 	conn->sec_level = BT_SECURITY_LOW;
-	conn->conn_timeout = conn_timeout;
+	conn->conn_timeout = msecs_to_jiffies(20000);
 	conn->le_adv_phy = phy;
 	conn->le_adv_sec_phy = sec_phy;
 
@@ -1664,7 +1664,7 @@ struct hci_conn *hci_connect_le_scan(struct hci_dev *hdev, bdaddr_t *dst,
 	set_bit(HCI_CONN_SCANNING, &conn->flags);
 	conn->sec_level = BT_SECURITY_LOW;
 	conn->pending_sec_level = sec_level;
-	conn->conn_timeout = conn_timeout;
+	conn->conn_timeout = msecs_to_jiffies(20000);
 	conn->conn_reason = conn_reason;
 
 	hci_update_passive_scan(hdev);
