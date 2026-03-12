@@ -272,6 +272,7 @@ struct adv_info {
 
 struct tx_queue {
 	struct sk_buff_head queue;
+	struct sk_buff *iso_last_tx;
 	unsigned int extra;
 	unsigned int tracked;
 };
@@ -1630,7 +1631,7 @@ void hci_conn_failed(struct hci_conn *conn, u8 status);
 u8 hci_conn_set_handle(struct hci_conn *conn, u16 handle);
 
 void hci_conn_tx_queue(struct hci_conn *conn, struct sk_buff *skb);
-void hci_conn_tx_dequeue(struct hci_conn *conn);
+void hci_conn_tx_dequeue(struct hci_conn *conn, bool last);
 void hci_setup_tx_timestamp(struct sk_buff *skb, size_t key_offset,
 			    const struct sockcm_cookie *sockc);
 
@@ -2336,7 +2337,7 @@ int hci_send_cmd(struct hci_dev *hdev, __u16 opcode, __u32 plen,
 		 const void *param);
 void hci_send_acl(struct hci_chan *chan, struct sk_buff *skb, __u16 flags);
 void hci_send_sco(struct hci_conn *conn, struct sk_buff *skb);
-void hci_send_iso(struct hci_conn *conn, struct sk_buff *skb);
+void hci_send_iso(struct hci_conn *conn, struct sk_buff *skb, bool ts);
 
 void *hci_sent_cmd_data(struct hci_dev *hdev, __u16 opcode);
 void *hci_recv_event_data(struct hci_dev *hdev, __u8 event);
