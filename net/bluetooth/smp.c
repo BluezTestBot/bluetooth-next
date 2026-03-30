@@ -863,13 +863,14 @@ static int tk_request(struct l2cap_conn *conn, u8 remote_oob, u8 auth,
 	bt_dev_dbg(hcon->hdev, "auth:%u lcl:%u rem:%u", auth, local_io,
 		   remote_io);
 
-	/* If neither side wants MITM, either "just" confirm an incoming
-	 * request or use just-works for outgoing ones. The JUST_CFM
-	 * will be converted to JUST_WORKS if necessary later in this
-	 * function. If either side has MITM look up the method from the
-	 * table.
+	/* If the remote doesn't request MITM and the local side doesn't
+	 * require HIGH security, either "just" confirm an incoming request
+	 * or use just-works for outgoing ones. The JUST_CFM will be
+	 * converted to JUST_WORKS if necessary later in this function.
+	 * Otherwise, look up the method from the table.
 	 */
-	if (!(auth & SMP_AUTH_MITM))
+	if (!(auth & SMP_AUTH_MITM) &&
+	    hcon->pending_sec_level < BT_SECURITY_HIGH)
 		smp->method = JUST_CFM;
 	else
 		smp->method = get_auth_method(smp, local_io, remote_io);
